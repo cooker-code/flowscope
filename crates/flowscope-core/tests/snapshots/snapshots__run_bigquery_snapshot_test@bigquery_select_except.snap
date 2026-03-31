@@ -9,7 +9,7 @@ expression: clean_result
       "statementType": "SELECT",
       "nodes": [
         {
-          "id": "output_b558dd754c71cfa6",
+          "id": "output_74d22f755ec62dbc",
           "type": "output",
           "label": "Output"
         },
@@ -22,9 +22,9 @@ expression: clean_result
       ],
       "edges": [
         {
-          "id": "edge_c7d0c05c0bcaaf9d",
+          "id": "edge_a86c6a385b241462",
           "from": "table_10a0682dff76cdbc",
-          "to": "output_b558dd754c71cfa6",
+          "to": "output_74d22f755ec62dbc",
           "type": "data_flow",
           "approximate": true
         }
@@ -36,7 +36,7 @@ expression: clean_result
   "globalLineage": {
     "nodes": [
       {
-        "id": "output_b558dd754c71cfa6",
+        "id": "output_74d22f755ec62dbc",
         "type": "output",
         "label": "Output",
         "canonicalName": {
@@ -45,7 +45,7 @@ expression: clean_result
         "statementRefs": [
           {
             "statementIndex": 0,
-            "nodeId": "output_b558dd754c71cfa6"
+            "nodeId": "output_74d22f755ec62dbc"
           }
         ]
       },
@@ -66,9 +66,9 @@ expression: clean_result
     ],
     "edges": [
       {
-        "id": "edge_c7d0c05c0bcaaf9d",
+        "id": "edge_a86c6a385b241462",
         "from": "table_10a0682dff76cdbc",
-        "to": "output_b558dd754c71cfa6",
+        "to": "output_74d22f755ec62dbc",
         "type": "data_flow",
         "producerStatement": {
           "statementIndex": 0

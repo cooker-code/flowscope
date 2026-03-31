@@ -148,13 +148,7 @@ expression: cleaned
       "statementType": "SELECT",
       "nodes": [
         {
-          "id": "column_220c5a80272857a9",
-          "type": "column",
-          "label": "username",
-          "qualifiedName": "users.username"
-        },
-        {
-          "id": "column_914304e905a73aea",
+          "id": "column_1ea4cb6d9535051e",
           "type": "column",
           "label": "id",
           "metadata": {
@@ -162,7 +156,13 @@ expression: cleaned
           }
         },
         {
-          "id": "column_a1c7e69e4ac778d6",
+          "id": "column_220c5a80272857a9",
+          "type": "column",
+          "label": "username",
+          "qualifiedName": "users.username"
+        },
+        {
+          "id": "column_a5757e628ecd53ea",
           "type": "column",
           "label": "username",
           "metadata": {
@@ -176,7 +176,7 @@ expression: cleaned
           "qualifiedName": "users.id"
         },
         {
-          "id": "output_21dd2ce6a4ea527e",
+          "id": "output_10ab327c7194b4e2",
           "type": "output",
           "label": "Output (3)"
         },
@@ -190,9 +190,15 @@ expression: cleaned
       ],
       "edges": [
         {
-          "id": "edge_266a0cdc4f204772",
-          "from": "output_21dd2ce6a4ea527e",
-          "to": "column_a1c7e69e4ac778d6",
+          "id": "edge_00772e23d77d1070",
+          "from": "output_10ab327c7194b4e2",
+          "to": "column_1ea4cb6d9535051e",
+          "type": "ownership"
+        },
+        {
+          "id": "edge_09be0be000a8ea7c",
+          "from": "output_10ab327c7194b4e2",
+          "to": "column_a5757e628ecd53ea",
           "type": "ownership"
         },
         {
@@ -202,28 +208,22 @@ expression: cleaned
           "type": "ownership"
         },
         {
-          "id": "edge_42ec5f847cc22d91",
+          "id": "edge_52ec1e1134b8ff61",
           "from": "column_f6b363282306de23",
-          "to": "column_914304e905a73aea",
+          "to": "column_1ea4cb6d9535051e",
           "type": "data_flow"
         },
         {
-          "id": "edge_9cc01dba1b60b705",
-          "from": "output_21dd2ce6a4ea527e",
-          "to": "column_914304e905a73aea",
-          "type": "ownership"
+          "id": "edge_9a3a1a0c271058ee",
+          "from": "column_220c5a80272857a9",
+          "to": "column_a5757e628ecd53ea",
+          "type": "data_flow"
         },
         {
           "id": "edge_a92e0d09881d5676",
           "from": "table_10a0682dff76cdbc",
           "to": "column_f6b363282306de23",
           "type": "ownership"
-        },
-        {
-          "id": "edge_d405fc1736d1ec8a",
-          "from": "column_220c5a80272857a9",
-          "to": "column_a1c7e69e4ac778d6",
-          "type": "data_flow"
         }
       ],
       "joinCount": 0,
@@ -248,6 +248,20 @@ expression: cleaned
           {
             "statementIndex": 1,
             "nodeId": "column_3ab7e0c4b2ad65a8"
+          }
+        ]
+      },
+      {
+        "id": "column_1ea4cb6d9535051e",
+        "type": "column",
+        "label": "id",
+        "canonicalName": {
+          "name": "id"
+        },
+        "statementRefs": [
+          {
+            "statementIndex": 2,
+            "nodeId": "column_1ea4cb6d9535051e"
           }
         ]
       },
@@ -300,21 +314,7 @@ expression: cleaned
         ]
       },
       {
-        "id": "column_914304e905a73aea",
-        "type": "column",
-        "label": "id",
-        "canonicalName": {
-          "name": "id"
-        },
-        "statementRefs": [
-          {
-            "statementIndex": 2,
-            "nodeId": "column_914304e905a73aea"
-          }
-        ]
-      },
-      {
-        "id": "column_a1c7e69e4ac778d6",
+        "id": "column_a5757e628ecd53ea",
         "type": "column",
         "label": "username",
         "canonicalName": {
@@ -323,7 +323,7 @@ expression: cleaned
         "statementRefs": [
           {
             "statementIndex": 2,
-            "nodeId": "column_a1c7e69e4ac778d6"
+            "nodeId": "column_a5757e628ecd53ea"
           }
         ]
       },
@@ -357,7 +357,7 @@ expression: cleaned
         ]
       },
       {
-        "id": "output_21dd2ce6a4ea527e",
+        "id": "output_10ab327c7194b4e2",
         "type": "output",
         "label": "Output (3)",
         "canonicalName": {
@@ -366,7 +366,7 @@ expression: cleaned
         "statementRefs": [
           {
             "statementIndex": 2,
-            "nodeId": "output_21dd2ce6a4ea527e"
+            "nodeId": "output_10ab327c7194b4e2"
           }
         ]
       },
@@ -432,9 +432,18 @@ expression: cleaned
         }
       },
       {
-        "id": "edge_266a0cdc4f204772",
-        "from": "output_21dd2ce6a4ea527e",
-        "to": "column_a1c7e69e4ac778d6",
+        "id": "edge_00772e23d77d1070",
+        "from": "output_10ab327c7194b4e2",
+        "to": "column_1ea4cb6d9535051e",
+        "type": "ownership",
+        "producerStatement": {
+          "statementIndex": 2
+        }
+      },
+      {
+        "id": "edge_09be0be000a8ea7c",
+        "from": "output_10ab327c7194b4e2",
+        "to": "column_a5757e628ecd53ea",
         "type": "ownership",
         "producerStatement": {
           "statementIndex": 2
@@ -459,9 +468,9 @@ expression: cleaned
         }
       },
       {
-        "id": "edge_42ec5f847cc22d91",
+        "id": "edge_52ec1e1134b8ff61",
         "from": "column_1fafa75822fcf49b",
-        "to": "column_914304e905a73aea",
+        "to": "column_1ea4cb6d9535051e",
         "type": "data_flow",
         "producerStatement": {
           "statementIndex": 2
@@ -504,10 +513,10 @@ expression: cleaned
         }
       },
       {
-        "id": "edge_9cc01dba1b60b705",
-        "from": "output_21dd2ce6a4ea527e",
-        "to": "column_914304e905a73aea",
-        "type": "ownership",
+        "id": "edge_9a3a1a0c271058ee",
+        "from": "column_ebc19bd6a7c28b46",
+        "to": "column_a5757e628ecd53ea",
+        "type": "data_flow",
         "producerStatement": {
           "statementIndex": 2
         }
@@ -517,15 +526,6 @@ expression: cleaned
         "from": "table_10a0682dff76cdbc",
         "to": "column_1fafa75822fcf49b",
         "type": "ownership",
-        "producerStatement": {
-          "statementIndex": 2
-        }
-      },
-      {
-        "id": "edge_d405fc1736d1ec8a",
-        "from": "column_ebc19bd6a7c28b46",
-        "to": "column_a1c7e69e4ac778d6",
-        "type": "data_flow",
         "producerStatement": {
           "statementIndex": 2
         }

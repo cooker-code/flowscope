@@ -702,6 +702,44 @@ describe('graphBuilders DML handling', () => {
     expect(cteNodes).toHaveLength(2);
   });
 
+  it('does not create a virtual output node when an explicit output node lacks ownership edges', () => {
+    const statement: StatementLineage = {
+      statementIndex: 0,
+      statementType: 'SELECT',
+      joinCount: 0,
+      complexityScore: 1,
+      nodes: [
+        { id: 'output:legacy', type: 'output', label: 'legacy_output' },
+        { id: 'table:source', type: 'table', label: 'source', qualifiedName: 'source' },
+        { id: 'column:source.id', type: 'column', label: 'id', qualifiedName: 'source.id' },
+        { id: 'column:output.id', type: 'column', label: 'id' },
+      ],
+      edges: [
+        {
+          id: 'own:source:id',
+          from: 'table:source',
+          to: 'column:source.id',
+          type: 'ownership',
+        },
+        {
+          id: 'flow:source:output',
+          from: 'column:source.id',
+          to: 'column:output.id',
+          type: 'data_flow',
+        },
+      ],
+    };
+
+    const nodes = buildFlowNodes(statement, null, '', new Set<string>(), new Set<string>());
+    const edges = buildFlowEdges(statement);
+
+    expect(nodes.find((node) => node.id === 'output:legacy')).toBeDefined();
+    expect(nodes.find((node) => node.id === GRAPH_CONFIG.VIRTUAL_OUTPUT_NODE_ID)).toBeUndefined();
+    expect(
+      edges.find((edge) => edge.target === GRAPH_CONFIG.VIRTUAL_OUTPUT_NODE_ID)
+    ).toBeUndefined();
+  });
+
   it('only marks physical tables as base tables when joins exist', () => {
     const statement: StatementLineage = {
       statementIndex: 0,

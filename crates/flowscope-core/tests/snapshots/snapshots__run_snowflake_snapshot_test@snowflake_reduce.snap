@@ -1,6 +1,5 @@
 ---
 source: crates/flowscope-core/tests/snapshots.rs
-assertion_line: 278
 expression: clean_result
 ---
 {
@@ -10,22 +9,22 @@ expression: clean_result
       "statementType": "SELECT",
       "nodes": [
         {
-          "id": "column_1ecc1746c4b2c4ce",
+          "id": "column_e936b87eb12ba397",
           "type": "column",
           "label": "SUM_RESULT",
           "expression": "REDUCE([1, 2, 3], 0, (acc, val) -> acc + val)"
         },
         {
-          "id": "output_b558dd754c71cfa6",
+          "id": "output_74d22f755ec62dbc",
           "type": "output",
           "label": "Output"
         }
       ],
       "edges": [
         {
-          "id": "edge_2aac2d41ae2449b9",
-          "from": "output_b558dd754c71cfa6",
-          "to": "column_1ecc1746c4b2c4ce",
+          "id": "edge_8214e5c3760fd049",
+          "from": "output_74d22f755ec62dbc",
+          "to": "column_e936b87eb12ba397",
           "type": "ownership"
         }
       ],
@@ -36,7 +35,7 @@ expression: clean_result
   "globalLineage": {
     "nodes": [
       {
-        "id": "column_1ecc1746c4b2c4ce",
+        "id": "column_e936b87eb12ba397",
         "type": "column",
         "label": "SUM_RESULT",
         "canonicalName": {
@@ -45,12 +44,12 @@ expression: clean_result
         "statementRefs": [
           {
             "statementIndex": 0,
-            "nodeId": "column_1ecc1746c4b2c4ce"
+            "nodeId": "column_e936b87eb12ba397"
           }
         ]
       },
       {
-        "id": "output_b558dd754c71cfa6",
+        "id": "output_74d22f755ec62dbc",
         "type": "output",
         "label": "Output",
         "canonicalName": {
@@ -59,16 +58,16 @@ expression: clean_result
         "statementRefs": [
           {
             "statementIndex": 0,
-            "nodeId": "output_b558dd754c71cfa6"
+            "nodeId": "output_74d22f755ec62dbc"
           }
         ]
       }
     ],
     "edges": [
       {
-        "id": "edge_2aac2d41ae2449b9",
-        "from": "output_b558dd754c71cfa6",
-        "to": "column_1ecc1746c4b2c4ce",
+        "id": "edge_8214e5c3760fd049",
+        "from": "output_74d22f755ec62dbc",
+        "to": "column_e936b87eb12ba397",
         "type": "ownership",
         "producerStatement": {
           "statementIndex": 0

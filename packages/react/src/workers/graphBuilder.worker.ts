@@ -23,6 +23,7 @@ import {
   groupOutputColumns,
   resolveOutputMapping,
   edgePairKey,
+  isNodeHighlighted,
 } from '../utils/lineageHelpers';
 
 // =============================================================================
@@ -247,23 +248,6 @@ function processTableColumns(
   }
 
   return { columns: existingColumns, hiddenColumnCount };
-}
-
-/**
- * Determine if a node should be highlighted based on search term.
- */
-function isNodeHighlighted(
-  searchTerm: string,
-  columns: SerializedColumnInfo[],
-  nodeLabel?: string
-): boolean {
-  if (!searchTerm) {
-    return false;
-  }
-  const lowerSearch = searchTerm.toLowerCase();
-  const labelMatch = !!nodeLabel && nodeLabel.toLowerCase().includes(lowerSearch);
-  const columnMatch = columns.some((col) => col.name.toLowerCase().includes(lowerSearch));
-  return labelMatch || columnMatch;
 }
 
 /**

@@ -9,18 +9,18 @@ expression: cleaned
       "statementType": "SELECT",
       "nodes": [
         {
+          "id": "column_5d649ea55ab526b5",
+          "type": "column",
+          "label": "amount"
+        },
+        {
           "id": "column_6bd816528de45ddd",
           "type": "column",
           "label": "amount",
           "qualifiedName": "sales.analytics.reports.amount"
         },
         {
-          "id": "column_ed3feb125166947a",
-          "type": "column",
-          "label": "amount"
-        },
-        {
-          "id": "output_b558dd754c71cfa6",
+          "id": "output_74d22f755ec62dbc",
           "type": "output",
           "label": "Output"
         },
@@ -34,9 +34,9 @@ expression: cleaned
       ],
       "edges": [
         {
-          "id": "edge_3c4e6810e8c141a7",
+          "id": "edge_122ec0ec87f112d1",
           "from": "column_6bd816528de45ddd",
-          "to": "column_ed3feb125166947a",
+          "to": "column_5d649ea55ab526b5",
           "type": "data_flow"
         },
         {
@@ -46,9 +46,9 @@ expression: cleaned
           "type": "ownership"
         },
         {
-          "id": "edge_66419ee9468b78bc",
-          "from": "output_b558dd754c71cfa6",
-          "to": "column_ed3feb125166947a",
+          "id": "edge_e758a5bc5d93f3d3",
+          "from": "output_74d22f755ec62dbc",
+          "to": "column_5d649ea55ab526b5",
           "type": "ownership"
         }
       ],
@@ -73,7 +73,7 @@ expression: cleaned
         ]
       },
       {
-        "id": "column_ed3feb125166947a",
+        "id": "column_5d649ea55ab526b5",
         "type": "column",
         "label": "amount",
         "canonicalName": {
@@ -82,12 +82,12 @@ expression: cleaned
         "statementRefs": [
           {
             "statementIndex": 0,
-            "nodeId": "column_ed3feb125166947a"
+            "nodeId": "column_5d649ea55ab526b5"
           }
         ]
       },
       {
-        "id": "output_b558dd754c71cfa6",
+        "id": "output_74d22f755ec62dbc",
         "type": "output",
         "label": "Output",
         "canonicalName": {
@@ -96,7 +96,7 @@ expression: cleaned
         "statementRefs": [
           {
             "statementIndex": 0,
-            "nodeId": "output_b558dd754c71cfa6"
+            "nodeId": "output_74d22f755ec62dbc"
           }
         ]
       },
@@ -120,9 +120,9 @@ expression: cleaned
     ],
     "edges": [
       {
-        "id": "edge_3c4e6810e8c141a7",
+        "id": "edge_122ec0ec87f112d1",
         "from": "column_431258e4507321e5",
-        "to": "column_ed3feb125166947a",
+        "to": "column_5d649ea55ab526b5",
         "type": "data_flow",
         "producerStatement": {
           "statementIndex": 0
@@ -138,9 +138,9 @@ expression: cleaned
         }
       },
       {
-        "id": "edge_66419ee9468b78bc",
-        "from": "output_b558dd754c71cfa6",
-        "to": "column_ed3feb125166947a",
+        "id": "edge_e758a5bc5d93f3d3",
+        "from": "output_74d22f755ec62dbc",
+        "to": "column_5d649ea55ab526b5",
         "type": "ownership",
         "producerStatement": {
           "statementIndex": 0

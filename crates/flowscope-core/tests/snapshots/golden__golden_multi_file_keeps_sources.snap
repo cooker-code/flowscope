@@ -1,6 +1,5 @@
 ---
 source: crates/flowscope-core/tests/golden.rs
-assertion_line: 46
 expression: cleaned
 ---
 {
@@ -11,7 +10,7 @@ expression: cleaned
       "sourceName": "alpha.sql",
       "nodes": [
         {
-          "id": "output_b558dd754c71cfa6",
+          "id": "output_74d22f755ec62dbc",
           "type": "output",
           "label": "Output"
         },
@@ -24,9 +23,9 @@ expression: cleaned
       ],
       "edges": [
         {
-          "id": "edge_8da7ba8511ace3fa",
+          "id": "edge_fd830a5502c8a94d",
           "from": "table_b1180f6188cee2e2",
-          "to": "output_b558dd754c71cfa6",
+          "to": "output_74d22f755ec62dbc",
           "type": "data_flow",
           "approximate": true
         }
@@ -40,7 +39,7 @@ expression: cleaned
       "sourceName": "beta.sql",
       "nodes": [
         {
-          "id": "output_de579a76d9dbae52",
+          "id": "output_a5989731f6ee502b",
           "type": "output",
           "label": "Output (2)"
         },
@@ -53,9 +52,9 @@ expression: cleaned
       ],
       "edges": [
         {
-          "id": "edge_9671bebac1b861c0",
+          "id": "edge_e9fe97259acf2f33",
           "from": "table_8d1cecbc26a50f36",
-          "to": "output_de579a76d9dbae52",
+          "to": "output_a5989731f6ee502b",
           "type": "data_flow",
           "approximate": true
         }
@@ -67,7 +66,7 @@ expression: cleaned
   "globalLineage": {
     "nodes": [
       {
-        "id": "output_b558dd754c71cfa6",
+        "id": "output_74d22f755ec62dbc",
         "type": "output",
         "label": "Output",
         "canonicalName": {
@@ -76,12 +75,12 @@ expression: cleaned
         "statementRefs": [
           {
             "statementIndex": 0,
-            "nodeId": "output_b558dd754c71cfa6"
+            "nodeId": "output_74d22f755ec62dbc"
           }
         ]
       },
       {
-        "id": "output_de579a76d9dbae52",
+        "id": "output_a5989731f6ee502b",
         "type": "output",
         "label": "Output (2)",
         "canonicalName": {
@@ -90,7 +89,7 @@ expression: cleaned
         "statementRefs": [
           {
             "statementIndex": 1,
-            "nodeId": "output_de579a76d9dbae52"
+            "nodeId": "output_a5989731f6ee502b"
           }
         ]
       },
@@ -125,21 +124,21 @@ expression: cleaned
     ],
     "edges": [
       {
-        "id": "edge_8da7ba8511ace3fa",
-        "from": "table_b1180f6188cee2e2",
-        "to": "output_b558dd754c71cfa6",
-        "type": "data_flow",
-        "producerStatement": {
-          "statementIndex": 0
-        }
-      },
-      {
-        "id": "edge_9671bebac1b861c0",
+        "id": "edge_e9fe97259acf2f33",
         "from": "table_8d1cecbc26a50f36",
-        "to": "output_de579a76d9dbae52",
+        "to": "output_a5989731f6ee502b",
         "type": "data_flow",
         "producerStatement": {
           "statementIndex": 1
+        }
+      },
+      {
+        "id": "edge_fd830a5502c8a94d",
+        "from": "table_b1180f6188cee2e2",
+        "to": "output_74d22f755ec62dbc",
+        "type": "data_flow",
+        "producerStatement": {
+          "statementIndex": 0
         }
       }
     ]

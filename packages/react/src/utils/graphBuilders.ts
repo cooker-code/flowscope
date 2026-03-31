@@ -25,6 +25,7 @@ import {
   groupOutputColumns,
   resolveOutputMapping,
   edgePairKey,
+  isNodeHighlighted,
 } from './lineageHelpers';
 
 const SELECT_STATEMENT_TYPES = new Set([
@@ -188,24 +189,6 @@ interface TableNodeBuilderOptions extends NodeBuilderOptions {
   hiddenColumnCount?: number;
   isRecursive?: boolean;
   isBaseTable?: boolean;
-}
-
-/**
- * Determine if a node should be highlighted based on search term.
- * Checks both node label and column names for matches.
- */
-function isNodeHighlighted(
-  searchTerm: string,
-  columns: ColumnNodeInfo[],
-  nodeLabel?: string
-): boolean {
-  if (!searchTerm) {
-    return false;
-  }
-  const lowerSearch = searchTerm.toLowerCase();
-  const labelMatch = !!nodeLabel && nodeLabel.toLowerCase().includes(lowerSearch);
-  const columnMatch = columns.some((col) => col.name.toLowerCase().includes(lowerSearch));
-  return labelMatch || columnMatch;
 }
 
 /**

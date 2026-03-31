@@ -1641,6 +1641,103 @@ FROM scoped_data
 
 #[test]
 #[cfg(feature = "templating")]
+fn dbt_cte_self_join_within_model_produces_distinct_nodes() {
+    let model = r#"
+{{ config(materialized='view') }}
+WITH team AS (
+    SELECT id, name, manager_id
+    FROM raw_employees
+)
+SELECT t1.name AS employee, t2.name AS manager
+FROM team t1
+JOIN team t2 ON t1.manager_id = t2.id
+"#;
+
+    let result = analyze_dbt_files(vec![FileSource {
+        name: "models/marts/hierarchy.sql".to_string(),
+        content: model.to_string(),
+    }]);
+
+    assert!(
+        !result.summary.has_errors,
+        "Analysis should succeed: {:?}",
+        result.issues
+    );
+
+    let stmt = result
+        .statements
+        .first()
+        .expect("should have at least one statement");
+
+    let cte_nodes: Vec<_> = stmt
+        .nodes
+        .iter()
+        .filter(|n| n.node_type == NodeType::Cte && n.label.as_ref() == "team")
+        .collect();
+
+    assert_eq!(
+        cte_nodes.len(),
+        2,
+        "CTE self-join should produce 2 distinct CTE nodes within the model"
+    );
+
+    let unique_ids: std::collections::HashSet<_> = cte_nodes.iter().map(|n| &n.id).collect();
+    assert_eq!(
+        unique_ids.len(),
+        2,
+        "CTE self-join aliases should have distinct node IDs"
+    );
+}
+
+#[test]
+#[cfg(feature = "templating")]
+fn dbt_recursive_cte_stays_statement_scoped() {
+    let model = r#"
+{{ config(materialized='view') }}
+WITH RECURSIVE hierarchy AS (
+    SELECT id, name, manager_id, 1 AS depth
+    FROM raw_employees
+    WHERE manager_id IS NULL
+    UNION ALL
+    SELECT e.id, e.name, e.manager_id, h.depth + 1
+    FROM raw_employees e
+    JOIN hierarchy h ON e.manager_id = h.id
+)
+SELECT id, name, depth
+FROM hierarchy
+"#;
+
+    let result = analyze_dbt_files(vec![FileSource {
+        name: "models/marts/org_chart.sql".to_string(),
+        content: model.to_string(),
+    }]);
+
+    assert!(
+        !result.summary.has_errors,
+        "Recursive CTE analysis should succeed: {:?}",
+        result.issues
+    );
+
+    let cte_nodes: Vec<_> = result
+        .global_lineage
+        .nodes
+        .iter()
+        .filter(|n| n.node_type == NodeType::Cte && n.canonical_name.name == "hierarchy")
+        .collect();
+
+    assert!(
+        !cte_nodes.is_empty(),
+        "recursive CTE should appear in global lineage"
+    );
+
+    assert!(
+        cte_nodes.iter().all(|n| n.statement_refs.len() == 1),
+        "recursive CTE should remain statement-scoped"
+    );
+}
+
+#[test]
+#[cfg(feature = "templating")]
 fn dbt_model_name_extraction_from_path() {
     // Test that model names are correctly extracted from various path formats
     let model = r#"SELECT 1 AS id"#;

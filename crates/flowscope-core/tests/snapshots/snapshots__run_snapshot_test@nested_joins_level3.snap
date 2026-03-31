@@ -9,14 +9,9 @@ expression: clean_result
       "statementType": "SELECT",
       "nodes": [
         {
-          "id": "column_087b7e48b6c97660",
+          "id": "column_1d50481fe9fc4322",
           "type": "column",
           "label": "supplier_name"
-        },
-        {
-          "id": "column_11dd4284c883d245",
-          "type": "column",
-          "label": "email"
         },
         {
           "id": "column_294e2368a65dc2b2",
@@ -31,20 +26,15 @@ expression: clean_result
           "qualifiedName": "products.product_name"
         },
         {
-          "id": "column_68824a617e7c7079",
-          "type": "column",
-          "label": "supplier_name",
-          "qualifiedName": "suppliers.supplier_name"
-        },
-        {
-          "id": "column_7021a839d96cf205",
+          "id": "column_557432d8eb43380f",
           "type": "column",
           "label": "order_id"
         },
         {
-          "id": "column_86b7a87819f6125b",
+          "id": "column_68824a617e7c7079",
           "type": "column",
-          "label": "product_name"
+          "label": "supplier_name",
+          "qualifiedName": "suppliers.supplier_name"
         },
         {
           "id": "column_c7ce485a3125265a",
@@ -53,7 +43,17 @@ expression: clean_result
           "qualifiedName": "customers.email"
         },
         {
-          "id": "output_b558dd754c71cfa6",
+          "id": "column_d2e94eda4ba76b6c",
+          "type": "column",
+          "label": "product_name"
+        },
+        {
+          "id": "column_dacc241e355a2303",
+          "type": "column",
+          "label": "email"
+        },
+        {
+          "id": "output_74d22f755ec62dbc",
           "type": "output",
           "label": "Output"
         },
@@ -96,45 +96,43 @@ expression: clean_result
           "type": "ownership"
         },
         {
-          "id": "edge_52c9c774e1c2efa0",
-          "from": "output_b558dd754c71cfa6",
-          "to": "column_11dd4284c883d245",
+          "id": "edge_672b1257db7bb55c",
+          "from": "output_74d22f755ec62dbc",
+          "to": "column_dacc241e355a2303",
           "type": "ownership"
         },
         {
-          "id": "edge_5c25d189c2e2f4f2",
+          "id": "edge_6899d8991ef56e64",
           "from": "column_52f3cd32be0b3d40",
-          "to": "column_86b7a87819f6125b",
+          "to": "column_d2e94eda4ba76b6c",
           "type": "data_flow",
           "joinType": "INNER",
           "joinCondition": "p.product_id = o.product_id"
         },
         {
-          "id": "edge_5f530d5e48d4edc2",
-          "from": "column_c7ce485a3125265a",
-          "to": "column_11dd4284c883d245",
-          "type": "data_flow",
-          "joinType": "INNER",
-          "joinCondition": "c.customer_id = o.customer_id"
+          "id": "edge_707e70b886824bbf",
+          "from": "column_294e2368a65dc2b2",
+          "to": "column_557432d8eb43380f",
+          "type": "data_flow"
         },
         {
-          "id": "edge_6e2a9d0805aed929",
+          "id": "edge_76313beeb97b6460",
           "from": "column_68824a617e7c7079",
-          "to": "column_087b7e48b6c97660",
+          "to": "column_1d50481fe9fc4322",
           "type": "data_flow",
           "joinType": "INNER",
           "joinCondition": "s.supplier_id = p.supplier_id"
         },
         {
-          "id": "edge_7ba4d705ab735ae9",
-          "from": "output_b558dd754c71cfa6",
-          "to": "column_86b7a87819f6125b",
-          "type": "ownership"
-        },
-        {
           "id": "edge_7cd923168b222fa0",
           "from": "table_4ce0fb06426c39fb",
           "to": "column_68824a617e7c7079",
+          "type": "ownership"
+        },
+        {
+          "id": "edge_a7182fb351dec0c4",
+          "from": "output_74d22f755ec62dbc",
+          "to": "column_d2e94eda4ba76b6c",
           "type": "ownership"
         },
         {
@@ -144,27 +142,29 @@ expression: clean_result
           "type": "ownership"
         },
         {
-          "id": "edge_b9ef57f9abab8f9c",
-          "from": "output_b558dd754c71cfa6",
-          "to": "column_7021a839d96cf205",
+          "id": "edge_cb8e18cdab2f8c9a",
+          "from": "column_c7ce485a3125265a",
+          "to": "column_dacc241e355a2303",
+          "type": "data_flow",
+          "joinType": "INNER",
+          "joinCondition": "c.customer_id = o.customer_id"
+        },
+        {
+          "id": "edge_d041cc00a4519f5a",
+          "from": "output_74d22f755ec62dbc",
+          "to": "column_557432d8eb43380f",
+          "type": "ownership"
+        },
+        {
+          "id": "edge_d7ff732c218506d8",
+          "from": "output_74d22f755ec62dbc",
+          "to": "column_1d50481fe9fc4322",
           "type": "ownership"
         },
         {
           "id": "edge_fa057b597723c73b",
           "from": "table_eaa6ebb8f158751f",
           "to": "column_294e2368a65dc2b2",
-          "type": "ownership"
-        },
-        {
-          "id": "edge_fa6d31fe0ff2d48c",
-          "from": "column_294e2368a65dc2b2",
-          "to": "column_7021a839d96cf205",
-          "type": "data_flow"
-        },
-        {
-          "id": "edge_fc62022a3044cc37",
-          "from": "output_b558dd754c71cfa6",
-          "to": "column_087b7e48b6c97660",
           "type": "ownership"
         }
       ],
@@ -174,20 +174,6 @@ expression: clean_result
   ],
   "globalLineage": {
     "nodes": [
-      {
-        "id": "column_087b7e48b6c97660",
-        "type": "column",
-        "label": "supplier_name",
-        "canonicalName": {
-          "name": "supplier_name"
-        },
-        "statementRefs": [
-          {
-            "statementIndex": 0,
-            "nodeId": "column_087b7e48b6c97660"
-          }
-        ]
-      },
       {
         "id": "column_10b89c08da4a69f9",
         "type": "column",
@@ -204,16 +190,16 @@ expression: clean_result
         ]
       },
       {
-        "id": "column_11dd4284c883d245",
+        "id": "column_1d50481fe9fc4322",
         "type": "column",
-        "label": "email",
+        "label": "supplier_name",
         "canonicalName": {
-          "name": "email"
+          "name": "supplier_name"
         },
         "statementRefs": [
           {
             "statementIndex": 0,
-            "nodeId": "column_11dd4284c883d245"
+            "nodeId": "column_1d50481fe9fc4322"
           }
         ]
       },
@@ -233,7 +219,7 @@ expression: clean_result
         ]
       },
       {
-        "id": "column_7021a839d96cf205",
+        "id": "column_557432d8eb43380f",
         "type": "column",
         "label": "order_id",
         "canonicalName": {
@@ -242,21 +228,7 @@ expression: clean_result
         "statementRefs": [
           {
             "statementIndex": 0,
-            "nodeId": "column_7021a839d96cf205"
-          }
-        ]
-      },
-      {
-        "id": "column_86b7a87819f6125b",
-        "type": "column",
-        "label": "product_name",
-        "canonicalName": {
-          "name": "product_name"
-        },
-        "statementRefs": [
-          {
-            "statementIndex": 0,
-            "nodeId": "column_86b7a87819f6125b"
+            "nodeId": "column_557432d8eb43380f"
           }
         ]
       },
@@ -291,7 +263,35 @@ expression: clean_result
         ]
       },
       {
-        "id": "output_b558dd754c71cfa6",
+        "id": "column_d2e94eda4ba76b6c",
+        "type": "column",
+        "label": "product_name",
+        "canonicalName": {
+          "name": "product_name"
+        },
+        "statementRefs": [
+          {
+            "statementIndex": 0,
+            "nodeId": "column_d2e94eda4ba76b6c"
+          }
+        ]
+      },
+      {
+        "id": "column_dacc241e355a2303",
+        "type": "column",
+        "label": "email",
+        "canonicalName": {
+          "name": "email"
+        },
+        "statementRefs": [
+          {
+            "statementIndex": 0,
+            "nodeId": "column_dacc241e355a2303"
+          }
+        ]
+      },
+      {
+        "id": "output_74d22f755ec62dbc",
         "type": "output",
         "label": "Output",
         "canonicalName": {
@@ -300,7 +300,7 @@ expression: clean_result
         "statementRefs": [
           {
             "statementIndex": 0,
-            "nodeId": "output_b558dd754c71cfa6"
+            "nodeId": "output_74d22f755ec62dbc"
           }
         ]
       },
@@ -372,46 +372,37 @@ expression: clean_result
         }
       },
       {
-        "id": "edge_52c9c774e1c2efa0",
-        "from": "output_b558dd754c71cfa6",
-        "to": "column_11dd4284c883d245",
+        "id": "edge_672b1257db7bb55c",
+        "from": "output_74d22f755ec62dbc",
+        "to": "column_dacc241e355a2303",
         "type": "ownership",
         "producerStatement": {
           "statementIndex": 0
         }
       },
       {
-        "id": "edge_5c25d189c2e2f4f2",
+        "id": "edge_6899d8991ef56e64",
         "from": "column_c76022f9d4427ec3",
-        "to": "column_86b7a87819f6125b",
+        "to": "column_d2e94eda4ba76b6c",
         "type": "data_flow",
         "producerStatement": {
           "statementIndex": 0
         }
       },
       {
-        "id": "edge_5f530d5e48d4edc2",
-        "from": "column_10b89c08da4a69f9",
-        "to": "column_11dd4284c883d245",
+        "id": "edge_707e70b886824bbf",
+        "from": "column_254d51867a59ee98",
+        "to": "column_557432d8eb43380f",
         "type": "data_flow",
         "producerStatement": {
           "statementIndex": 0
         }
       },
       {
-        "id": "edge_6e2a9d0805aed929",
+        "id": "edge_76313beeb97b6460",
         "from": "column_b7366b6ec23914f7",
-        "to": "column_087b7e48b6c97660",
+        "to": "column_1d50481fe9fc4322",
         "type": "data_flow",
-        "producerStatement": {
-          "statementIndex": 0
-        }
-      },
-      {
-        "id": "edge_7ba4d705ab735ae9",
-        "from": "output_b558dd754c71cfa6",
-        "to": "column_86b7a87819f6125b",
-        "type": "ownership",
         "producerStatement": {
           "statementIndex": 0
         }
@@ -420,6 +411,15 @@ expression: clean_result
         "id": "edge_7cd923168b222fa0",
         "from": "table_4ce0fb06426c39fb",
         "to": "column_b7366b6ec23914f7",
+        "type": "ownership",
+        "producerStatement": {
+          "statementIndex": 0
+        }
+      },
+      {
+        "id": "edge_a7182fb351dec0c4",
+        "from": "output_74d22f755ec62dbc",
+        "to": "column_d2e94eda4ba76b6c",
         "type": "ownership",
         "producerStatement": {
           "statementIndex": 0
@@ -435,9 +435,27 @@ expression: clean_result
         }
       },
       {
-        "id": "edge_b9ef57f9abab8f9c",
-        "from": "output_b558dd754c71cfa6",
-        "to": "column_7021a839d96cf205",
+        "id": "edge_cb8e18cdab2f8c9a",
+        "from": "column_10b89c08da4a69f9",
+        "to": "column_dacc241e355a2303",
+        "type": "data_flow",
+        "producerStatement": {
+          "statementIndex": 0
+        }
+      },
+      {
+        "id": "edge_d041cc00a4519f5a",
+        "from": "output_74d22f755ec62dbc",
+        "to": "column_557432d8eb43380f",
+        "type": "ownership",
+        "producerStatement": {
+          "statementIndex": 0
+        }
+      },
+      {
+        "id": "edge_d7ff732c218506d8",
+        "from": "output_74d22f755ec62dbc",
+        "to": "column_1d50481fe9fc4322",
         "type": "ownership",
         "producerStatement": {
           "statementIndex": 0
@@ -447,24 +465,6 @@ expression: clean_result
         "id": "edge_fa057b597723c73b",
         "from": "table_eaa6ebb8f158751f",
         "to": "column_254d51867a59ee98",
-        "type": "ownership",
-        "producerStatement": {
-          "statementIndex": 0
-        }
-      },
-      {
-        "id": "edge_fa6d31fe0ff2d48c",
-        "from": "column_254d51867a59ee98",
-        "to": "column_7021a839d96cf205",
-        "type": "data_flow",
-        "producerStatement": {
-          "statementIndex": 0
-        }
-      },
-      {
-        "id": "edge_fc62022a3044cc37",
-        "from": "output_b558dd754c71cfa6",
-        "to": "column_087b7e48b6c97660",
         "type": "ownership",
         "producerStatement": {
           "statementIndex": 0

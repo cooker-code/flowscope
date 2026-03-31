@@ -1,6 +1,5 @@
 ---
 source: crates/flowscope-core/tests/snapshots.rs
-assertion_line: 391
 expression: clean_result
 ---
 {
@@ -10,32 +9,32 @@ expression: clean_result
       "statementType": "SELECT",
       "nodes": [
         {
-          "id": "column_b2edf5bb56f93962",
-          "type": "column",
-          "label": "item"
-        },
-        {
-          "id": "column_eb1c01583ddc0bc2",
+          "id": "column_0d96039f2f40086c",
           "type": "column",
           "label": "offset_pos"
         },
         {
-          "id": "output_b558dd754c71cfa6",
+          "id": "column_52f4bef7f56fc1cd",
+          "type": "column",
+          "label": "item"
+        },
+        {
+          "id": "output_74d22f755ec62dbc",
           "type": "output",
           "label": "Output"
         }
       ],
       "edges": [
         {
-          "id": "edge_908c046c0d06a520",
-          "from": "output_b558dd754c71cfa6",
-          "to": "column_eb1c01583ddc0bc2",
+          "id": "edge_7d85c662bf4d3188",
+          "from": "output_74d22f755ec62dbc",
+          "to": "column_52f4bef7f56fc1cd",
           "type": "ownership"
         },
         {
-          "id": "edge_91c3f0955de4619a",
-          "from": "output_b558dd754c71cfa6",
-          "to": "column_b2edf5bb56f93962",
+          "id": "edge_b192090afbcb409a",
+          "from": "output_74d22f755ec62dbc",
+          "to": "column_0d96039f2f40086c",
           "type": "ownership"
         }
       ],
@@ -46,21 +45,7 @@ expression: clean_result
   "globalLineage": {
     "nodes": [
       {
-        "id": "column_b2edf5bb56f93962",
-        "type": "column",
-        "label": "item",
-        "canonicalName": {
-          "name": "item"
-        },
-        "statementRefs": [
-          {
-            "statementIndex": 0,
-            "nodeId": "column_b2edf5bb56f93962"
-          }
-        ]
-      },
-      {
-        "id": "column_eb1c01583ddc0bc2",
+        "id": "column_0d96039f2f40086c",
         "type": "column",
         "label": "offset_pos",
         "canonicalName": {
@@ -69,12 +54,26 @@ expression: clean_result
         "statementRefs": [
           {
             "statementIndex": 0,
-            "nodeId": "column_eb1c01583ddc0bc2"
+            "nodeId": "column_0d96039f2f40086c"
           }
         ]
       },
       {
-        "id": "output_b558dd754c71cfa6",
+        "id": "column_52f4bef7f56fc1cd",
+        "type": "column",
+        "label": "item",
+        "canonicalName": {
+          "name": "item"
+        },
+        "statementRefs": [
+          {
+            "statementIndex": 0,
+            "nodeId": "column_52f4bef7f56fc1cd"
+          }
+        ]
+      },
+      {
+        "id": "output_74d22f755ec62dbc",
         "type": "output",
         "label": "Output",
         "canonicalName": {
@@ -83,25 +82,25 @@ expression: clean_result
         "statementRefs": [
           {
             "statementIndex": 0,
-            "nodeId": "output_b558dd754c71cfa6"
+            "nodeId": "output_74d22f755ec62dbc"
           }
         ]
       }
     ],
     "edges": [
       {
-        "id": "edge_908c046c0d06a520",
-        "from": "output_b558dd754c71cfa6",
-        "to": "column_eb1c01583ddc0bc2",
+        "id": "edge_7d85c662bf4d3188",
+        "from": "output_74d22f755ec62dbc",
+        "to": "column_52f4bef7f56fc1cd",
         "type": "ownership",
         "producerStatement": {
           "statementIndex": 0
         }
       },
       {
-        "id": "edge_91c3f0955de4619a",
-        "from": "output_b558dd754c71cfa6",
-        "to": "column_b2edf5bb56f93962",
+        "id": "edge_b192090afbcb409a",
+        "from": "output_74d22f755ec62dbc",
+        "to": "column_0d96039f2f40086c",
         "type": "ownership",
         "producerStatement": {
           "statementIndex": 0

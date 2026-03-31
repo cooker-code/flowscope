@@ -1,8 +1,8 @@
 use super::helpers::{generate_node_id, parse_canonical_name};
 use super::Analyzer;
 use crate::types::{
-    GlobalEdge, GlobalLineage, GlobalNode, IssueCount, Node, NodeType, ResolvedColumnSchema,
-    ResolvedSchemaMetadata, ResolvedSchemaTable, StatementRef, Summary,
+    EdgeType, GlobalEdge, GlobalLineage, GlobalNode, IssueCount, Node, NodeType,
+    ResolvedColumnSchema, ResolvedSchemaMetadata, ResolvedSchemaTable, StatementRef, Summary,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -98,11 +98,28 @@ impl<'a> Analyzer<'a> {
         // self-join instances (same canonical, different node IDs) collapse
         // into a single global node.
         for lineage in statements {
+            let statement_scoped_relation_ids: HashSet<&Arc<str>> = lineage
+                .nodes
+                .iter()
+                .filter(|node| node.node_type == NodeType::Cte)
+                .map(|node| &node.id)
+                .collect();
+            let statement_scoped_column_ids: HashSet<&Arc<str>> = lineage
+                .edges
+                .iter()
+                .filter(|edge| {
+                    edge.edge_type == EdgeType::Ownership
+                        && statement_scoped_relation_ids.contains(&edge.from)
+                })
+                .map(|edge| &edge.to)
+                .collect();
+
             for node in &lineage.nodes {
                 let canonical = node.qualified_name.clone().unwrap_or(node.label.clone());
                 let canonical_name = parse_canonical_name(&canonical);
+                let preserve_statement_scope = statement_scoped_column_ids.contains(&node.id);
 
-                let global_id = self.global_node_id(node, &canonical);
+                let global_id = self.global_node_id(node, &canonical, preserve_statement_scope);
                 local_to_global_id.insert(node.id.clone(), global_id.clone());
 
                 global_nodes
@@ -220,13 +237,22 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn global_node_id(&self, node: &Node, canonical: &Arc<str>) -> Arc<str> {
+    fn global_node_id(
+        &self,
+        node: &Node,
+        canonical: &Arc<str>,
+        preserve_statement_scope: bool,
+    ) -> Arc<str> {
         match node.node_type {
             NodeType::Table | NodeType::View => self.tracker.relation_identity(canonical).0,
             // CTEs and derived tables are statement-scoped in the global graph.
             // Their IDs already encode the statement index (via generate_statement_scoped_node_id),
             // so same-named CTEs in different statements remain distinct global nodes.
             NodeType::Cte => node.id.clone(),
+            // Columns owned by statement-scoped CTE/derived-table nodes must stay local too.
+            // Otherwise identical qualified names (e.g. `org.id`) reconnect distinct statements
+            // through a shared global column node.
+            NodeType::Column if preserve_statement_scope => node.id.clone(),
             NodeType::Column if node.qualified_name.is_some() => {
                 generate_node_id("column", canonical)
             }

@@ -15,7 +15,7 @@ expression: cleaned
           "qualifiedName": "employees.id"
         },
         {
-          "id": "column_a4be1b20b5f604d9",
+          "id": "column_6ec44834a58586c3",
           "type": "column",
           "label": "rn",
           "expression": "ROW_NUMBER() OVER (PARTITION BY dept)",
@@ -24,12 +24,12 @@ expression: cleaned
           }
         },
         {
-          "id": "column_d8bba385e09d94a9",
+          "id": "column_e38d78c338bac387",
           "type": "column",
           "label": "id"
         },
         {
-          "id": "output_b558dd754c71cfa6",
+          "id": "output_74d22f755ec62dbc",
           "type": "output",
           "label": "Output"
         },
@@ -42,21 +42,22 @@ expression: cleaned
       ],
       "edges": [
         {
-          "id": "edge_0d4efff970b71ad2",
-          "from": "column_208687717881053c",
-          "to": "column_d8bba385e09d94a9",
-          "type": "data_flow"
+          "id": "edge_6c68e46f48c0b91f",
+          "from": "table_1d63721b3610a67f",
+          "to": "column_6ec44834a58586c3",
+          "type": "derivation",
+          "expression": "ROW_NUMBER() OVER (PARTITION BY dept)"
         },
         {
-          "id": "edge_4c64818a03f23ebe",
-          "from": "output_b558dd754c71cfa6",
-          "to": "column_a4be1b20b5f604d9",
+          "id": "edge_7549f71a6ce9a0e6",
+          "from": "output_74d22f755ec62dbc",
+          "to": "column_6ec44834a58586c3",
           "type": "ownership"
         },
         {
-          "id": "edge_b1adfd2ed7cda1e5",
-          "from": "output_b558dd754c71cfa6",
-          "to": "column_d8bba385e09d94a9",
+          "id": "edge_9b5441461589fa16",
+          "from": "output_74d22f755ec62dbc",
+          "to": "column_e38d78c338bac387",
           "type": "ownership"
         },
         {
@@ -66,11 +67,10 @@ expression: cleaned
           "type": "ownership"
         },
         {
-          "id": "edge_e5c5015d505b28f8",
-          "from": "table_1d63721b3610a67f",
-          "to": "column_a4be1b20b5f604d9",
-          "type": "derivation",
-          "expression": "ROW_NUMBER() OVER (PARTITION BY dept)"
+          "id": "edge_f9fc4f5f2cbb3f46",
+          "from": "column_208687717881053c",
+          "to": "column_e38d78c338bac387",
+          "type": "data_flow"
         }
       ],
       "joinCount": 0,
@@ -79,6 +79,20 @@ expression: cleaned
   ],
   "globalLineage": {
     "nodes": [
+      {
+        "id": "column_6ec44834a58586c3",
+        "type": "column",
+        "label": "rn",
+        "canonicalName": {
+          "name": "rn"
+        },
+        "statementRefs": [
+          {
+            "statementIndex": 0,
+            "nodeId": "column_6ec44834a58586c3"
+          }
+        ]
+      },
       {
         "id": "column_8d19bd6c3446f90a",
         "type": "column",
@@ -95,21 +109,7 @@ expression: cleaned
         ]
       },
       {
-        "id": "column_a4be1b20b5f604d9",
-        "type": "column",
-        "label": "rn",
-        "canonicalName": {
-          "name": "rn"
-        },
-        "statementRefs": [
-          {
-            "statementIndex": 0,
-            "nodeId": "column_a4be1b20b5f604d9"
-          }
-        ]
-      },
-      {
-        "id": "column_d8bba385e09d94a9",
+        "id": "column_e38d78c338bac387",
         "type": "column",
         "label": "id",
         "canonicalName": {
@@ -118,12 +118,12 @@ expression: cleaned
         "statementRefs": [
           {
             "statementIndex": 0,
-            "nodeId": "column_d8bba385e09d94a9"
+            "nodeId": "column_e38d78c338bac387"
           }
         ]
       },
       {
-        "id": "output_b558dd754c71cfa6",
+        "id": "output_74d22f755ec62dbc",
         "type": "output",
         "label": "Output",
         "canonicalName": {
@@ -132,7 +132,7 @@ expression: cleaned
         "statementRefs": [
           {
             "statementIndex": 0,
-            "nodeId": "output_b558dd754c71cfa6"
+            "nodeId": "output_74d22f755ec62dbc"
           }
         ]
       },
@@ -153,27 +153,27 @@ expression: cleaned
     ],
     "edges": [
       {
-        "id": "edge_0d4efff970b71ad2",
-        "from": "column_8d19bd6c3446f90a",
-        "to": "column_d8bba385e09d94a9",
-        "type": "data_flow",
+        "id": "edge_6c68e46f48c0b91f",
+        "from": "table_1d63721b3610a67f",
+        "to": "column_6ec44834a58586c3",
+        "type": "derivation",
         "producerStatement": {
           "statementIndex": 0
         }
       },
       {
-        "id": "edge_4c64818a03f23ebe",
-        "from": "output_b558dd754c71cfa6",
-        "to": "column_a4be1b20b5f604d9",
+        "id": "edge_7549f71a6ce9a0e6",
+        "from": "output_74d22f755ec62dbc",
+        "to": "column_6ec44834a58586c3",
         "type": "ownership",
         "producerStatement": {
           "statementIndex": 0
         }
       },
       {
-        "id": "edge_b1adfd2ed7cda1e5",
-        "from": "output_b558dd754c71cfa6",
-        "to": "column_d8bba385e09d94a9",
+        "id": "edge_9b5441461589fa16",
+        "from": "output_74d22f755ec62dbc",
+        "to": "column_e38d78c338bac387",
         "type": "ownership",
         "producerStatement": {
           "statementIndex": 0
@@ -189,10 +189,10 @@ expression: cleaned
         }
       },
       {
-        "id": "edge_e5c5015d505b28f8",
-        "from": "table_1d63721b3610a67f",
-        "to": "column_a4be1b20b5f604d9",
-        "type": "derivation",
+        "id": "edge_f9fc4f5f2cbb3f46",
+        "from": "column_8d19bd6c3446f90a",
+        "to": "column_e38d78c338bac387",
+        "type": "data_flow",
         "producerStatement": {
           "statementIndex": 0
         }

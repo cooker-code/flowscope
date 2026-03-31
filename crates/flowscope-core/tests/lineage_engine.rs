@@ -2248,6 +2248,39 @@ fn repeated_cte_aliases_across_statements_keep_distinct_global_instance_nodes() 
         statement_scoped_instances, 4,
         "CTE definitions and self-join instances should remain statement-local in global lineage"
     );
+
+    let global_org_columns: Vec<_> = result
+        .global_lineage
+        .nodes
+        .iter()
+        .filter(|node| {
+            node.node_type == NodeType::Column
+                && node.canonical_name.schema.as_deref() == Some("org")
+                && matches!(node.canonical_name.name.as_str(), "id" | "manager_id")
+        })
+        .collect();
+
+    assert!(
+        global_org_columns.len() >= 4,
+        "global lineage should keep distinct org column nodes for each statement-local CTE scope"
+    );
+
+    let cross_statement_org_columns: Vec<_> = global_org_columns
+        .iter()
+        .filter(|node| {
+            node.statement_refs
+                .iter()
+                .map(|r| r.statement_index)
+                .collect::<HashSet<_>>()
+                .len()
+                > 1
+        })
+        .collect();
+
+    assert!(
+        cross_statement_org_columns.is_empty(),
+        "CTE-owned org columns should not merge across statements in global lineage"
+    );
 }
 
 #[test]

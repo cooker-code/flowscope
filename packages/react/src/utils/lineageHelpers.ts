@@ -70,7 +70,7 @@ export function getOutputColumnIds(
       }
     }
   }
-  if (isSelect && ids.size === 0) {
+  if (isSelect && !outputNode && ids.size === 0) {
     for (const col of columnNodes) {
       if (!columnToTableMap.has(col.id)) {
         ids.add(col.id);
@@ -162,6 +162,24 @@ export function formatJoinType(joinType: string | undefined | null): string | un
   return JOIN_TYPE_LABELS[joinType] || joinType.replace(/_/g, ' ');
 }
 
+/**
+ * Determine if a node should be highlighted based on search term.
+ * Checks both node label and column names for matches.
+ */
+export function isNodeHighlighted(
+  searchTerm: string,
+  columns: { name: string }[],
+  nodeLabel?: string
+): boolean {
+  if (!searchTerm) {
+    return false;
+  }
+  const lowerSearch = searchTerm.toLowerCase();
+  const labelMatch = !!nodeLabel && nodeLabel.toLowerCase().includes(lowerSearch);
+  const columnMatch = columns.some((col) => col.name.toLowerCase().includes(lowerSearch));
+  return labelMatch || columnMatch;
+}
+
 /** Minimal column info returned by output column grouping. */
 export interface OutputColumnInfo {
   id: string;
@@ -173,8 +191,15 @@ export interface OutputColumnInfo {
 /**
  * Create a collision-safe key for a directed pair of node IDs.
  * Uses a null separator so IDs containing any printable substring cannot collide.
+ *
+ * Node IDs must not contain null bytes; this is validated in development builds.
  */
 export function edgePairKey(sourceId: string, targetId: string): string {
+  if (process.env.NODE_ENV !== 'production') {
+    if (sourceId.includes('\0') || targetId.includes('\0')) {
+      throw new Error('Node IDs must not contain null bytes');
+    }
+  }
   return `${sourceId}\0${targetId}`;
 }
 
@@ -195,6 +220,7 @@ export function groupOutputColumns(
   const result = new Map<string, OutputColumnInfo[]>();
   const explicitIds = new Set(outputNodes.map((n) => n.id));
   const ownerIds = new Map<string, string>();
+  const allowVirtualOutputFallback = explicitIds.size === 0;
 
   for (const edge of edges) {
     if (edge.type === 'ownership' && explicitIds.has(edge.from)) {
@@ -206,18 +232,23 @@ export function groupOutputColumns(
     const explicitOwner = ownerIds.get(col.id);
     const outputOwnerId =
       explicitOwner ??
-      (!col.qualifiedName && !ownedColumnIds.has(col.id) ? virtualOutputNodeId : undefined);
+      (allowVirtualOutputFallback && !col.qualifiedName && !ownedColumnIds.has(col.id)
+        ? virtualOutputNodeId
+        : undefined);
 
     if (!outputOwnerId) continue;
 
-    const columns = result.get(outputOwnerId) || [];
+    let columns = result.get(outputOwnerId);
+    if (!columns) {
+      columns = [];
+      result.set(outputOwnerId, columns);
+    }
     columns.push({
       id: col.id,
       name: col.label,
       expression: col.expression,
       aggregation: col.aggregation,
     });
-    result.set(outputOwnerId, columns);
   }
 
   return result;
@@ -243,7 +274,7 @@ export function resolveOutputMapping(
     }
   }
 
-  if (isSelect) {
+  if (isSelect && explicitOutputNodeIds.size === 0) {
     for (const col of columnNodes) {
       if (!columnToTableMap.has(col.id)) {
         columnToTableMap.set(col.id, virtualOutputNodeId);
@@ -252,10 +283,7 @@ export function resolveOutputMapping(
   }
 
   const outputNodeIds = new Set(explicitOutputNodeIds);
-  if (
-    isSelect &&
-    columnNodes.some((col) => columnToTableMap.get(col.id) === virtualOutputNodeId)
-  ) {
+  if (isSelect && columnNodes.some((col) => columnToTableMap.get(col.id) === virtualOutputNodeId)) {
     outputNodeIds.add(virtualOutputNodeId);
   }
 
