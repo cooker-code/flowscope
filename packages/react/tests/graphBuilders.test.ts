@@ -5,6 +5,7 @@ import {
   buildFlowNodes,
   mergeStatements,
   computeIsCollapsed,
+  buildScriptLevelGraph,
 } from '../src/utils/graphBuilders';
 import { GRAPH_CONFIG } from '../src/constants';
 
@@ -978,5 +979,49 @@ describe('graphBuilders DML handling', () => {
       'table:a->table:b_to_c',
       'table:a_to_b->table:c',
     ]);
+  });
+
+  it('includes explicit output nodes as written relations in script graph mode', () => {
+    const statements: StatementLineage[] = [
+      {
+        statementIndex: 0,
+        statementType: 'WITH',
+        sourceName: 'scratchpad.sql',
+        joinCount: 0,
+        complexityScore: 1,
+        nodes: [
+          {
+            id: 'output:scratchpad',
+            type: 'output',
+            label: 'scratchpad',
+            qualifiedName: 'scratchpad',
+          },
+          {
+            id: 'table:raw_orders',
+            type: 'table',
+            label: 'raw_orders',
+            qualifiedName: 'jaffle_shop.raw_orders',
+          },
+        ],
+        edges: [],
+      },
+    ];
+
+    const { nodes, edges } = buildScriptLevelGraph(statements, null, '', true);
+
+    expect(nodes.find((node) => node.id === 'table:scratchpad')).toBeDefined();
+    expect(
+      edges.find(
+        (edge) =>
+          edge.source === 'script:scratchpad.sql' && edge.target === 'table:scratchpad'
+      )
+    ).toBeDefined();
+    expect(
+      edges.find(
+        (edge) =>
+          edge.source === 'table:jaffle_shop.raw_orders' &&
+          edge.target === 'script:scratchpad.sql'
+      )
+    ).toBeDefined();
   });
 });

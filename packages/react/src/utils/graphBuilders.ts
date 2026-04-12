@@ -772,6 +772,12 @@ function getScriptIO(stmts: StatementLineageWithSource[]) {
   stmts.forEach((stmt) => {
     const createdRelationIds = getCreatedRelationNodeIds(stmt);
     stmt.nodes.forEach((node) => {
+      if (node.type === OUTPUT_NODE_TYPE) {
+        writes.add(node.label);
+        writeQualified.add(node.qualifiedName || node.label);
+        return;
+      }
+
       if (node.type === 'table' || node.type === 'view') {
         const isWritten =
           stmt.edges.some((e) => e.to === node.id && e.type === 'data_flow') ||
@@ -864,6 +870,12 @@ function buildHybridGraph(
     stmts.forEach((stmt) => {
       const createdRelationIds = getCreatedRelationNodeIds(stmt);
       stmt.nodes.forEach((node) => {
+        if (node.type === OUTPUT_NODE_TYPE) {
+          const qName = node.qualifiedName || node.label;
+          uniqueTables.set(qName, { label: node.label, sourceName: stmt.sourceName });
+          return;
+        }
+
         if (node.type === 'table' || node.type === 'view') {
           const qName = node.qualifiedName || node.label;
           const isWritten =

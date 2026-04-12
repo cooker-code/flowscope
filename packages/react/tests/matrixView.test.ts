@@ -309,6 +309,63 @@ describe('extractScriptDependencies', () => {
     expect(realDependency).toBeDefined();
     expect(realDependency!.sharedTables).toEqual(['public.orders_view']);
   });
+
+  it('treats explicit output nodes as written relations for script dependencies', () => {
+    const statements: StatementLineage[] = [
+      {
+        statementIndex: 0,
+        statementType: 'WITH',
+        sourceName: 'producer.sql',
+        joinCount: 0,
+        complexityScore: 1,
+        nodes: [
+          {
+            id: 'output:producer',
+            type: 'output',
+            label: 'producer_model',
+            qualifiedName: 'analytics.producer_model',
+          },
+          {
+            id: 'source_table',
+            type: 'table',
+            label: 'raw_orders',
+            qualifiedName: 'jaffle_shop.raw_orders',
+          },
+        ],
+        edges: [],
+      },
+      {
+        statementIndex: 1,
+        statementType: 'SELECT',
+        sourceName: 'consumer.sql',
+        joinCount: 0,
+        complexityScore: 1,
+        nodes: [
+          {
+            id: 'producer_table',
+            type: 'table',
+            label: 'producer_model',
+            qualifiedName: 'analytics.producer_model',
+          },
+          {
+            id: 'consumer_sink',
+            type: 'output',
+            label: 'consumer_model',
+            qualifiedName: 'analytics.consumer_model',
+          },
+        ],
+        edges: [],
+      },
+    ];
+
+    const { dependencies } = extractScriptDependencies(statements);
+    const producerToConsumer = dependencies.find(
+      (d) => d.sourceScript === 'producer.sql' && d.targetScript === 'consumer.sql'
+    );
+
+    expect(producerToConsumer).toBeDefined();
+    expect(producerToConsumer!.sharedTables).toEqual(['analytics.producer_model']);
+  });
 });
 
 describe('buildTableMatrix', () => {

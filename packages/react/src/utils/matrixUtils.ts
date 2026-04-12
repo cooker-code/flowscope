@@ -165,7 +165,12 @@ export function extractScriptDependencies(statements: StatementLineage[]): Scrip
     const scriptData = scriptMap.get(sourceName)!;
 
     const tableNodes = stmt.nodes.filter((n) => n.type === 'table' || n.type === 'view');
+    const outputNodes = stmt.nodes.filter((n) => n.type === OUTPUT_NODE_TYPE);
     const createdRelationIds = getCreatedRelationNodeIds(stmt);
+
+    for (const node of outputNodes) {
+      scriptData.tablesWritten.add(node.qualifiedName || node.label);
+    }
 
     for (const node of tableNodes) {
       const tableName = node.qualifiedName || node.label;
