@@ -1,13 +1,30 @@
 import * as vscode from 'vscode';
 import { analyzeSql, isWasmInitialized } from '../analysis';
-import type { Dialect, Node, StatementLineage } from '../types';
+import { getFiltersForStatement, scopeNodesToStatement } from '../statementScopedLineage';
+import {
+  edgesInStatement,
+  type AnalyzeResult,
+  type Dialect,
+  type Edge,
+  type Node,
+  type StatementMeta,
+} from '../types';
 
 /**
  * Provides hover information showing table details, join types, and filters.
  */
 export class FlowScopeHoverProvider implements vscode.HoverProvider {
-  private cachedResults: Map<string, { statements: StatementLineage[]; version: number }> =
-    new Map();
+  private cachedResults: Map<string, { result: AnalyzeResult; version: number }> = new Map();
+
+  constructor() {
+    // Invalidate cache when FlowScope config (e.g. dialect) changes, since
+    // cached analysis results were produced with the old settings.
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('flowscope')) {
+        this.cachedResults.clear();
+      }
+    });
+  }
 
   public provideHover(
     document: vscode.TextDocument,
@@ -30,20 +47,19 @@ export class FlowScopeHoverProvider implements vscode.HoverProvider {
 
     // Get or compute analysis
     const uri = document.uri.toString();
-    let statements: StatementLineage[];
+    let result: AnalyzeResult;
 
     const cached = this.cachedResults.get(uri);
     if (cached && cached.version === document.version) {
-      statements = cached.statements;
+      result = cached.result;
     } else {
       const dialect = config.get<Dialect>('dialect', 'generic');
       try {
-        const result = analyzeSql({ sql, dialect });
+        result = analyzeSql({ sql, dialect });
         this.cachedResults.set(uri, {
-          statements: result.statements,
+          result,
           version: document.version,
         });
-        statements = result.statements;
       } catch {
         return null;
       }
@@ -58,15 +74,18 @@ export class FlowScopeHoverProvider implements vscode.HoverProvider {
     const word = document.getText(wordRange).toLowerCase();
     const byteOffset = this.positionToByteOffset(sql, position);
 
-    // Find matching node
-    for (const stmt of statements) {
+    // Find matching node, scoped to the statement containing the cursor.
+    for (const stmt of result.statements) {
       // Check if position is within statement
       if (stmt.span && (byteOffset < stmt.span.start || byteOffset > stmt.span.end)) {
         continue;
       }
 
+      const stmtNodes = scopeNodesToStatement(result, stmt.statementIndex, stmt.sourceName);
+      const stmtEdges = edgesInStatement(result, stmt.statementIndex);
+
       // Find matching table/view/CTE node
-      const matchingNode = stmt.nodes.find((node) => {
+      const matchingNode = stmtNodes.find((node) => {
         if (node.type === 'column') {
           return false;
         }
@@ -74,14 +93,19 @@ export class FlowScopeHoverProvider implements vscode.HoverProvider {
       });
 
       if (matchingNode) {
-        return this.createHover(matchingNode, stmt);
+        return this.createHover(matchingNode, stmt, stmtNodes, stmtEdges);
       }
     }
 
     return null;
   }
 
-  private createHover(node: Node, stmt: StatementLineage): vscode.Hover {
+  private createHover(
+    node: Node,
+    stmt: StatementMeta,
+    stmtNodes: Node[],
+    stmtEdges: Edge[]
+  ): vscode.Hover {
     const lines: string[] = [];
 
     // Header
@@ -94,7 +118,7 @@ export class FlowScopeHoverProvider implements vscode.HoverProvider {
     }
 
     // Join info (read from edges originating from this node)
-    const joinEdge = stmt.edges.find((e) => e.from === node.id && e.joinType);
+    const joinEdge = stmtEdges.find((e) => e.from === node.id && e.joinType);
     if (joinEdge?.joinType) {
       lines.push(`\n**Join:** ${joinEdge.joinType}`);
       if (joinEdge.joinCondition) {
@@ -103,15 +127,16 @@ export class FlowScopeHoverProvider implements vscode.HoverProvider {
     }
 
     // Filters
-    if (node.filters && node.filters.length > 0) {
+    const filters = getFiltersForStatement(node, stmt.statementIndex);
+    if (filters.length > 0) {
       lines.push(`\n**Filters:**`);
-      for (const filter of node.filters) {
+      for (const filter of filters) {
         lines.push(`- \`${filter.expression}\` (${filter.clauseType})`);
       }
     }
 
     // Related columns
-    const columns = stmt.nodes.filter(
+    const columns = stmtNodes.filter(
       (n) =>
         n.type === 'column' &&
         (n.qualifiedName?.toLowerCase().startsWith(node.label.toLowerCase() + '.') ||

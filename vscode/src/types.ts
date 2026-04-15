@@ -30,18 +30,17 @@ export interface AnalysisOptions {
 }
 
 export interface AnalyzeResult {
-  statements: StatementLineage[];
-  globalLineage: GlobalLineage;
+  statements: StatementMeta[];
+  nodes: Node[];
+  edges: Edge[];
   issues: Issue[];
   summary: Summary;
 }
 
-export interface StatementLineage {
+export interface StatementMeta {
   statementIndex: number;
   statementType: string;
   sourceName?: string;
-  nodes: Node[];
-  edges: Edge[];
   span?: Span;
   joinCount: number;
   complexityScore: number;
@@ -52,13 +51,18 @@ export interface Node {
   type: NodeType;
   label: string;
   qualifiedName?: string;
+  canonicalName?: CanonicalName;
+  statementIds: number[];
   expression?: string;
   span?: Span;
+  nameSpans?: Span[];
+  bodySpan?: Span;
   filters?: FilterPredicate[];
   aggregation?: AggregationInfo;
+  metadata?: Record<string, unknown>;
 }
 
-export type NodeType = 'table' | 'view' | 'cte' | 'column';
+export type NodeType = 'table' | 'view' | 'cte' | 'output' | 'column';
 
 export interface FilterPredicate {
   expression: string;
@@ -83,9 +87,15 @@ export interface Edge {
   joinType?: JoinType;
   joinCondition?: string;
   approximate?: boolean;
+  statementIds: number[];
 }
 
-export type EdgeType = 'ownership' | 'data_flow' | 'derivation' | 'cross_statement';
+export type EdgeType =
+  | 'ownership'
+  | 'data_flow'
+  | 'derivation'
+  | 'join_dependency'
+  | 'cross_statement';
 
 export type JoinType =
   | 'INNER'
@@ -101,38 +111,11 @@ export type JoinType =
   | 'OUTER_APPLY'
   | 'AS_OF';
 
-export interface GlobalLineage {
-  nodes: GlobalNode[];
-  edges: GlobalEdge[];
-}
-
-export interface GlobalNode {
-  id: string;
-  type: NodeType;
-  label: string;
-  canonicalName: CanonicalName;
-  statementRefs: StatementRef[];
-}
-
 export interface CanonicalName {
   catalog?: string;
   schema?: string;
   name: string;
   column?: string;
-}
-
-export interface StatementRef {
-  statementIndex: number;
-  nodeId?: string;
-}
-
-export interface GlobalEdge {
-  id: string;
-  from: string;
-  to: string;
-  type: EdgeType;
-  producerStatement?: StatementRef;
-  consumerStatement?: StatementRef;
 }
 
 export interface Issue {
@@ -164,4 +147,22 @@ export interface IssueCount {
   errors: number;
   warnings: number;
   infos: number;
+}
+
+/**
+ * Return the nodes from an `AnalyzeResult` that participate in the given
+ * statement index. Uses the flat `result.nodes` collection; matching is
+ * by `statementIds.includes(statementIndex)`.
+ */
+export function nodesInStatement(result: AnalyzeResult, statementIndex: number): Node[] {
+  return result.nodes.filter((n) => n.statementIds.includes(statementIndex));
+}
+
+/**
+ * Return the edges from an `AnalyzeResult` that participate in the given
+ * statement index. Uses the flat `result.edges` collection; matching is
+ * by `statementIds.includes(statementIndex)`.
+ */
+export function edgesInStatement(result: AnalyzeResult, statementIndex: number): Edge[] {
+  return result.edges.filter((e) => e.statementIds.includes(statementIndex));
 }

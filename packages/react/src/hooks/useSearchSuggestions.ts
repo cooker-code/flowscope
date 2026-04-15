@@ -119,44 +119,46 @@ export function useSearchSuggestions({
     }
 
     // Index Nodes (Tables, Views, CTEs, Columns)
-    if (result.globalLineage) {
-      result.globalLineage.nodes.forEach((node) => {
-        // Determine type
-        let type: SearchableType;
-        if (node.type === 'cte') {
-          type = 'cte';
-        } else if (node.type === 'column') {
-          type = 'column';
-        } else if (node.type === 'view') {
-          type = 'view';
-        } else {
-          type = 'table';
-        }
+    result.nodes.forEach((node) => {
+      if (node.type === 'output') {
+        return;
+      }
 
-        // Skip if type is not in searchable types
-        if (!searchableTypes.includes(type)) {
-          return;
-        }
+      // Determine type
+      let type: SearchableType;
+      if (node.type === 'cte') {
+        type = 'cte';
+      } else if (node.type === 'column') {
+        type = 'column';
+      } else if (node.type === 'view') {
+        type = 'view';
+      } else {
+        type = 'table';
+      }
 
-        // Build context/subtitle
-        let subtitle: string | undefined = undefined;
-        if (type === 'column' && node.canonicalName) {
-          const parts: string[] = [];
-          if (node.canonicalName.schema) parts.push(node.canonicalName.schema);
-          if (node.canonicalName.name) parts.push(node.canonicalName.name);
-          if (parts.length > 0) subtitle = `in ${parts.join('.')}`;
-        } else if (isTableLikeType(node.type)) {
-          subtitle = node.type?.toUpperCase();
-        }
+      // Skip if type is not in searchable types
+      if (!searchableTypes.includes(type)) {
+        return;
+      }
 
-        items.push({
-          id: node.id,
-          type,
-          label: node.label,
-          subtitle,
-        });
+      // Build context/subtitle
+      let subtitle: string | undefined = undefined;
+      if (type === 'column' && node.canonicalName) {
+        const parts: string[] = [];
+        if (node.canonicalName.schema) parts.push(node.canonicalName.schema);
+        if (node.canonicalName.name) parts.push(node.canonicalName.name);
+        if (parts.length > 0) subtitle = `in ${parts.join('.')}`;
+      } else if (isTableLikeType(node.type)) {
+        subtitle = node.type?.toUpperCase();
+      }
+
+      items.push({
+        id: node.id,
+        type,
+        label: node.label,
+        subtitle,
       });
-    }
+    });
 
     return items;
   }, [result, searchableTypes]);

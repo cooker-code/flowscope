@@ -1,19 +1,13 @@
 import type { Node as FlowNode, Edge as FlowEdge } from '@xyflow/react';
 import type {
+  AnalyzeResult,
   Node,
   Edge,
-  StatementLineage,
   ResolvedSchemaMetadata,
-  GlobalLineage,
-  GlobalNode,
+  StatementMeta,
 } from '@pondpilot/flowscope-core';
-import { isTableLikeType } from '@pondpilot/flowscope-core';
-import type {
-  TableNodeData,
-  ColumnNodeInfo,
-  ScriptNodeData,
-  StatementLineageWithSource,
-} from '../types';
+import { isTableLikeType, nodesInStatement, edgesInStatement } from '@pondpilot/flowscope-core';
+import type { TableNodeData, ColumnNodeInfo, ScriptNodeData } from '../types';
 import { GRAPH_CONFIG, UI_CONSTANTS } from '../constants';
 import {
   getCreatedRelationNodeIds,
@@ -30,7 +24,7 @@ import {
   createStatementScope,
   withStatementScope,
 } from './lineageHelpers';
-import { mergeNodesForNavigation } from './nodeOccurrences';
+import { mergeNodesForNavigation, scopeNodeToStatement } from './nodeOccurrences';
 
 const SELECT_STATEMENT_TYPES = new Set([
   'SELECT',
@@ -40,6 +34,85 @@ const SELECT_STATEMENT_TYPES = new Set([
   'EXCEPT',
   'VALUES',
 ]);
+
+/**
+ * Aggregated per-statement view used internally by the graph builders.
+ * Carries the merged nodes/edges (across all statements in the result) along
+ * with a flag indicating whether to apply SELECT-style output handling.
+ */
+export interface MergedLineage {
+  nodes: Node[];
+  edges: Edge[];
+  isSelect: boolean;
+}
+
+/**
+ * Produce the merged lineage view over all statements in an `AnalyzeResult`.
+ *
+ * This is a **visualization-only** merge layered on top of the already-flat
+ * core result, and is distinct from the canonical merge performed by
+ * `Analyzer::flatten_lineages` in `flowscope-core` (which yields the
+ * project-wide graph consumers see). The graph builders still depend on
+ * per-statement scope metadata — virtual output nodes, `statementScope` tags
+ * for navigation, and `sourceName` annotations — so we re-project the flat
+ * graph through `result.statements` and re-apply `withStatementScope` here.
+ *
+ * Keep these two merges in sync at a semantic level: `flatten_lineages` owns
+ * cross-statement identity and `statement_ids` accumulation; this function
+ * owns only UI-scope decorations. Do not let visualization concerns leak back
+ * into the core merge, and do not duplicate identity logic here.
+ */
+export function mergeAnalyzeResult(result: AnalyzeResult): MergedLineage {
+  const mergedNodes = new Map<string, Node>();
+  const mergedEdges = new Map<string, Edge>();
+  let anySelect = false;
+
+  for (const stmt of result.statements) {
+    if (SELECT_STATEMENT_TYPES.has((stmt.statementType || '').toUpperCase())) {
+      anySelect = true;
+    }
+    const sourceName = stmt.sourceName;
+    const statementScope = createStatementScope(stmt.statementIndex, sourceName);
+
+    for (const node of nodesInStatement(result, stmt.statementIndex)) {
+      const scopedNode = scopeNodeToStatement(node, stmt.statementIndex, sourceName);
+      const nodeWithSource = sourceName
+        ? {
+            ...scopedNode,
+            metadata: {
+              ...(scopedNode.metadata || {}),
+              sourceName,
+            },
+          }
+        : scopedNode;
+      const nodeWithScope =
+        scopedNode.statementIds.length === 1
+          ? withStatementScope(nodeWithSource, statementScope)
+          : nodeWithSource;
+      const mergedNode = mergeNodesForNavigation(
+        mergedNodes.get(node.id) ?? null,
+        nodeWithScope,
+        sourceName
+      );
+      mergedNodes.set(node.id, mergedNode);
+    }
+
+    for (const edge of edgesInStatement(result, stmt.statementIndex)) {
+      if (!mergedEdges.has(edge.id)) {
+        mergedEdges.set(
+          edge.id,
+          edge.statementIds.length === 1 ? withStatementScope(edge, statementScope) : edge
+        );
+      }
+    }
+  }
+
+  return {
+    nodes: Array.from(mergedNodes.values()),
+    edges: Array.from(mergedEdges.values()),
+    isSelect: anySelect,
+  };
+}
 
 /**
  * Determine if a node should be collapsed based on the default state and overrides.
@@ -55,63 +128,6 @@ export function computeIsCollapsed(
   overrideIds: Set<string>
 ): boolean {
   return defaultCollapsed ? !overrideIds.has(nodeId) : overrideIds.has(nodeId);
-}
-
-/**
- * Merge multiple statements into a single statement for visualization
- */
-export function mergeStatements(statements: StatementLineage[]): StatementLineage {
-  if (statements.length === 1) {
-    return statements[0];
-  }
-
-  const mergedNodes = new Map<string, Node>();
-  const mergedEdges = new Map<string, Edge>();
-
-  statements.forEach((stmt) => {
-    const sourceName = stmt.sourceName;
-    const statementScope = createStatementScope(stmt.statementIndex, sourceName);
-    stmt.nodes.forEach((node) => {
-      const nodeWithScope = withStatementScope(
-        sourceName
-          ? {
-              ...node,
-              metadata: {
-                ...(node.metadata || {}),
-                sourceName,
-              },
-            }
-          : { ...node },
-        statementScope
-      );
-      const mergedNode = mergeNodesForNavigation(
-        mergedNodes.get(node.id) ?? null,
-        nodeWithScope,
-        sourceName
-      );
-      mergedNodes.set(node.id, mergedNode);
-    });
-
-    stmt.edges.forEach((edge) => {
-      if (!mergedEdges.has(edge.id)) {
-        mergedEdges.set(edge.id, withStatementScope(edge, statementScope));
-      }
-    });
-  });
-
-  // Aggregate stats from all statements
-  const totalJoinCount = statements.reduce((sum, stmt) => sum + stmt.joinCount, 0);
-  const maxComplexity =
-    statements.length > 0 ? Math.max(...statements.map((stmt) => stmt.complexityScore)) : 1;
-
-  return {
-    statementIndex: 0,
-    statementType: 'SELECT',
-    nodes: Array.from(mergedNodes.values()),
-    edges: Array.from(mergedEdges.values()),
-    joinCount: totalJoinCount,
-    complexityScore: maxComplexity,
-  };
 }
 
 /**
@@ -205,8 +221,7 @@ interface TableNodeBuilderOptions extends NodeBuilderOptions {
 function buildTableNodeData(
   node: Node,
   columns: ColumnNodeInfo[],
-  options: TableNodeBuilderOptions,
-  globalNodeMap?: Map<string, GlobalNode>
+  options: TableNodeBuilderOptions
 ): TableNodeData {
   let nodeType: 'table' | 'view' | 'cte' | 'virtualOutput' = 'table';
   if (node.type === 'cte') {
@@ -215,9 +230,9 @@ function buildTableNodeData(
     nodeType = 'view';
   }
 
-  // Look up canonical info from GlobalNode (more reliable than parsing qualifiedName)
-  const globalNode = globalNodeMap?.get(node.id);
-  const canonical = globalNode?.canonicalName;
+  // Canonical info is carried on the node itself (folded in from the old
+  // GlobalNode shape).
+  const canonical = node.canonicalName;
 
   // Construct qualified name from canonical components
   const qualifiedName = canonical
@@ -262,32 +277,23 @@ function buildOutputNodeData(
 }
 
 /**
- * Build table-level flow nodes with columns
+ * Build table-level flow nodes with columns from a merged lineage view.
  */
 export function buildFlowNodes(
-  statement: StatementLineage,
+  merged: MergedLineage,
   selectedNodeId: string | null,
   searchTerm: string,
   collapsedNodeIds: Set<string>,
   expandedTableIds: Set<string> = new Set(),
   resolvedSchema: ResolvedSchemaMetadata | null | undefined = null,
-  defaultCollapsed: boolean = false,
-  globalLineage?: GlobalLineage
+  defaultCollapsed: boolean = false
 ): FlowNode[] {
-  // Create lookup map for GlobalNode canonical info
-  const globalNodeMap = new Map<string, GlobalNode>();
-  if (globalLineage?.nodes) {
-    for (const gn of globalLineage.nodes) {
-      globalNodeMap.set(gn.id, gn);
-    }
-  }
-
-  const tableNodes = statement.nodes.filter((n) => isTableLikeType(n.type));
-  const columnNodes = statement.nodes.filter((n) => n.type === 'column');
-  const outputNodes = statement.nodes.filter((n) => n.type === OUTPUT_NODE_TYPE);
-  const isSelect = isSelectStatement(statement);
+  const tableNodes = merged.nodes.filter((n) => isTableLikeType(n.type));
+  const columnNodes = merged.nodes.filter((n) => n.type === 'column');
+  const outputNodes = merged.nodes.filter((n) => n.type === OUTPUT_NODE_TYPE);
+  const isSelect = merged.isSelect;
   // Identify tables introduced via JOIN (base tables are those NOT in this set)
-  const joinedTableIds = buildJoinedTableIds(statement.edges, statement.nodes);
+  const joinedTableIds = buildJoinedTableIds(merged.edges, merged.nodes);
   const hasJoinNodes = joinedTableIds.size > 0;
   const baseTableIds = new Set<string>();
   if (hasJoinNodes) {
@@ -299,13 +305,13 @@ export function buildFlowNodes(
     });
   }
   const recursiveNodeIds = new Set(
-    statement.edges.filter((e) => e.type === 'data_flow' && e.from === e.to).map((e) => e.from)
+    merged.edges.filter((e) => e.type === 'data_flow' && e.from === e.to).map((e) => e.from)
   );
 
   const tableColumnMap = new Map<string, ColumnNodeInfo[]>();
   const ownedColumnIds = new Set<string>();
 
-  for (const edge of statement.edges) {
+  for (const edge of merged.edges) {
     if (edge.type === 'ownership') {
       const parentNode = tableNodes.find((n) => n.id === edge.from);
       const childNode = columnNodes.find((n) => n.id === edge.to);
@@ -352,25 +358,20 @@ export function buildFlowNodes(
       id: node.id,
       type: 'tableNode',
       position: { x: 0, y: 0 },
-      data: buildTableNodeData(
-        node,
-        columns,
-        {
-          selectedNodeId,
-          searchTerm,
-          isCollapsed: computeIsCollapsed(node.id, defaultCollapsed, collapsedNodeIds),
-          hiddenColumnCount,
-          isRecursive: recursiveNodeIds.has(node.id),
-          isBaseTable: baseTableIds.has(node.id),
-        },
-        globalNodeMap
-      ),
+      data: buildTableNodeData(node, columns, {
+        selectedNodeId,
+        searchTerm,
+        isCollapsed: computeIsCollapsed(node.id, defaultCollapsed, collapsedNodeIds),
+        hiddenColumnCount,
+        isRecursive: recursiveNodeIds.has(node.id),
+        isBaseTable: baseTableIds.has(node.id),
+      }),
     });
   }
 
   const outputColumnsByNodeId = groupOutputColumns(
     outputNodes,
-    statement.edges,
+    merged.edges,
     columnNodes,
     ownedColumnIds,
     isSelect,
@@ -425,15 +426,7 @@ export function buildFlowNodes(
 }
 
 /**
- * Check if a statement is a SELECT-like read query based on analyzer metadata.
- */
-function isSelectStatement(statement: StatementLineage): boolean {
-  const normalizedType = (statement.statementType || '').toUpperCase();
-  return SELECT_STATEMENT_TYPES.has(normalizedType);
-}
-
-/**
- * Build React Flow edges from statement lineage data.
+ * Build React Flow edges from a merged lineage view.
  *
  * This function handles multiple scenarios to correctly visualize data flow:
  *
@@ -454,15 +447,15 @@ function isSelectStatement(statement: StatementLineage): boolean {
  * - Deduplicates edges to avoid rendering multiple edges between the same table pair
  */
 export function buildFlowEdges(
-  statement: StatementLineage,
+  merged: MergedLineage,
   showColumnEdges: boolean = false,
   defaultCollapsed: boolean = false,
   collapsedNodeIds: Set<string> = new Set()
 ): FlowEdge[] {
-  const tableNodes = statement.nodes.filter((n) => isTableLikeType(n.type));
-  const columnNodes = statement.nodes.filter((n) => n.type === 'column');
-  const outputNodes = statement.nodes.filter((n) => n.type === OUTPUT_NODE_TYPE);
-  const isSelect = isSelectStatement(statement);
+  const tableNodes = merged.nodes.filter((n) => isTableLikeType(n.type));
+  const columnNodes = merged.nodes.filter((n) => n.type === 'column');
+  const outputNodes = merged.nodes.filter((n) => n.type === OUTPUT_NODE_TYPE);
+  const isSelect = merged.isSelect;
 
   // Build table ID -> Node map for join type lookup
   const tableNodeMap = new Map<string, Node>();
@@ -471,10 +464,10 @@ export function buildFlowEdges(
   }
 
   // Build ownership map: column ID -> table ID
-  const columnToTableMap = buildColumnOwnershipMap(statement.edges, tableNodes, (n) => n.id);
+  const columnToTableMap = buildColumnOwnershipMap(merged.edges, tableNodes, (n) => n.id);
 
   const { outputNodeIds, outputColumnIds } = resolveOutputMapping(
-    statement.edges,
+    merged.edges,
     outputNodes,
     columnNodes,
     columnToTableMap,
@@ -536,7 +529,7 @@ export function buildFlowEdges(
       columnNodeMap.set(col.id, col);
     }
 
-    statement.edges
+    merged.edges
       .filter((e) => e.type === 'derivation' || e.type === 'data_flow')
       .forEach((edge) => {
         const sourceCol = columnNodeMap.get(edge.from);
@@ -593,7 +586,7 @@ export function buildFlowEdges(
     const relationNodeIds = new Set(tableNodes.map((node) => node.id));
     outputNodeIds.forEach((nodeId) => relationNodeIds.add(nodeId));
 
-    statement.edges
+    merged.edges
       .filter(
         (edge) =>
           edge.type === 'data_flow' ||
@@ -623,7 +616,7 @@ export function buildFlowEdges(
     { sourceId: string; targetId: string; joinType?: string; joinCondition?: string }
   >();
 
-  for (const edge of statement.edges) {
+  for (const edge of merged.edges) {
     if (edge.type === 'data_flow' || edge.type === 'derivation') {
       if (isSelect && outputColumnIds.has(edge.to)) {
         // Resolve source table: either the column's owning table, or the relation
@@ -706,7 +699,7 @@ export function buildFlowEdges(
     }
   }
 
-  statement.edges
+  merged.edges
     .filter((edge) => edge.type === JOIN_DEPENDENCY_EDGE_TYPE)
     .forEach((edge) => {
       const sourceId = edge.from;
@@ -763,17 +756,40 @@ export function buildFlowEdges(
 }
 
 /**
+ * Per-statement slice over the flat `AnalyzeResult`. Used internally by the
+ * script-level graph builders to iterate a statement's nodes/edges without
+ * reconstructing a per-statement lineage object.
+ */
+interface StatementSlice {
+  meta: StatementMeta;
+  nodes: Node[];
+  edges: Edge[];
+}
+
+function sliceStatements(result: AnalyzeResult): StatementSlice[] {
+  return result.statements.map((meta) => ({
+    meta,
+    nodes: nodesInStatement(result, meta.statementIndex),
+    edges: edgesInStatement(result, meta.statementIndex),
+  }));
+}
+
+/**
  * Extract input/output tables for a set of statements from a script
  */
-function getScriptIO(stmts: StatementLineageWithSource[]) {
+function getScriptIO(slices: StatementSlice[]) {
   const reads = new Set<string>();
   const writes = new Set<string>();
   const readQualified = new Set<string>();
   const writeQualified = new Set<string>();
 
-  stmts.forEach((stmt) => {
-    const createdRelationIds = getCreatedRelationNodeIds(stmt);
-    stmt.nodes.forEach((node) => {
+  slices.forEach((slice) => {
+    const createdRelationIds = getCreatedRelationNodeIds(
+      slice.meta.statementType,
+      slice.nodes,
+      slice.edges
+    );
+    slice.nodes.forEach((node) => {
       if (node.type === OUTPUT_NODE_TYPE) {
         writes.add(node.label);
         writeQualified.add(node.qualifiedName || node.label);
@@ -782,9 +798,9 @@ function getScriptIO(stmts: StatementLineageWithSource[]) {
 
       if (node.type === 'table' || node.type === 'view') {
         const isWritten =
-          stmt.edges.some((e) => e.to === node.id && e.type === 'data_flow') ||
+          slice.edges.some((e) => e.to === node.id && e.type === 'data_flow') ||
           createdRelationIds.has(node.id);
-        const isRead = stmt.edges.some((e) => e.from === node.id && e.type === 'data_flow');
+        const isRead = slice.edges.some((e) => e.from === node.id && e.type === 'data_flow');
 
         if (isWritten) {
           writes.add(node.label);
@@ -801,16 +817,14 @@ function getScriptIO(stmts: StatementLineageWithSource[]) {
 }
 
 /**
- * Group statements by their source script name
+ * Group statement slices by their source script name
  */
-function groupStatementsByScript(
-  statements: StatementLineageWithSource[]
-): Map<string, StatementLineageWithSource[]> {
-  const scriptMap = new Map<string, StatementLineageWithSource[]>();
-  statements.forEach((stmt) => {
-    const sourceName = stmt.sourceName || 'unknown';
+function groupStatementsByScript(slices: StatementSlice[]): Map<string, StatementSlice[]> {
+  const scriptMap = new Map<string, StatementSlice[]>();
+  slices.forEach((slice) => {
+    const sourceName = slice.meta.sourceName || 'unknown';
     const existing = scriptMap.get(sourceName) || [];
-    existing.push(stmt);
+    existing.push(slice);
     scriptMap.set(sourceName, existing);
   });
   return scriptMap;
@@ -820,15 +834,15 @@ function groupStatementsByScript(
  * Create script node elements from script map
  */
 function createScriptNodes(
-  scriptMap: Map<string, StatementLineageWithSource[]>,
+  scriptMap: Map<string, StatementSlice[]>,
   selectedNodeId: string | null,
   searchTerm: string
 ): FlowNode[] {
   const lowerCaseSearchTerm = searchTerm.toLowerCase();
   const nodes: FlowNode[] = [];
 
-  scriptMap.forEach((stmts, sourceName) => {
-    const { reads, writes } = getScriptIO(stmts);
+  scriptMap.forEach((slices, sourceName) => {
+    const { reads, writes } = getScriptIO(slices);
     const isHighlighted = !!(
       lowerCaseSearchTerm && sourceName.toLowerCase().includes(lowerCaseSearchTerm)
     );
@@ -842,7 +856,7 @@ function createScriptNodes(
         sourceName,
         tablesRead: Array.from(reads),
         tablesWritten: Array.from(writes),
-        statementCount: stmts.length,
+        statementCount: slices.length,
         isSelected: `script:${sourceName}` === selectedNodeId,
         isHighlighted,
       } satisfies ScriptNodeData,
@@ -856,7 +870,7 @@ function createScriptNodes(
  * Build hybrid graph with script and table nodes
  */
 function buildHybridGraph(
-  scriptMap: Map<string, StatementLineageWithSource[]>,
+  scriptMap: Map<string, StatementSlice[]>,
   selectedNodeId: string | null,
   searchTerm: string
 ): { nodes: FlowNode[]; edges: FlowEdge[] } {
@@ -865,28 +879,32 @@ function buildHybridGraph(
   const edges: FlowEdge[] = [];
   const uniqueTables = new Map<string, { label: string; sourceName?: string }>();
 
-  scriptMap.forEach((stmts) => {
-    const { readQualified, writeQualified } = getScriptIO(stmts);
+  scriptMap.forEach((slices) => {
+    const { readQualified, writeQualified } = getScriptIO(slices);
 
     // Collect unique table info, prioritizing the writer for sourceName
-    stmts.forEach((stmt) => {
-      const createdRelationIds = getCreatedRelationNodeIds(stmt);
-      stmt.nodes.forEach((node) => {
+    slices.forEach((slice) => {
+      const createdRelationIds = getCreatedRelationNodeIds(
+        slice.meta.statementType,
+        slice.nodes,
+        slice.edges
+      );
+      slice.nodes.forEach((node) => {
         if (node.type === OUTPUT_NODE_TYPE) {
           const qName = node.qualifiedName || node.label;
-          uniqueTables.set(qName, { label: node.label, sourceName: stmt.sourceName });
+          uniqueTables.set(qName, { label: node.label, sourceName: slice.meta.sourceName });
           return;
         }
 
         if (node.type === 'table' || node.type === 'view') {
           const qName = node.qualifiedName || node.label;
           const isWritten =
-            stmt.edges.some((e) => e.to === node.id && e.type === 'data_flow') ||
+            slice.edges.some((e) => e.to === node.id && e.type === 'data_flow') ||
             createdRelationIds.has(node.id);
 
           // If this script writes the table/view, use its sourceName as the source
           if (isWritten) {
-            uniqueTables.set(qName, { label: node.label, sourceName: stmt.sourceName });
+            uniqueTables.set(qName, { label: node.label, sourceName: slice.meta.sourceName });
           } else if (!uniqueTables.has(qName)) {
             uniqueTables.set(qName, { label: node.label });
           }
@@ -894,7 +912,7 @@ function buildHybridGraph(
       });
     });
 
-    const sourceId = `script:${stmts[0].sourceName || 'unknown'}`;
+    const sourceId = `script:${slices[0].meta.sourceName || 'unknown'}`;
 
     // Edges: Script -> Table (Writes)
     writeQualified.forEach((qName) => {
@@ -946,17 +964,17 @@ function buildHybridGraph(
 /**
  * Build direct script-to-script graph
  */
-function buildDirectScriptGraph(scriptMap: Map<string, StatementLineageWithSource[]>): FlowEdge[] {
+function buildDirectScriptGraph(scriptMap: Map<string, StatementSlice[]>): FlowEdge[] {
   const edges: FlowEdge[] = [];
   const edgeSet = new Set<string>();
 
-  scriptMap.forEach((producerStmts, producerScript) => {
-    const { writeQualified: producerWrites } = getScriptIO(producerStmts);
+  scriptMap.forEach((producerSlices, producerScript) => {
+    const { writeQualified: producerWrites } = getScriptIO(producerSlices);
 
-    scriptMap.forEach((consumerStmts, consumerScript) => {
+    scriptMap.forEach((consumerSlices, consumerScript) => {
       if (producerScript === consumerScript) return;
 
-      const { readQualified: consumerReads } = getScriptIO(consumerStmts);
+      const { readQualified: consumerReads } = getScriptIO(consumerSlices);
 
       // Find intersection
       const sharedTables: string[] = [];
@@ -993,12 +1011,12 @@ function buildDirectScriptGraph(scriptMap: Map<string, StatementLineageWithSourc
  * Build script-level graph (with or without table nodes)
  */
 export function buildScriptLevelGraph(
-  statements: StatementLineageWithSource[],
+  result: AnalyzeResult,
   selectedNodeId: string | null,
   searchTerm: string,
   showTables: boolean
 ): { nodes: FlowNode[]; edges: FlowEdge[] } {
-  const scriptMap = groupStatementsByScript(statements);
+  const scriptMap = groupStatementsByScript(sliceStatements(result));
   const scriptNodes = createScriptNodes(scriptMap, selectedNodeId, searchTerm);
 
   if (showTables) {

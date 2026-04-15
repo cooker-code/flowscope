@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { analyzeSql, isWasmInitialized } from '../analysis';
+import { scopeNodesToStatement } from '../statementScopedLineage';
 import type { AnalyzeResult, Dialect, IssueCount } from '../types';
 
 /**
@@ -145,12 +146,13 @@ export class LineagePanel {
     }
 
     const targetStatementIndex = statement.statementIndex;
-    const globalNodes = result.globalLineage.nodes.filter((node) =>
-      node.statementRefs.some((ref) => ref.statementIndex === targetStatementIndex)
-    );
-    const relevantNodeIds = new Set(globalNodes.map((node) => node.id));
-    const globalEdges = result.globalLineage.edges.filter(
-      (edge) => relevantNodeIds.has(edge.from) && relevantNodeIds.has(edge.to)
+    const scopedNodes = scopeNodesToStatement(result, targetStatementIndex, statement.sourceName);
+    const relevantNodeIds = new Set(scopedNodes.map((node) => node.id));
+    const scopedEdges = result.edges.filter(
+      (edge) =>
+        edge.statementIds.includes(targetStatementIndex) &&
+        relevantNodeIds.has(edge.from) &&
+        relevantNodeIds.has(edge.to)
     );
     const filteredIssues = result.issues.filter(
       (issue) => issue.statementIndex === undefined || issue.statementIndex === targetStatementIndex
@@ -172,18 +174,16 @@ export class LineagePanel {
       },
       { errors: 0, warnings: 0, infos: 0 }
     );
-    const tableCount = statement.nodes.filter(
+    const tableCount = scopedNodes.filter(
       (node) => node.type === 'table' || node.type === 'cte'
     ).length;
-    const columnCount = statement.nodes.filter((node) => node.type === 'column').length;
+    const columnCount = scopedNodes.filter((node) => node.type === 'column').length;
 
     return {
       ...result,
       statements: [statement],
-      globalLineage: {
-        nodes: globalNodes,
-        edges: globalEdges,
-      },
+      nodes: scopedNodes,
+      edges: scopedEdges,
       summary: {
         statementCount: 1,
         tableCount,

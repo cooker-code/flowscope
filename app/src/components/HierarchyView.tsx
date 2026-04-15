@@ -96,8 +96,8 @@ export const HierarchyView = forwardRef<HierarchyViewRef, HierarchyViewProps>(
     const { state, actions } = useLineage();
     const { result } = state;
     const { navigateTo, navigateToEditor } = useNavigation();
-    const nodes = result?.globalLineage?.nodes || [];
-    const edges = result?.globalLineage?.edges || [];
+    const nodes = result?.nodes || [];
+    const edges = result?.edges || [];
     const statements = result?.statements || [];
 
     // Build a lookup map for O(1) node access instead of O(n) find() calls
@@ -110,6 +110,14 @@ export const HierarchyView = forwardRef<HierarchyViewRef, HierarchyViewProps>(
     }, [nodes]);
 
     const getNode = useCallback((id: string) => nodesById.get(id), [nodesById]);
+
+    const statementsByIndex = useMemo(() => {
+      const map = new Map<number, (typeof statements)[number]>();
+      for (const statement of statements) {
+        map.set(statement.statementIndex, statement);
+      }
+      return map;
+    }, [statements]);
 
     // Use persisted state hook for all view state
     const {
@@ -200,10 +208,10 @@ export const HierarchyView = forwardRef<HierarchyViewRef, HierarchyViewProps>(
       });
 
       nodes.forEach((node) => {
-        if (['table', 'view', 'cte'].includes(node.type) && node.statementRefs) {
+        if (['table', 'view', 'cte'].includes(node.type) && node.statementIds?.length) {
           const scripts: string[] = [];
-          node.statementRefs.forEach((ref) => {
-            const stmt = statements[ref.statementIndex];
+          node.statementIds.forEach((idx) => {
+            const stmt = statementsByIndex.get(idx);
             if (stmt?.sourceName && !scripts.includes(stmt.sourceName)) {
               scripts.push(stmt.sourceName);
             }
@@ -215,7 +223,7 @@ export const HierarchyView = forwardRef<HierarchyViewRef, HierarchyViewProps>(
       });
 
       return { columnsByTable: colMap, scriptsByTable: scriptMap };
-    }, [getNode, nodes, edges, statements]);
+    }, [getNode, nodes, edges, statementsByIndex]);
 
     // Pre-compute all table mappings for efficient lookup
     const mappingsByTable = useMemo(() => {

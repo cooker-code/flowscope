@@ -2,10 +2,10 @@
 //!
 //! Generates DDL + INSERT statements that can be executed by duckdb-wasm.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
-use crate::join_export::representative_join_edge_indexes;
+use crate::join_export::representative_join_edge_ids;
 use crate::schema::{tables_ddl, views_ddl};
 use crate::ExportError;
 use flowscope_core::AnalyzeResult;
@@ -127,12 +127,11 @@ pub fn export_sql(result: &AnalyzeResult, schema: Option<&str>) -> Result<String
 
     // Data with prefix
     write_meta_sql(&mut sql, &prefix);
-    write_statements_sql(&mut sql, result, &prefix);
-    write_nodes_sql(&mut sql, result, &prefix);
-    write_edges_sql(&mut sql, result, &prefix);
-    write_issues_sql(&mut sql, result, &prefix);
+    let statement_row_ids = write_statements_sql(&mut sql, result, &prefix);
+    write_nodes_sql(&mut sql, result, &prefix, &statement_row_ids)?;
+    write_edges_sql(&mut sql, result, &prefix, &statement_row_ids)?;
+    write_issues_sql(&mut sql, result, &prefix, &statement_row_ids)?;
     write_schema_tables_sql(&mut sql, result, &prefix);
-    write_global_lineage_sql(&mut sql, result, &prefix);
 
     Ok(sql)
 }
@@ -198,8 +197,14 @@ fn write_meta_sql(sql: &mut String, prefix: &str) {
     ));
 }
 
-fn write_statements_sql(sql: &mut String, result: &AnalyzeResult, prefix: &str) {
+fn write_statements_sql(
+    sql: &mut String,
+    result: &AnalyzeResult,
+    prefix: &str,
+) -> HashMap<usize, i64> {
+    let mut statement_row_ids = HashMap::with_capacity(result.statements.len());
     for (idx, s) in result.statements.iter().enumerate() {
+        statement_row_ids.insert(s.statement_index, idx as i64);
         let (span_start, span_end) = s
             .span
             .map(|sp| (Some(sp.start as i64), Some(sp.end as i64)))
@@ -217,55 +222,102 @@ fn write_statements_sql(sql: &mut String, result: &AnalyzeResult, prefix: &str) 
             s.complexity_score,
         ));
     }
+
+    statement_row_ids
 }
 
-fn write_nodes_sql(sql: &mut String, result: &AnalyzeResult, prefix: &str) {
+fn statement_row_id(
+    statement_row_ids: &HashMap<usize, i64>,
+    statement_index: usize,
+) -> Result<i64, ExportError> {
+    statement_row_ids.get(&statement_index).copied().ok_or_else(|| {
+        ExportError::Serialization(format!(
+            "statement index {statement_index} is referenced by the graph but missing from result.statements"
+        ))
+    })
+}
+
+fn write_nodes_sql(
+    sql: &mut String,
+    result: &AnalyzeResult,
+    prefix: &str,
+    statement_row_ids: &HashMap<usize, i64>,
+) -> Result<(), ExportError> {
     let mut filter_id: i64 = 0;
+    let mut name_span_id: i64 = 0;
 
-    for (stmt_idx, statement) in result.statements.iter().enumerate() {
-        for node in &statement.nodes {
-            let (span_start, span_end) = node
-                .span
-                .map(|sp| (Some(sp.start as i64), Some(sp.end as i64)))
-                .unwrap_or((None, None));
-            let node_type = format!("{:?}", node.node_type).to_lowercase();
-            let resolution = node
-                .resolution_source
-                .map(|r| format!("{:?}", r).to_lowercase());
+    for node in &result.nodes {
+        let (span_start, span_end) = node
+            .span
+            .map(|sp| (Some(sp.start as i64), Some(sp.end as i64)))
+            .unwrap_or((None, None));
+        let (body_start, body_end) = node
+            .body_span
+            .map(|sp| (Some(sp.start as i64), Some(sp.end as i64)))
+            .unwrap_or((None, None));
+        let node_type = format!("{:?}", node.node_type).to_lowercase();
+        let resolution = node
+            .resolution_source
+            .map(|r| format!("{:?}", r).to_lowercase());
 
+        sql.push_str(&format!(
+            "INSERT INTO {prefix}nodes (id, node_type, label, qualified_name, canonical_catalog, canonical_schema, canonical_name, canonical_column, expression, span_start, span_end, body_span_start, body_span_end, resolution_source) VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {});\n",
+            sql_str(Some(node.id.as_ref())),
+            sql_str(Some(&node_type)),
+            sql_str(Some(node.label.as_ref())),
+            sql_str(node.qualified_name.as_ref().map(|s| s.as_ref())),
+            sql_str(node.canonical_name.as_ref().and_then(|c| c.catalog.as_deref())),
+            sql_str(node.canonical_name.as_ref().and_then(|c| c.schema.as_deref())),
+            sql_str(node.canonical_name.as_ref().map(|c| c.name.as_str())),
+            sql_str(node.canonical_name.as_ref().and_then(|c| c.column.as_deref())),
+            sql_str(node.expression.as_ref().map(|s| s.as_ref())),
+            sql_int(span_start),
+            sql_int(span_end),
+            sql_int(body_start),
+            sql_int(body_end),
+            sql_str(resolution.as_deref()),
+        ));
+
+        for stmt_id in &node.statement_ids {
+            let statement_row_id = statement_row_id(statement_row_ids, *stmt_id)?;
             sql.push_str(&format!(
-                "INSERT INTO {prefix}nodes (id, statement_id, node_type, label, qualified_name, expression, span_start, span_end, resolution_source) VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {});\n",
+                "INSERT INTO {prefix}node_statements (node_id, statement_id) VALUES ({}, {});\n",
                 sql_str(Some(node.id.as_ref())),
-                stmt_idx,
-                sql_str(Some(&node_type)),
-                sql_str(Some(node.label.as_ref())),
-                sql_str(node.qualified_name.as_ref().map(|s| s.as_ref())),
-                sql_str(node.expression.as_ref().map(|s| s.as_ref())),
-                sql_int(span_start),
-                sql_int(span_end),
-                sql_str(resolution.as_deref()),
+                statement_row_id,
             ));
+        }
 
-            // Write filters
-            for filter in &node.filters {
+        for span in node.all_name_spans() {
+            sql.push_str(&format!(
+                "INSERT INTO {prefix}node_name_spans (id, node_id, span_start, span_end) VALUES ({}, {}, {}, {});\n",
+                name_span_id,
+                sql_str(Some(node.id.as_ref())),
+                span.start,
+                span.end,
+            ));
+            name_span_id += 1;
+        }
+
+        for stmt_id in &node.statement_ids {
+            let statement_row_id = statement_row_id(statement_row_ids, *stmt_id)?;
+            for filter in node.filters_for_statement(*stmt_id) {
                 let ft = format!("{:?}", filter.clause_type).to_lowercase();
                 sql.push_str(&format!(
                     "INSERT INTO {prefix}filters (id, node_id, statement_id, predicate, filter_type) VALUES ({}, {}, {}, {}, {});\n",
                     filter_id,
                     sql_str(Some(node.id.as_ref())),
-                    stmt_idx,
+                    statement_row_id,
                     sql_str(Some(&filter.expression)),
                     sql_str(Some(&ft)),
                 ));
                 filter_id += 1;
             }
 
-            // Write aggregation info
-            if let Some(agg) = &node.aggregation {
+            if let Some(agg) = node.aggregation_for_statement(*stmt_id) {
                 sql.push_str(&format!(
                     "INSERT INTO {prefix}aggregations (node_id, statement_id, is_grouping_key, function, is_distinct) VALUES ({}, {}, {}, {}, {});\n",
                     sql_str(Some(node.id.as_ref())),
-                    stmt_idx,
+                    statement_row_id,
                     sql_bool(agg.is_grouping_key),
                     sql_str(agg.function.as_deref()),
                     sql_opt_bool(agg.distinct),
@@ -273,65 +325,82 @@ fn write_nodes_sql(sql: &mut String, result: &AnalyzeResult, prefix: &str) {
             }
         }
     }
+
+    Ok(())
 }
 
-fn write_edges_sql(sql: &mut String, result: &AnalyzeResult, prefix: &str) {
-    let mut edge_id: i64 = 0;
+fn write_edges_sql(
+    sql: &mut String,
+    result: &AnalyzeResult,
+    prefix: &str,
+    statement_row_ids: &HashMap<usize, i64>,
+) -> Result<(), ExportError> {
     let mut join_id: i64 = 0;
-    for (stmt_idx, statement) in result.statements.iter().enumerate() {
-        let join_edge_indexes: HashSet<_> = representative_join_edge_indexes(statement)
-            .into_iter()
-            .collect();
+    let join_edge_ids = representative_join_edge_ids(&result.nodes, &result.edges);
 
-        for (edge_idx, edge) in statement.edges.iter().enumerate() {
-            let edge_type = format!("{:?}", edge.edge_type).to_lowercase();
+    for edge in &result.edges {
+        let edge_type = format!("{:?}", edge.edge_type).to_lowercase();
+        sql.push_str(&format!(
+            "INSERT INTO {prefix}edges (id, edge_type, from_node_id, to_node_id, expression, operation, is_approximate) VALUES ({}, {}, {}, {}, {}, {}, {});\n",
+            sql_str(Some(edge.id.as_ref())),
+            sql_str(Some(&edge_type)),
+            sql_str(Some(edge.from.as_ref())),
+            sql_str(Some(edge.to.as_ref())),
+            sql_str(edge.expression.as_ref().map(|s| s.as_ref())),
+            sql_str(edge.operation.as_ref().map(|s| s.as_ref())),
+            sql_bool(edge.approximate.unwrap_or(false)),
+        ));
+
+        for stmt_id in &edge.statement_ids {
+            let statement_row_id = statement_row_id(statement_row_ids, *stmt_id)?;
             sql.push_str(&format!(
-                "INSERT INTO {prefix}edges (id, statement_id, edge_type, from_node_id, to_node_id, expression, operation, is_approximate) VALUES ({}, {}, {}, {}, {}, {}, {}, {});\n",
-                edge_id,
-                stmt_idx,
-                sql_str(Some(&edge_type)),
-                sql_str(Some(edge.from.as_ref())),
-                sql_str(Some(edge.to.as_ref())),
-                sql_str(edge.expression.as_ref().map(|s| s.as_ref())),
-                sql_str(edge.operation.as_ref().map(|s| s.as_ref())),
-                sql_bool(edge.approximate.unwrap_or(false)),
+                "INSERT INTO {prefix}edge_statements (edge_id, statement_id) VALUES ({}, {});\n",
+                sql_str(Some(edge.id.as_ref())),
+                statement_row_id,
             ));
+        }
 
-            // Export one representative join row per logical relation pair.
-            if join_edge_indexes.contains(&edge_idx) {
-                let join_type = edge
-                    .join_type
-                    .as_ref()
-                    .expect("representative join edge must carry join metadata");
-                let jt = format!("{:?}", join_type).to_uppercase();
-                sql.push_str(&format!(
-                    "INSERT INTO {prefix}joins (id, edge_id, statement_id, join_type, join_condition) VALUES ({}, {}, {}, {}, {});\n",
-                    join_id,
-                    edge_id,
-                    stmt_idx,
-                    sql_str(Some(&jt)),
-                    sql_str(edge.join_condition.as_ref().map(|s| s.as_ref())),
-                ));
-                join_id += 1;
-            }
-
-            edge_id += 1;
+        if join_edge_ids.contains(edge.id.as_ref()) {
+            let join_type = edge
+                .join_type
+                .as_ref()
+                .expect("representative join edge must carry join metadata");
+            let jt = format!("{:?}", join_type).to_uppercase();
+            sql.push_str(&format!(
+                "INSERT INTO {prefix}joins (id, edge_id, join_type, join_condition) VALUES ({}, {}, {}, {});\n",
+                join_id,
+                sql_str(Some(edge.id.as_ref())),
+                sql_str(Some(&jt)),
+                sql_str(edge.join_condition.as_ref().map(|s| s.as_ref())),
+            ));
+            join_id += 1;
         }
     }
+
+    Ok(())
 }
 
-fn write_issues_sql(sql: &mut String, result: &AnalyzeResult, prefix: &str) {
+fn write_issues_sql(
+    sql: &mut String,
+    result: &AnalyzeResult,
+    prefix: &str,
+    statement_row_ids: &HashMap<usize, i64>,
+) -> Result<(), ExportError> {
     for (issue_id, issue) in result.issues.iter().enumerate() {
         let severity = format!("{:?}", issue.severity).to_lowercase();
         let (span_start, span_end) = issue
             .span
             .map(|sp| (Some(sp.start as i64), Some(sp.end as i64)))
             .unwrap_or((None, None));
+        let statement_row_id = issue
+            .statement_index
+            .map(|statement_index| statement_row_id(statement_row_ids, statement_index))
+            .transpose()?;
 
         sql.push_str(&format!(
             "INSERT INTO {prefix}issues (id, statement_id, severity, code, message, span_start, span_end) VALUES ({}, {}, {}, {}, {}, {}, {});\n",
             issue_id,
-            sql_int(issue.statement_index.map(|i| i as i64)),
+            sql_int(statement_row_id),
             sql_str(Some(&severity)),
             sql_str(Some(&issue.code)),
             sql_str(Some(&issue.message)),
@@ -339,6 +408,8 @@ fn write_issues_sql(sql: &mut String, result: &AnalyzeResult, prefix: &str) {
             sql_int(span_end),
         ));
     }
+
+    Ok(())
 }
 
 fn write_schema_tables_sql(sql: &mut String, result: &AnalyzeResult, prefix: &str) {
@@ -370,77 +441,6 @@ fn write_schema_tables_sql(sql: &mut String, result: &AnalyzeResult, prefix: &st
             ));
             col_id += 1;
         }
-    }
-}
-
-/// Write global lineage data (cross-statement nodes and edges).
-///
-/// Global lineage may contain duplicate nodes/edges when the same canonical entity
-/// (e.g., a table or column) is referenced across multiple statements. We deduplicate
-/// here rather than in the upstream data structure because:
-/// 1. The global_lineage.nodes vec may legitimately contain multiple references to the
-///    same entity from different statements (each with different statement_refs)
-/// 2. The global_nodes table has a PRIMARY KEY on id, so duplicates would violate
-///    referential integrity
-/// 3. Deduplication in SQL (INSERT OR IGNORE) would lose statement_refs from later
-///    occurrences
-///
-/// The deduplication ensures we insert each unique node/edge exactly once, with all
-/// its statement_refs preserved from the first occurrence.
-fn write_global_lineage_sql(sql: &mut String, result: &AnalyzeResult, prefix: &str) {
-    let mut ref_id: i64 = 0;
-    let mut written_node_ids: HashSet<&str> = HashSet::new();
-    let mut written_edge_ids: HashSet<&str> = HashSet::new();
-
-    for node in &result.global_lineage.nodes {
-        // Skip if already written - global_nodes.id is PRIMARY KEY
-        if !written_node_ids.insert(node.id.as_ref()) {
-            continue;
-        }
-
-        let node_type = format!("{:?}", node.node_type).to_lowercase();
-        let resolution = node
-            .resolution_source
-            .map(|r| format!("{:?}", r).to_lowercase());
-
-        sql.push_str(&format!(
-            "INSERT INTO {prefix}global_nodes (id, node_type, label, canonical_catalog, canonical_schema, canonical_name, canonical_column, resolution_source) VALUES ({}, {}, {}, {}, {}, {}, {}, {});\n",
-            sql_str(Some(node.id.as_ref())),
-            sql_str(Some(&node_type)),
-            sql_str(Some(node.label.as_ref())),
-            sql_str(node.canonical_name.catalog.as_deref()),
-            sql_str(node.canonical_name.schema.as_deref()),
-            sql_str(Some(&node.canonical_name.name)),
-            sql_str(node.canonical_name.column.as_deref()),
-            sql_str(resolution.as_deref()),
-        ));
-
-        for stmt_ref in &node.statement_refs {
-            sql.push_str(&format!(
-                "INSERT INTO {prefix}global_node_statement_refs (id, global_node_id, statement_index, local_node_id) VALUES ({}, {}, {}, {});\n",
-                ref_id,
-                sql_str(Some(node.id.as_ref())),
-                stmt_ref.statement_index,
-                sql_str(stmt_ref.node_id.as_ref().map(|s| s.as_ref())),
-            ));
-            ref_id += 1;
-        }
-    }
-
-    for edge in &result.global_lineage.edges {
-        // Skip if already written - global_edges.id is PRIMARY KEY
-        if !written_edge_ids.insert(edge.id.as_ref()) {
-            continue;
-        }
-
-        let edge_type = format!("{:?}", edge.edge_type).to_lowercase();
-        sql.push_str(&format!(
-            "INSERT INTO {prefix}global_edges (id, from_node_id, to_node_id, edge_type) VALUES ({}, {}, {}, {});\n",
-            sql_str(Some(edge.id.as_ref())),
-            sql_str(Some(edge.from.as_ref())),
-            sql_str(Some(edge.to.as_ref())),
-            sql_str(Some(&edge_type)),
-        ));
     }
 }
 
@@ -680,5 +680,35 @@ mod integration_tests {
             .expect("Should resolve relation labels in join_graph");
         assert_eq!(from_label, "orders");
         assert_eq!(to_label, "Output");
+    }
+
+    #[test]
+    fn test_cross_statement_flow_excludes_shared_intra_statement_edges() {
+        let request = AnalyzeRequest {
+            sql: "SELECT id FROM users; SELECT id FROM users".to_string(),
+            files: None,
+            dialect: Dialect::Generic,
+            source_name: None,
+            options: None,
+            schema: None,
+            #[cfg(feature = "templating")]
+            template_config: None,
+        };
+        let result = analyze(&request);
+        let sql = export_sql(&result, None).expect("Export should succeed");
+
+        let conn = Connection::open_in_memory().expect("Failed to create DuckDB connection");
+        conn.execute_batch(&sql)
+            .expect("Generated SQL should execute without errors");
+
+        let flow_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM cross_statement_flow", [], |row| {
+                row.get(0)
+            })
+            .expect("Should query cross_statement_flow view");
+        assert_eq!(
+            flow_count, 0,
+            "shared statement-local edges must not appear as cross-statement flow"
+        );
     }
 }

@@ -1,7 +1,7 @@
 use flowscope_core::{
     analyze, issue_codes, AnalysisOptions, AnalyzeRequest, AnalyzeResult, ColumnSchema,
     ConstraintType, Dialect, Edge, EdgeType, FilterClauseType, JoinType, Node, NodeType,
-    SchemaMetadata, SchemaNamespaceHint, SchemaTable, Severity, StatementLineage,
+    SchemaMetadata, SchemaNamespaceHint, SchemaTable, Severity,
 };
 use rstest::rstest;
 use std::collections::HashSet;
@@ -73,12 +73,10 @@ fn load_sql_fixture(dialect: &str, name: &str) -> String {
 
 fn collect_table_names(result: &AnalyzeResult) -> HashSet<String> {
     let mut tables = HashSet::new();
-    for statement in &result.statements {
-        for node in &statement.nodes {
-            if node.node_type == NodeType::Table {
-                let name = node.qualified_name.as_ref().unwrap_or(&node.label);
-                tables.insert(name.to_string());
-            }
+    for node in &result.nodes {
+        if node.node_type == NodeType::Table {
+            let name = node.qualified_name.as_ref().unwrap_or(&node.label);
+            tables.insert(name.to_string());
         }
     }
     tables
@@ -145,14 +143,32 @@ fn column_fk(name: &str, data_type: &str, ref_table: &str, ref_column: &str) -> 
     }
 }
 
-fn first_statement(result: &AnalyzeResult) -> &StatementLineage {
-    result
-        .statements
-        .first()
-        .expect("analysis should return at least one statement")
+/// Test-local view over a single statement's slice of the flat lineage graph.
+/// Keeps existing per-statement test helpers ergonomic after the top-level
+/// `AnalyzeResult.statements[N].nodes/edges` fields were flattened.
+struct StmtView<'a> {
+    nodes: Vec<&'a Node>,
+    edges: Vec<&'a Edge>,
 }
 
-fn column_labels(lineage: &StatementLineage) -> Vec<String> {
+impl<'a> StmtView<'a> {
+    fn new(result: &'a AnalyzeResult, statement_index: usize) -> Self {
+        Self {
+            nodes: result.nodes_in_statement(statement_index).collect(),
+            edges: result.edges_in_statement(statement_index).collect(),
+        }
+    }
+}
+
+fn first_statement(result: &AnalyzeResult) -> StmtView<'_> {
+    let first = result
+        .statements
+        .first()
+        .expect("analysis should return at least one statement");
+    StmtView::new(result, first.statement_index)
+}
+
+fn column_labels(lineage: &StmtView<'_>) -> Vec<String> {
     lineage
         .nodes
         .iter()
@@ -163,11 +179,9 @@ fn column_labels(lineage: &StatementLineage) -> Vec<String> {
 
 fn collect_cte_names(result: &AnalyzeResult) -> HashSet<String> {
     let mut ctes = HashSet::new();
-    for stmt in &result.statements {
-        for node in &stmt.nodes {
-            if node.node_type == NodeType::Cte {
-                ctes.insert(node.label.to_string());
-            }
+    for node in &result.nodes {
+        if node.node_type == NodeType::Cte {
+            ctes.insert(node.label.to_string());
         }
     }
     ctes
@@ -181,47 +195,49 @@ fn issue_codes_list(result: &AnalyzeResult) -> Vec<String> {
         .collect()
 }
 
-fn edges_by_type(lineage: &StatementLineage, edge_type: EdgeType) -> Vec<&Edge> {
+fn edges_by_type<'a>(lineage: &StmtView<'a>, edge_type: EdgeType) -> Vec<&'a Edge> {
     lineage
         .edges
         .iter()
+        .copied()
         .filter(|edge| edge.edge_type == edge_type)
         .collect()
 }
 
 #[allow(dead_code)]
-fn find_node_by_label<'a>(lineage: &'a StatementLineage, label: &str) -> Option<&'a Node> {
-    lineage.nodes.iter().find(|node| &*node.label == label)
-}
-
-fn find_column_node<'a>(lineage: &'a StatementLineage, label: &str) -> Option<&'a Node> {
+fn find_node_by_label<'a>(lineage: &StmtView<'a>, label: &str) -> Option<&'a Node> {
     lineage
         .nodes
         .iter()
+        .copied()
+        .find(|node| &*node.label == label)
+}
+
+fn find_column_node<'a>(lineage: &StmtView<'a>, label: &str) -> Option<&'a Node> {
+    lineage
+        .nodes
+        .iter()
+        .copied()
         .find(|node| node.node_type == NodeType::Column && &*node.label == label)
 }
 
-fn find_table_node<'a>(lineage: &'a StatementLineage, name: &str) -> Option<&'a Node> {
-    lineage.nodes.iter().find(|node| {
+fn find_table_node<'a>(lineage: &StmtView<'a>, name: &str) -> Option<&'a Node> {
+    lineage.nodes.iter().copied().find(|node| {
         node.node_type == NodeType::Table
             && (&*node.label == name || node.qualified_name.as_deref() == Some(name))
     })
 }
 
-fn find_cte_node<'a>(lineage: &'a StatementLineage, name: &str) -> Option<&'a Node> {
+fn find_cte_node<'a>(lineage: &StmtView<'a>, name: &str) -> Option<&'a Node> {
     lineage
         .nodes
         .iter()
+        .copied()
         .find(|node| node.node_type == NodeType::Cte && &*node.label == name)
 }
 
 #[allow(dead_code)]
-fn has_edge(
-    lineage: &StatementLineage,
-    from_label: &str,
-    to_label: &str,
-    edge_type: EdgeType,
-) -> bool {
+fn has_edge(lineage: &StmtView<'_>, from_label: &str, to_label: &str, edge_type: EdgeType) -> bool {
     let from_node = find_node_by_label(lineage, from_label);
     let to_node = find_node_by_label(lineage, to_label);
 
@@ -260,10 +276,10 @@ fn multi_dialect_fixtures_cover_core_constructs(#[case] dir_name: &str, #[case] 
             result.issues
         );
         assert!(
-            result.statements.iter().any(|stmt| stmt
+            result
                 .nodes
                 .iter()
-                .any(|node| matches!(node.node_type, NodeType::Table | NodeType::Cte))),
+                .any(|node| matches!(node.node_type, NodeType::Table | NodeType::Cte)),
             "fixture {dir_name}/{fixture} should yield tables or CTEs"
         );
         assert!(
@@ -330,7 +346,6 @@ fn multi_stage_pipeline_emits_cross_statement_edges() {
     }
 
     let cross_edges: Vec<_> = result
-        .global_lineage
         .edges
         .iter()
         .filter(|edge| edge.edge_type == EdgeType::CrossStatement)
@@ -338,8 +353,59 @@ fn multi_stage_pipeline_emits_cross_statement_edges() {
     assert!(
         cross_edges.len() >= 2,
         "expected cross-statement edges, got {:?}",
-        result.global_lineage.edges
+        result.edges
     );
+}
+
+#[test]
+fn flatten_preserves_distinct_cross_statement_pairs() {
+    // One producer feeding two distinct consumers must yield two
+    // cross-statement edges in the flattened AnalyzeResult, each with an
+    // ordered `[producer, consumer]` pair. Collapsing these into a single
+    // edge with a union of statement indices would erase which statement is
+    // the producer and which are the consumers.
+    let sql = r#"
+        CREATE TABLE staging.shared AS SELECT 1 AS x;
+        SELECT x FROM staging.shared;
+        SELECT x + 1 FROM staging.shared;
+    "#;
+
+    let result = run_analysis(sql, Dialect::Postgres, None);
+    let cross_edges: Vec<_> = result
+        .edges
+        .iter()
+        .filter(|e| e.edge_type == EdgeType::CrossStatement)
+        .collect();
+
+    assert_eq!(
+        cross_edges.len(),
+        2,
+        "expected one cross-statement edge per consumer, got {cross_edges:#?}"
+    );
+
+    let pairs: std::collections::HashSet<(usize, usize)> = cross_edges
+        .iter()
+        .map(|e| {
+            assert_eq!(
+                e.statement_ids.len(),
+                2,
+                "cross-statement edge should carry [producer, consumer]"
+            );
+            (e.statement_ids[0], e.statement_ids[1])
+        })
+        .collect();
+
+    assert!(
+        pairs.contains(&(0, 1)),
+        "missing producer=0 consumer=1 pair"
+    );
+    assert!(
+        pairs.contains(&(0, 2)),
+        "missing producer=0 consumer=2 pair"
+    );
+
+    let ids: std::collections::HashSet<_> = cross_edges.iter().map(|e| &e.id).collect();
+    assert_eq!(ids.len(), cross_edges.len(), "edge IDs must remain unique");
 }
 
 #[test]
@@ -462,11 +528,10 @@ fn derived_tables_and_exists_predicates_produce_complete_lineage() {
         "expected at least three physical tables"
     );
     assert!(
-        result
-            .statements
-            .first()
-            .map(|stmt| !stmt.edges.is_empty())
-            .unwrap_or(false),
+        result.statements.first().is_some_and(|stmt| result
+            .edges_in_statement(stmt.statement_index)
+            .next()
+            .is_some()),
         "expected data-flow edges connecting derived tables"
     );
 }
@@ -606,7 +671,7 @@ fn ansi_select_registers_single_table_and_columns() {
         "expected analytics.users in lineage, tables: {tables:?}"
     );
 
-    let cols = column_labels(first_statement(&result));
+    let cols = column_labels(&first_statement(&result));
     assert!(
         cols.iter().any(|c| c == "id"),
         "expected id column in output: {cols:?}"
@@ -732,7 +797,6 @@ fn ansi_multi_statement_flow_updates_summary_and_cross_edges() {
     assert_eq!(result.summary.statement_count, 4);
 
     let cross_edges: Vec<_> = result
-        .global_lineage
         .edges
         .iter()
         .filter(|edge| edge.edge_type == EdgeType::CrossStatement)
@@ -858,7 +922,7 @@ fn ansi_window_functions_produce_derivation_edges() {
 
     let result = run_analysis(sql, Dialect::Generic, None);
     let stmt = first_statement(&result);
-    let derivations = edges_by_type(stmt, EdgeType::Derivation);
+    let derivations = edges_by_type(&stmt, EdgeType::Derivation);
     assert!(
         derivations.iter().any(|edge| {
             edge.expression
@@ -1092,7 +1156,7 @@ fn ansi_case_expressions_emit_derivation_edges() {
 
     let result = run_analysis(sql, Dialect::Generic, None);
     let stmt = first_statement(&result);
-    let derivations = edges_by_type(stmt, EdgeType::Derivation);
+    let derivations = edges_by_type(&stmt, EdgeType::Derivation);
     assert!(
         !derivations.is_empty(),
         "CASE expression should create derivation edges"
@@ -1308,7 +1372,7 @@ fn column_lineage_multiple_aliases_to_same_column() {
     "#;
 
     let result = run_analysis(sql, Dialect::Generic, None);
-    let cols = column_labels(first_statement(&result));
+    let cols = column_labels(&first_statement(&result));
 
     for expected in ["user_id", "customer_id", "account_id"] {
         assert!(
@@ -1371,7 +1435,7 @@ fn column_lineage_coalesce_across_multiple_tables() {
     }
 
     let stmt = first_statement(&result);
-    let derivations = edges_by_type(stmt, EdgeType::Derivation);
+    let derivations = edges_by_type(&stmt, EdgeType::Derivation);
     assert!(
         !derivations.is_empty(),
         "COALESCE should create derivation edges"
@@ -1390,7 +1454,7 @@ fn column_lineage_concat_and_string_functions() {
 
     let result = run_analysis(sql, Dialect::Generic, None);
     let stmt = first_statement(&result);
-    let derivations = edges_by_type(stmt, EdgeType::Derivation);
+    let derivations = edges_by_type(&stmt, EdgeType::Derivation);
 
     assert!(
         derivations.len() >= 3,
@@ -1475,7 +1539,7 @@ fn advanced_agg_filter_clause_on_aggregates() {
     );
 
     let stmt = first_statement(&result);
-    let derivations = edges_by_type(stmt, EdgeType::Derivation);
+    let derivations = edges_by_type(&stmt, EdgeType::Derivation);
     assert!(
         !derivations.is_empty(),
         "FILTER aggregates should create derivation edges"
@@ -1574,7 +1638,7 @@ fn self_join_multi_level_hierarchy() {
         "each alias should have a unique node ID"
     );
 
-    let cols = column_labels(stmt);
+    let cols = column_labels(&stmt);
     for expected in ["employee", "manager", "director", "vp"] {
         assert!(
             cols.contains(&expected.to_string()),
@@ -1653,6 +1717,48 @@ fn self_join_filters_attach_to_correct_instance() {
         filtered_node.filters[0].expression.contains("active"),
         "filter should reference 'active'"
     );
+}
+
+#[test]
+fn shared_nodes_preserve_filters_per_statement_in_metadata() {
+    let sql = r#"
+        SELECT id FROM users WHERE active = true;
+        SELECT id FROM users WHERE deleted = false
+    "#;
+
+    let result = run_analysis(sql, Dialect::Generic, None);
+    let users = result
+        .nodes
+        .iter()
+        .find(|node| node.node_type == NodeType::Table && node.label.as_ref() == "users")
+        .expect("shared users table node should exist");
+
+    let statement_filters = users
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("statementFilters"))
+        .and_then(|value| value.as_object())
+        .expect("statementFilters metadata should be present");
+
+    let first_filters = statement_filters
+        .get("0")
+        .and_then(|value| value.as_array())
+        .expect("statement 0 filters should be recorded");
+    let second_filters = statement_filters
+        .get("1")
+        .and_then(|value| value.as_array())
+        .expect("statement 1 filters should be recorded");
+
+    assert_eq!(first_filters.len(), 1);
+    assert_eq!(second_filters.len(), 1);
+    assert!(first_filters[0]["expression"]
+        .as_str()
+        .unwrap()
+        .contains("active"));
+    assert!(second_filters[0]["expression"]
+        .as_str()
+        .unwrap()
+        .contains("deleted"));
 }
 
 #[test]
@@ -1863,7 +1969,7 @@ fn schema_qualified_unaliased_self_join_reference_uses_distinct_instance() {
 }
 
 #[test]
-fn self_join_global_lineage_merges_by_canonical() {
+fn self_join_preserves_distinct_instances_in_flat_lineage() {
     let sql = r#"
         SELECT e1.name, e2.name
         FROM employees e1
@@ -1872,7 +1978,7 @@ fn self_join_global_lineage_merges_by_canonical() {
 
     let result = run_analysis(sql, Dialect::Generic, None);
 
-    // Statement-level: 2 distinct nodes
+    // Statement-level: 2 distinct instance nodes for the same canonical table
     let stmt = first_statement(&result);
     let stmt_table_nodes: Vec<_> = stmt
         .nodes
@@ -1881,30 +1987,30 @@ fn self_join_global_lineage_merges_by_canonical() {
         .collect();
     assert_eq!(stmt_table_nodes.len(), 2);
 
-    // Global lineage should still have a single "employees" entry
-    let global = &result.global_lineage;
-    let global_employees: Vec<_> = global
+    // Flat top-level lineage preserves the same two instances. The new model
+    // keeps self-join distinctness so the graph can render both branches.
+    let employees_nodes: Vec<_> = result
         .nodes
         .iter()
-        .filter(|n| n.canonical_name.name == "employees")
+        .filter(|n| n.canonical_name.as_ref().unwrap().name == "employees")
         .collect();
     assert_eq!(
-        global_employees.len(),
-        1,
-        "global lineage should merge self-join instances into one canonical node"
+        employees_nodes.len(),
+        2,
+        "flat lineage should preserve both self-join instances of employees"
     );
 
-    let global_node_ids: HashSet<_> = global.nodes.iter().map(|n| n.id.clone()).collect();
-    for edge in &global.edges {
+    let global_node_ids: HashSet<_> = result.nodes.iter().map(|n| n.id.clone()).collect();
+    for edge in &result.edges {
         assert!(
             global_node_ids.contains(&edge.from),
-            "global edge {} has missing source node {}",
+            "edge {} has missing source node {}",
             edge.id,
             edge.from
         );
         assert!(
             global_node_ids.contains(&edge.to),
-            "global edge {} has missing target node {}",
+            "edge {} has missing target node {}",
             edge.id,
             edge.to
         );
@@ -1912,7 +2018,7 @@ fn self_join_global_lineage_merges_by_canonical() {
 }
 
 #[test]
-fn self_join_global_lineage_merges_source_columns_by_canonical() {
+fn self_join_keeps_per_instance_source_columns_in_flat_lineage() {
     let sql = r#"
         SELECT
             e1.name AS employee_name,
@@ -1924,62 +2030,68 @@ fn self_join_global_lineage_merges_source_columns_by_canonical() {
     "#;
 
     let result = run_analysis(sql, Dialect::Generic, None);
-    let global = &result.global_lineage;
 
-    let employees_node = global
+    // Three distinct table instances (e1, e2, e3) — each with its own node.
+    let employees_nodes: Vec<_> = result
         .nodes
         .iter()
-        .find(|node| node.node_type == NodeType::Table && node.canonical_name.name == "employees")
-        .expect("employees table should exist in global lineage");
+        .filter(|node| {
+            node.node_type == NodeType::Table
+                && node.canonical_name.as_ref().unwrap().name == "employees"
+        })
+        .collect();
+    assert_eq!(employees_nodes.len(), 3, "one node per self-join instance");
 
-    let source_name_nodes: Vec<_> = global
+    // The three `name` source columns each belong to a different instance and
+    // remain distinct (one per instance). Each has its own ownership edge
+    // from the corresponding employees instance and one DataFlow edge to its
+    // output column.
+    let source_name_nodes: Vec<_> = result
         .nodes
         .iter()
         .filter(|node| {
             node.node_type == NodeType::Column
-                && node.canonical_name.schema.as_deref() == Some("employees")
-                && node.canonical_name.name == "name"
+                && node.canonical_name.as_ref().unwrap().schema.as_deref() == Some("employees")
+                && node.canonical_name.as_ref().unwrap().name == "name"
         })
         .collect();
 
     assert_eq!(
         source_name_nodes.len(),
-        1,
-        "self-join source columns should collapse into one global canonical node"
-    );
-
-    let source_name_node = source_name_nodes[0];
-    assert_eq!(
-        source_name_node.statement_refs.len(),
         3,
-        "merged source column should retain refs to all three statement-local instances"
+        "each self-join instance owns its own `name` source column"
     );
 
-    let ownership_edges: Vec<_> = global
+    for employees_node in &employees_nodes {
+        let owned_name_columns: Vec<_> = result
+            .edges
+            .iter()
+            .filter(|edge| {
+                edge.edge_type == EdgeType::Ownership
+                    && edge.from == employees_node.id
+                    && source_name_nodes.iter().any(|n| n.id == edge.to)
+            })
+            .collect();
+        assert_eq!(
+            owned_name_columns.len(),
+            1,
+            "each instance owns exactly one `name` source column"
+        );
+    }
+
+    let output_targets: HashSet<_> = result
         .edges
         .iter()
         .filter(|edge| {
-            edge.edge_type == EdgeType::Ownership
-                && edge.from == employees_node.id
-                && edge.to == source_name_node.id
+            edge.edge_type == EdgeType::DataFlow
+                && source_name_nodes.iter().any(|n| n.id == edge.from)
         })
-        .collect();
-    assert_eq!(
-        ownership_edges.len(),
-        1,
-        "merged global source column should have one ownership edge from employees"
-    );
-
-    let output_targets: HashSet<_> = global
-        .edges
-        .iter()
-        .filter(|edge| edge.edge_type == EdgeType::DataFlow && edge.from == source_name_node.id)
         .map(|edge| edge.to.clone())
         .collect();
     assert_eq!(
         output_targets.len(),
         3,
-        "merged source column should feed all three output aliases"
+        "each instance's source column feeds its own output alias"
     );
 }
 
@@ -2032,42 +2144,40 @@ fn global_lineage_merges_qualified_columns_across_self_joins_and_cte_instances()
     };
 
     let result = run_analysis(sql, Dialect::Generic, Some(schema));
-    let global = &result.global_lineage;
 
-    let employees_name_nodes: Vec<_> = global
+    // First statement self-joins employees three times → 3 distinct
+    // employees.name source columns (one per instance).
+    let employees_name_nodes: Vec<_> = result
         .nodes
         .iter()
         .filter(|node| {
             node.node_type == NodeType::Column
-                && node.canonical_name.schema.as_deref() == Some("employees")
-                && node.canonical_name.name == "name"
+                && node.canonical_name.as_ref().unwrap().schema.as_deref() == Some("employees")
+                && node.canonical_name.as_ref().unwrap().name == "name"
         })
         .collect();
     assert_eq!(
         employees_name_nodes.len(),
-        1,
-        "global lineage should contain one canonical employees.name node"
-    );
-    assert_eq!(
-        employees_name_nodes[0].statement_refs.len(),
         3,
-        "employees.name should retain all three self-join source refs"
+        "each self-join instance contributes its own employees.name node"
     );
 
-    let org_employee_id_nodes: Vec<_> = global
+    // Second statement self-joins the `org` CTE. CTE columns share a single
+    // statement-scoped node (the analyzer does not synthesize per-instance
+    // column nodes for CTE self-joins the way it does for base-table
+    // self-joins), so org.employee_id collapses to one node belonging to
+    // statement 1 only.
+    let org_employee_id_nodes: Vec<_> = result
         .nodes
         .iter()
         .filter(|node| {
             node.node_type == NodeType::Column
-                && node.canonical_name.schema.as_deref() == Some("org")
-                && node.canonical_name.name == "employee_id"
+                && node.canonical_name.as_ref().unwrap().schema.as_deref() == Some("org")
+                && node.canonical_name.as_ref().unwrap().name == "employee_id"
         })
         .collect();
-    assert_eq!(
-        org_employee_id_nodes.len(),
-        1,
-        "global lineage should contain one canonical org.employee_id node"
-    );
+    assert_eq!(org_employee_id_nodes.len(), 1);
+    assert_eq!(org_employee_id_nodes[0].statement_ids, vec![1]);
 }
 
 #[test]
@@ -2228,10 +2338,11 @@ fn repeated_cte_aliases_across_statements_keep_distinct_global_instance_nodes() 
     let result = run_analysis(sql, Dialect::Generic, None);
 
     let global_org_nodes: Vec<_> = result
-        .global_lineage
         .nodes
         .iter()
-        .filter(|node| node.node_type == NodeType::Cte && node.canonical_name.name == "org")
+        .filter(|node| {
+            node.node_type == NodeType::Cte && node.canonical_name.as_ref().unwrap().name == "org"
+        })
         .collect();
 
     assert_eq!(
@@ -2242,7 +2353,7 @@ fn repeated_cte_aliases_across_statements_keep_distinct_global_instance_nodes() 
 
     let statement_scoped_instances = global_org_nodes
         .iter()
-        .filter(|node| node.statement_refs.len() == 1)
+        .filter(|node| node.statement_ids.len() == 1)
         .count();
     assert_eq!(
         statement_scoped_instances, 4,
@@ -2250,13 +2361,15 @@ fn repeated_cte_aliases_across_statements_keep_distinct_global_instance_nodes() 
     );
 
     let global_org_columns: Vec<_> = result
-        .global_lineage
         .nodes
         .iter()
         .filter(|node| {
             node.node_type == NodeType::Column
-                && node.canonical_name.schema.as_deref() == Some("org")
-                && matches!(node.canonical_name.name.as_str(), "id" | "manager_id")
+                && node.canonical_name.as_ref().unwrap().schema.as_deref() == Some("org")
+                && matches!(
+                    node.canonical_name.as_ref().unwrap().name.as_str(),
+                    "id" | "manager_id"
+                )
         })
         .collect();
 
@@ -2268,9 +2381,9 @@ fn repeated_cte_aliases_across_statements_keep_distinct_global_instance_nodes() 
     let cross_statement_org_columns: Vec<_> = global_org_columns
         .iter()
         .filter(|node| {
-            node.statement_refs
+            node.statement_ids
                 .iter()
-                .map(|r| r.statement_index)
+                .copied()
                 .collect::<HashSet<_>>()
                 .len()
                 > 1
@@ -2396,17 +2509,16 @@ fn self_join_in_subquery_produces_distinct_nodes() {
         );
     }
 
-    // Global lineage should merge them
+    // Flat lineage preserves both subquery self-join instances.
     let global_employees: Vec<_> = result
-        .global_lineage
         .nodes
         .iter()
-        .filter(|n| n.canonical_name.name == "employees")
+        .filter(|n| n.canonical_name.as_ref().unwrap().name == "employees")
         .collect();
     assert_eq!(
         global_employees.len(),
-        1,
-        "global lineage should merge subquery self-join instances"
+        2,
+        "flat lineage preserves both subquery self-join instances"
     );
 }
 
@@ -2724,10 +2836,11 @@ fn cte_self_join_produces_distinct_nodes() {
     // Global lineage should preserve non-definition CTE reference instances so
     // ordinary self-joins are not rendered as recursive self-loops.
     let global_emp: Vec<_> = result
-        .global_lineage
         .nodes
         .iter()
-        .filter(|n| n.node_type == NodeType::Cte && n.canonical_name.name == "emp")
+        .filter(|n| {
+            n.node_type == NodeType::Cte && n.canonical_name.as_ref().unwrap().name == "emp"
+        })
         .collect();
     assert!(
         global_emp.len() >= 2,
@@ -2735,7 +2848,7 @@ fn cte_self_join_produces_distinct_nodes() {
     );
 
     assert!(
-        result.global_lineage.edges.iter().all(|edge| {
+        result.edges.iter().all(|edge| {
             !(edge.edge_type == EdgeType::DataFlow
                 && edge.from == edge.to
                 && global_emp.iter().any(|node| node.id == edge.from))
@@ -3098,13 +3211,8 @@ fn self_join_with_subquery_alias_conflict() {
     );
 
     // Verify no issues about missing nodes
-    let global_node_ids: HashSet<_> = result
-        .global_lineage
-        .nodes
-        .iter()
-        .map(|n| n.id.clone())
-        .collect();
-    for edge in &result.global_lineage.edges {
+    let global_node_ids: HashSet<_> = result.nodes.iter().map(|n| n.id.clone()).collect();
+    for edge in &result.edges {
         assert!(
             global_node_ids.contains(&edge.from),
             "global edge {} has missing source node {}",
@@ -3121,9 +3229,9 @@ fn self_join_with_subquery_alias_conflict() {
 }
 
 #[test]
-fn self_join_global_edges_resolve_correctly() {
-    // Verify that global lineage edges for self-join scenarios
-    // properly resolve through the local-to-global ID mapping.
+fn self_join_flat_edges_resolve_correctly() {
+    // Verify that flat lineage edges for self-join scenarios reference
+    // existing nodes after the per-instance ID preservation.
     let sql = r#"
         SELECT e1.name AS emp_name, e2.name AS mgr_name
         FROM employees e1
@@ -3131,45 +3239,44 @@ fn self_join_global_edges_resolve_correctly() {
     "#;
 
     let result = run_analysis(sql, Dialect::Generic, None);
-    let global = &result.global_lineage;
 
-    // Global employees should be a single node
-    let global_employees: Vec<_> = global
+    // Flat lineage preserves both instances.
+    let employees_nodes: Vec<_> = result
         .nodes
         .iter()
-        .filter(|n| n.canonical_name.name == "employees" && n.node_type == NodeType::Table)
+        .filter(|n| {
+            n.canonical_name.as_ref().unwrap().name == "employees" && n.node_type == NodeType::Table
+        })
         .collect();
-    assert_eq!(
-        global_employees.len(),
-        1,
-        "global lineage should have exactly 1 employees node"
-    );
+    assert_eq!(employees_nodes.len(), 2, "one node per self-join instance");
 
-    // All global edges should reference existing global nodes
-    let global_node_ids: HashSet<_> = global.nodes.iter().map(|n| n.id.clone()).collect();
-    for edge in &global.edges {
+    // All edges should reference existing nodes.
+    let node_ids: HashSet<_> = result.nodes.iter().map(|n| n.id.clone()).collect();
+    for edge in &result.edges {
         assert!(
-            global_node_ids.contains(&edge.from),
-            "global edge from={} not found in global nodes",
+            node_ids.contains(&edge.from),
+            "edge from={} not found in nodes",
             edge.from
         );
         assert!(
-            global_node_ids.contains(&edge.to),
-            "global edge to={} not found in global nodes",
+            node_ids.contains(&edge.to),
+            "edge to={} not found in nodes",
             edge.to
         );
     }
 
-    // Ownership edges from employees should point to column nodes
-    let ownership_edges: Vec<_> = global
-        .edges
-        .iter()
-        .filter(|e| e.edge_type == EdgeType::Ownership && e.from == global_employees[0].id)
-        .collect();
-    assert!(
-        !ownership_edges.is_empty(),
-        "global employees node should own column nodes"
-    );
+    // Each instance should own its own column node(s).
+    for employees_node in &employees_nodes {
+        let ownership_edges: Vec<_> = result
+            .edges
+            .iter()
+            .filter(|e| e.edge_type == EdgeType::Ownership && e.from == employees_node.id)
+            .collect();
+        assert!(
+            !ownership_edges.is_empty(),
+            "each employees instance should own column nodes"
+        );
+    }
 }
 
 #[test]
@@ -3621,7 +3728,7 @@ fn postgres_json_operators() {
     );
 
     let stmt = first_statement(&result);
-    let derivations = edges_by_type(stmt, EdgeType::Derivation);
+    let derivations = edges_by_type(&stmt, EdgeType::Derivation);
     assert!(
         !derivations.is_empty(),
         "JSON extraction should create derivation edges"
@@ -3774,9 +3881,8 @@ fn ddl_create_view_tracks_dependencies() {
     );
 
     // Verify the view node has the correct NodeType::View
-    let view_node = result.statements[0]
-        .nodes
-        .iter()
+    let view_node = result
+        .nodes_in_statement(0)
         .find(|n| &*n.label == "active_user_orders");
     assert!(view_node.is_some(), "Should find view node");
     assert_eq!(
@@ -3909,7 +4015,6 @@ fn ddl_multi_statement_temp_table_pipeline() {
     }
 
     let cross_edges: Vec<_> = result
-        .global_lineage
         .edges
         .iter()
         .filter(|edge| edge.edge_type == EdgeType::CrossStatement)
@@ -3942,9 +4047,8 @@ fn view_and_table_in_same_statement() {
     );
 
     // Verify view has correct type
-    let view_node = result.statements[0]
-        .nodes
-        .iter()
+    let view_node = result
+        .nodes_in_statement(0)
         .find(|n| &*n.label == "active_users");
     assert!(view_node.is_some(), "Should find view node");
     assert_eq!(
@@ -3954,10 +4058,7 @@ fn view_and_table_in_same_statement() {
     );
 
     // Verify table has correct type
-    let table_node = result.statements[1]
-        .nodes
-        .iter()
-        .find(|n| &*n.label == "orders");
+    let table_node = result.nodes_in_statement(1).find(|n| &*n.label == "orders");
     assert!(table_node.is_some(), "Should find orders table node");
     assert_eq!(
         table_node.unwrap().node_type,
@@ -3988,7 +4089,6 @@ fn cross_statement_view_lineage() {
 
     // Check that cross-statement edges exist
     let cross_edges: Vec<_> = result
-        .global_lineage
         .edges
         .iter()
         .filter(|edge| edge.edge_type == EdgeType::CrossStatement)
@@ -4000,11 +4100,7 @@ fn cross_statement_view_lineage() {
     );
 
     // Verify the view is correctly typed in global lineage
-    let global_view = result
-        .global_lineage
-        .nodes
-        .iter()
-        .find(|n| &*n.label == "user_orders");
+    let global_view = result.nodes.iter().find(|n| &*n.label == "user_orders");
     assert!(global_view.is_some(), "Should find view in global lineage");
     assert_eq!(
         global_view.unwrap().node_type,
@@ -4045,7 +4141,7 @@ fn mixed_table_view_cte_in_pipeline() {
     let mut view_count = 0;
     let mut cte_count = 0;
 
-    for node in &result.global_lineage.nodes {
+    for node in &result.nodes {
         match node.node_type {
             NodeType::Table => table_count += 1,
             NodeType::View => view_count += 1,
@@ -4119,7 +4215,6 @@ fn view_referenced_multiple_times() {
 
     // The view should appear in global lineage only once
     let view_nodes: Vec<_> = result
-        .global_lineage
         .nodes
         .iter()
         .filter(|n| &*n.label == "product_summary")
@@ -4134,7 +4229,7 @@ fn view_referenced_multiple_times() {
     // But it should have multiple statement refs
     let view_node = view_nodes[0];
     assert!(
-        view_node.statement_refs.len() >= 2,
+        view_node.statement_ids.len() >= 2,
         "View should be referenced by multiple statements"
     );
 }
@@ -4319,7 +4414,6 @@ fn scale_complex_multi_statement_etl() {
     }
 
     let cross_edges: Vec<_> = result
-        .global_lineage
         .edges
         .iter()
         .filter(|edge| edge.edge_type == EdgeType::CrossStatement)
@@ -4344,19 +4438,19 @@ fn column_ownership_edges_link_tables_to_columns() {
     let stmt = first_statement(&result);
 
     // Check that ownership edges exist from table to its columns
-    let ownership_edges = edges_by_type(stmt, EdgeType::Ownership);
+    let ownership_edges = edges_by_type(&stmt, EdgeType::Ownership);
     assert!(
         !ownership_edges.is_empty(),
         "should have ownership edges from table to columns"
     );
 
     // Verify table node exists
-    let table = find_table_node(stmt, "users");
+    let table = find_table_node(&stmt, "users");
     assert!(table.is_some(), "users table should exist as node");
 
     // Verify column nodes exist
     for col_name in ["id", "name", "email"] {
-        let col = find_column_node(stmt, col_name);
+        let col = find_column_node(&stmt, col_name);
         assert!(col.is_some(), "column {col_name} should exist as node");
     }
 }
@@ -4374,7 +4468,7 @@ fn column_dataflow_edges_track_simple_projection() {
     let stmt = first_statement(&result);
 
     // Check that columns flow from CTE to final SELECT
-    let dataflow_edges = edges_by_type(stmt, EdgeType::DataFlow);
+    let dataflow_edges = edges_by_type(&stmt, EdgeType::DataFlow);
     assert!(
         !dataflow_edges.is_empty(),
         "should have data flow edges between columns"
@@ -4382,11 +4476,11 @@ fn column_dataflow_edges_track_simple_projection() {
 
     // Both user_id and email should appear as columns
     assert!(
-        find_column_node(stmt, "user_id").is_some(),
+        find_column_node(&stmt, "user_id").is_some(),
         "user_id column should exist"
     );
     assert!(
-        find_column_node(stmt, "email").is_some(),
+        find_column_node(&stmt, "email").is_some(),
         "email column should exist"
     );
 }
@@ -4404,15 +4498,15 @@ fn column_derivation_edges_capture_transformations() {
     let result = run_analysis(sql, Dialect::Generic, None);
     let stmt = first_statement(&result);
 
-    let derivation_edges = edges_by_type(stmt, EdgeType::Derivation);
+    let derivation_edges = edges_by_type(&stmt, EdgeType::Derivation);
     assert!(
         derivation_edges.len() >= 2,
         "should have derivation edges for computed columns"
     );
 
     // Check that derived columns have expressions
-    let amount_with_tax = find_column_node(stmt, "amount_with_tax");
-    let name_upper = find_column_node(stmt, "name_upper");
+    let amount_with_tax = find_column_node(&stmt, "amount_with_tax");
+    let name_upper = find_column_node(&stmt, "name_upper");
 
     assert!(
         amount_with_tax.is_some() || name_upper.is_some(),
@@ -4436,7 +4530,7 @@ fn column_qualified_names_preserve_table_context() {
     let stmt = first_statement(&result);
 
     // Columns should exist (though qualified_name tracking may vary)
-    let cols = column_labels(stmt);
+    let cols = column_labels(&stmt);
     for expected in ["order_id", "amount", "user_id", "name"] {
         assert!(
             cols.contains(&expected.to_string()),
@@ -4446,11 +4540,11 @@ fn column_qualified_names_preserve_table_context() {
 
     // Should have nodes for both tables
     assert!(
-        find_table_node(stmt, "orders").is_some(),
+        find_table_node(&stmt, "orders").is_some(),
         "orders table should exist"
     );
     assert!(
-        find_table_node(stmt, "users").is_some(),
+        find_table_node(&stmt, "users").is_some(),
         "users table should exist"
     );
 }
@@ -4471,7 +4565,7 @@ fn column_lineage_through_aggregation() {
     let stmt = first_statement(&result);
 
     // Aggregated columns should create derivation edges
-    let derivations = edges_by_type(stmt, EdgeType::Derivation);
+    let derivations = edges_by_type(&stmt, EdgeType::Derivation);
     assert!(
         !derivations.is_empty(),
         "aggregation should create derivation edges"
@@ -4480,7 +4574,7 @@ fn column_lineage_through_aggregation() {
     // All output columns should exist
     for col in ["user_id", "order_count", "total_amount", "avg_amount"] {
         assert!(
-            find_column_node(stmt, col).is_some(),
+            find_column_node(&stmt, col).is_some(),
             "output column {col} should exist"
         );
     }
@@ -4502,7 +4596,7 @@ fn column_lineage_through_join_preserves_sources() {
     let stmt = first_statement(&result);
 
     // Should have columns from both tables
-    let cols = column_labels(stmt);
+    let cols = column_labels(&stmt);
     for expected in ["order_id", "payment_id", "amount", "payment_method"] {
         assert!(
             cols.contains(&expected.to_string()),
@@ -4511,7 +4605,7 @@ fn column_lineage_through_join_preserves_sources() {
     }
 
     // Should have ownership edges from both tables
-    let ownership = edges_by_type(stmt, EdgeType::Ownership);
+    let ownership = edges_by_type(&stmt, EdgeType::Ownership);
     assert!(
         ownership.len() >= 2,
         "should have ownership edges from both joined tables"
@@ -4535,7 +4629,7 @@ fn column_expression_text_captured_for_derived_columns() {
     let stmt = first_statement(&result);
 
     // Find the derived column
-    let amount_tier = find_column_node(stmt, "amount_tier");
+    let amount_tier = find_column_node(&stmt, "amount_tier");
     assert!(
         amount_tier.is_some(),
         "derived column amount_tier should exist"
@@ -4569,20 +4663,20 @@ fn column_lineage_multi_level_cte_chain() {
 
     // user_id should flow through all stages
     assert!(
-        find_column_node(stmt, "user_id").is_some(),
+        find_column_node(&stmt, "user_id").is_some(),
         "user_id should exist"
     );
 
     // Derived columns at each stage
-    let cols = column_labels(stmt);
+    let cols = column_labels(&stmt);
     assert!(
         cols.contains(&"final_amount".to_string()),
         "final derived column should exist"
     );
 
     // Should have data flow or derivation edges connecting stages
-    let dataflow = edges_by_type(stmt, EdgeType::DataFlow);
-    let derivation = edges_by_type(stmt, EdgeType::Derivation);
+    let dataflow = edges_by_type(&stmt, EdgeType::DataFlow);
+    let derivation = edges_by_type(&stmt, EdgeType::Derivation);
     assert!(
         !dataflow.is_empty() || !derivation.is_empty(),
         "should have edges connecting CTE stages"
@@ -4613,7 +4707,7 @@ fn column_wildcard_expansion_with_schema() {
     let stmt = first_statement(&result);
 
     // With schema, SELECT * should expand to individual columns
-    let cols = column_labels(stmt);
+    let cols = column_labels(&stmt);
     assert!(
         !cols.is_empty(),
         "SELECT * with schema should produce column nodes"
@@ -4647,7 +4741,7 @@ fn column_subquery_column_propagation() {
     // All three columns should appear in output
     for col in ["user_id", "total_orders", "total_amount"] {
         assert!(
-            find_column_node(stmt, col).is_some(),
+            find_column_node(&stmt, col).is_some(),
             "column {col} from subquery should be tracked"
         );
     }
@@ -4767,7 +4861,7 @@ fn column_union_combines_column_sets() {
     let stmt = first_statement(&result);
 
     // Output columns should match first SELECT
-    let cols = column_labels(stmt);
+    let cols = column_labels(&stmt);
     assert!(
         cols.contains(&"user_id".to_string()),
         "UNION output should have user_id column"
@@ -4964,7 +5058,7 @@ fn ansi_cast_syntax_variants() {
 
     let result = run_analysis(sql, Dialect::Generic, None);
     let stmt = first_statement(&result);
-    let derivations = edges_by_type(stmt, EdgeType::Derivation);
+    let derivations = edges_by_type(&stmt, EdgeType::Derivation);
 
     assert!(
         derivations.len() >= 3,
@@ -5090,7 +5184,7 @@ fn column_lineage_cte_transformation_chain_with_reuse() {
     );
 
     // Verify the path: users -> transformed via ownership edges
-    let users_table = find_table_node(stmt, "users");
+    let users_table = find_table_node(&stmt, "users");
     let transformed_cte = stmt
         .nodes
         .iter()
@@ -5103,7 +5197,7 @@ fn column_lineage_cte_transformation_chain_with_reuse() {
     );
 
     // Check ownership edges: Table owns its columns
-    let ownership_edges = edges_by_type(stmt, EdgeType::Ownership);
+    let ownership_edges = edges_by_type(&stmt, EdgeType::Ownership);
     assert!(
         !ownership_edges.is_empty(),
         "should have ownership edges linking tables/CTEs to their columns"
@@ -5113,35 +5207,35 @@ fn column_lineage_cte_transformation_chain_with_reuse() {
 
     // id - passes through unchanged
     assert!(
-        find_column_node(stmt, "id").is_some(),
+        find_column_node(&stmt, "id").is_some(),
         "passthrough column 'id' should exist"
     );
 
     // name_upper and email_lower - derived in CTE
     assert!(
-        find_column_node(stmt, "name_upper").is_some(),
+        find_column_node(&stmt, "name_upper").is_some(),
         "CTE derived column 'name_upper' should exist"
     );
     assert!(
-        find_column_node(stmt, "email_lower").is_some(),
+        find_column_node(&stmt, "email_lower").is_some(),
         "CTE derived column 'email_lower' should exist"
     );
 
     // display_name - derived from CTE columns
     assert!(
-        find_column_node(stmt, "display_name").is_some(),
+        find_column_node(&stmt, "display_name").is_some(),
         "final derived column 'display_name' should exist"
     );
 
     // 3. EDGE VERIFICATION: Should have derivation edges for transformations
-    let derivations = edges_by_type(stmt, EdgeType::Derivation);
+    let derivations = edges_by_type(&stmt, EdgeType::Derivation);
     assert!(
         derivations.len() >= 3,
         "should have derivation edges for UPPER, LOWER, and CONCAT transformations"
     );
 
     // 4. DATA FLOW: Should have edges showing column flow from CTE to final SELECT
-    let dataflow = edges_by_type(stmt, EdgeType::DataFlow);
+    let dataflow = edges_by_type(&stmt, EdgeType::DataFlow);
     assert!(
         !dataflow.is_empty(),
         "should have data flow edges from CTE columns to final SELECT"
@@ -5149,7 +5243,7 @@ fn column_lineage_cte_transformation_chain_with_reuse() {
 
     // 5. EXPRESSION METADATA: Check if expressions are captured
     // Find the display_name column and verify it has expression metadata
-    let display_name_col = find_column_node(stmt, "display_name");
+    let display_name_col = find_column_node(&stmt, "display_name");
     if let Some(node) = display_name_col {
         // Expression might contain CONCAT - this documents whether expression metadata is preserved
         // Even if not captured, the node should exist with proper lineage edges
@@ -5258,12 +5352,12 @@ fn column_lineage_cte_transformation_chain_with_reuse() {
         let mut columns_by_name: std::collections::HashMap<String, Vec<(&Node, Vec<&Node>)>> =
             std::collections::HashMap::new();
 
-        for node in &stmt.nodes {
+        for node in stmt.nodes.iter().copied() {
             if node.node_type == NodeType::Column {
-                let owners: Vec<_> = ownership_edges
+                let owners: Vec<&Node> = ownership_edges
                     .iter()
                     .filter(|e| e.to == node.id)
-                    .filter_map(|e| stmt.nodes.iter().find(|n| n.id == e.from))
+                    .filter_map(|e| stmt.nodes.iter().copied().find(|n| n.id == e.from))
                     .collect();
 
                 columns_by_name
@@ -5291,10 +5385,10 @@ fn column_lineage_cte_transformation_chain_with_reuse() {
 
         // EXPLICIT BUG CHECKS:
         // 1. users table should ONLY own: id, name, email (NOT name_upper, email_lower)
-        let users_owned_cols: Vec<_> = ownership_edges
+        let users_owned_cols: Vec<&Node> = ownership_edges
             .iter()
             .filter(|e| e.from == users.id)
-            .filter_map(|e| stmt.nodes.iter().find(|n| n.id == e.to))
+            .filter_map(|e| stmt.nodes.iter().copied().find(|n| n.id == e.to))
             .collect();
 
         let users_col_names: Vec<_> = users_owned_cols.iter().map(|n| &*n.label).collect();
@@ -5312,7 +5406,7 @@ fn column_lineage_cte_transformation_chain_with_reuse() {
         // 2. transformed CTE should ONLY own: id, name_upper, email_lower (its output columns)
         let transformed_col_names: Vec<_> = transformed_owns_cols
             .iter()
-            .filter_map(|e| stmt.nodes.iter().find(|n| n.id == e.to))
+            .filter_map(|e| stmt.nodes.iter().copied().find(|n| n.id == e.to))
             .map(|n| &*n.label)
             .collect();
         eprintln!("transformed owns: {:?}", transformed_col_names);
@@ -5375,6 +5469,7 @@ fn joined_tables_all_present_without_join_edges() {
     let table_to_table_edges: Vec<&Edge> = stmt
         .edges
         .iter()
+        .copied()
         .filter(|e| table_ids.contains(&e.from) && table_ids.contains(&e.to))
         .collect();
 
@@ -5385,7 +5480,7 @@ fn joined_tables_all_present_without_join_edges() {
     );
 
     // Verify we still have column-level data_flow edges
-    let data_flow_edges = edges_by_type(stmt, EdgeType::DataFlow);
+    let data_flow_edges = edges_by_type(&stmt, EdgeType::DataFlow);
     assert!(
         !data_flow_edges.is_empty(),
         "Should have column-level data_flow edges"
@@ -5410,7 +5505,7 @@ fn join_only_tables_emit_output_dependency() {
         .iter()
         .find(|node| node.node_type == NodeType::Output)
         .expect("Output node should exist");
-    let table2_node = find_table_node(stmt, "table2").expect("table2 not found");
+    let table2_node = find_table_node(&stmt, "table2").expect("table2 not found");
 
     let join_dependency = stmt.edges.iter().find(|edge| {
         edge.edge_type == EdgeType::JoinDependency
@@ -5440,7 +5535,7 @@ fn join_only_tables_emit_output_dependency_for_count_star() {
         .iter()
         .find(|node| node.node_type == NodeType::Output)
         .expect("Output node should exist");
-    let orders_node = find_table_node(stmt, "orders").expect("orders not found");
+    let orders_node = find_table_node(&stmt, "orders").expect("orders not found");
 
     let join_dependency = stmt.edges.iter().find(|edge| {
         edge.edge_type == EdgeType::JoinDependency
@@ -5465,9 +5560,9 @@ fn count_star_keeps_base_table_connected_to_output() {
     let result = run_analysis(sql, Dialect::Generic, None);
     let stmt = first_statement(&result);
 
-    let users_node = find_table_node(stmt, "users").expect("users not found");
-    let count_node = find_column_node(stmt, "count").expect("count output column not found");
-    let orders_node = find_table_node(stmt, "orders").expect("orders not found");
+    let users_node = find_table_node(&stmt, "users").expect("users not found");
+    let count_node = find_column_node(&stmt, "count").expect("count output column not found");
+    let orders_node = find_table_node(&stmt, "orders").expect("orders not found");
     let output_node = stmt
         .nodes
         .iter()
@@ -5505,7 +5600,7 @@ fn select_literal_keeps_base_table_connected_to_output() {
     let result = run_analysis(sql, Dialect::Generic, None);
     let stmt = first_statement(&result);
 
-    let users_node = find_table_node(stmt, "users").expect("users not found");
+    let users_node = find_table_node(&stmt, "users").expect("users not found");
     let literal_col = stmt
         .nodes
         .iter()
@@ -5589,7 +5684,7 @@ fn join_only_tables_emit_output_dependency_for_distinct_projection() {
         .iter()
         .find(|node| node.node_type == NodeType::Output)
         .expect("Output node should exist");
-    let orders_node = find_table_node(stmt, "orders").expect("orders not found");
+    let orders_node = find_table_node(&stmt, "orders").expect("orders not found");
 
     let join_dependency = stmt.edges.iter().find(|edge| {
         edge.edge_type == EdgeType::JoinDependency
@@ -5619,7 +5714,7 @@ fn join_only_tables_emit_output_dependency_for_literal_projection() {
         .iter()
         .find(|node| node.node_type == NodeType::Output)
         .expect("Output node should exist");
-    let orders_node = find_table_node(stmt, "orders").expect("orders not found");
+    let orders_node = find_table_node(&stmt, "orders").expect("orders not found");
 
     let join_dependency = stmt.edges.iter().find(|edge| {
         edge.edge_type == EdgeType::JoinDependency
@@ -5657,7 +5752,7 @@ fn joined_tables_emit_output_dependency_when_column_lineage_disabled() {
         .iter()
         .find(|node| node.node_type == NodeType::Output)
         .expect("output node should exist");
-    let orders_node = find_table_node(stmt, "orders").expect("orders not found");
+    let orders_node = find_table_node(&stmt, "orders").expect("orders not found");
 
     let join_dependency = stmt.edges.iter().find(|edge| {
         edge.edge_type == EdgeType::JoinDependency
@@ -5684,7 +5779,7 @@ fn wildcard_join_contributors_do_not_emit_output_dependency_without_schema() {
 
     let result = run_analysis(sql, Dialect::Generic, None);
     let stmt = first_statement(&result);
-    let orders_node = find_table_node(stmt, "orders").expect("orders not found");
+    let orders_node = find_table_node(&stmt, "orders").expect("orders not found");
 
     let join_dependency = stmt
         .edges
@@ -5716,7 +5811,7 @@ fn qualified_wildcard_join_only_table_gets_dependency() {
         .iter()
         .find(|node| node.node_type == NodeType::Output)
         .expect("Output node should exist");
-    let orders_node = find_table_node(stmt, "orders").expect("orders not found");
+    let orders_node = find_table_node(&stmt, "orders").expect("orders not found");
 
     let join_dependency = stmt.edges.iter().find(|edge| {
         edge.edge_type == EdgeType::JoinDependency
@@ -5743,7 +5838,7 @@ fn column_level_edges_from_joined_tables_carry_join_info() {
     let result = run_analysis(sql, Dialect::Generic, None);
     let stmt = first_statement(&result);
 
-    let customers_node = find_table_node(stmt, "customers").expect("customers not found");
+    let customers_node = find_table_node(&stmt, "customers").expect("customers not found");
 
     // Find column-level edges originating from columns owned by the joined table
     let customer_column_ids: Vec<_> = stmt
@@ -5784,7 +5879,7 @@ fn propagated_join_info_does_not_overwrite_existing() {
     let result = run_analysis(sql, Dialect::Generic, None);
     let stmt = first_statement(&result);
 
-    let orders_node = find_table_node(stmt, "orders").expect("orders not found");
+    let orders_node = find_table_node(&stmt, "orders").expect("orders not found");
 
     let join_dep = stmt
         .edges
@@ -5818,8 +5913,8 @@ fn where_filters_attached_to_correct_tables() {
     let stmt = first_statement(&result);
 
     // Find orders and customers table nodes
-    let orders_node = find_table_node(stmt, "orders").expect("orders table not found");
-    let customers_node = find_table_node(stmt, "customers").expect("customers table not found");
+    let orders_node = find_table_node(&stmt, "orders").expect("orders table not found");
+    let customers_node = find_table_node(&stmt, "customers").expect("customers table not found");
 
     eprintln!("orders filters: {:?}", orders_node.filters);
     eprintln!("customers filters: {:?}", customers_node.filters);
@@ -5880,8 +5975,8 @@ fn having_filters_attached_correctly() {
     let result = run_analysis(sql, Dialect::Generic, None);
     let stmt = first_statement(&result);
 
-    let products_node = find_table_node(stmt, "products").expect("products table not found");
-    let categories_node = find_table_node(stmt, "categories").expect("categories table not found");
+    let products_node = find_table_node(&stmt, "products").expect("products table not found");
+    let categories_node = find_table_node(&stmt, "categories").expect("categories table not found");
 
     eprintln!("products filters: {:?}", products_node.filters);
     eprintln!("categories filters: {:?}", categories_node.filters);
@@ -5930,7 +6025,7 @@ fn nested_or_predicates_not_split() {
     let result = run_analysis(sql, Dialect::Generic, None);
     let stmt = first_statement(&result);
 
-    let users_node = find_table_node(stmt, "users").expect("users table not found");
+    let users_node = find_table_node(&stmt, "users").expect("users table not found");
 
     eprintln!("users filters: {:?}", users_node.filters);
 
@@ -5964,8 +6059,8 @@ fn cross_table_predicate_not_attached_to_individual_tables() {
     let result = run_analysis(sql, Dialect::Generic, None);
     let stmt = first_statement(&result);
 
-    let users_node = find_table_node(stmt, "users").expect("users table not found");
-    let orders_node = find_table_node(stmt, "orders").expect("orders table not found");
+    let users_node = find_table_node(&stmt, "users").expect("users table not found");
+    let orders_node = find_table_node(&stmt, "orders").expect("orders table not found");
 
     eprintln!("users filters: {:?}", users_node.filters);
     eprintln!("orders filters: {:?}", orders_node.filters);
@@ -6001,7 +6096,7 @@ fn same_table_qualified_and_unqualified_refs_are_not_treated_as_cross_table() {
     let result = run_analysis(sql, Dialect::Generic, None);
     let stmt = first_statement(&result);
 
-    let users_node = find_table_node(stmt, "users").expect("users table not found");
+    let users_node = find_table_node(&stmt, "users").expect("users table not found");
 
     assert_eq!(
         users_node.filters.len(),
@@ -6029,8 +6124,8 @@ fn unresolvable_predicate_not_broadcast_to_all_tables() {
     let result = run_analysis(sql, Dialect::Generic, None);
     let stmt = first_statement(&result);
 
-    let users_node = find_table_node(stmt, "users").expect("users table not found");
-    let orders_node = find_table_node(stmt, "orders").expect("orders table not found");
+    let users_node = find_table_node(&stmt, "users").expect("users table not found");
+    let orders_node = find_table_node(&stmt, "orders").expect("orders table not found");
 
     eprintln!("users filters: {:?}", users_node.filters);
     eprintln!("orders filters: {:?}", orders_node.filters);
@@ -6068,10 +6163,10 @@ fn multiple_join_types_captured() {
     let stmt = first_statement(&result);
 
     // All table nodes should exist
-    let _orders_node = find_table_node(stmt, "orders").expect("orders table not found");
-    let customers_node = find_table_node(stmt, "customers").expect("customers table not found");
-    let products_node = find_table_node(stmt, "products").expect("products table not found");
-    let inventory_node = find_table_node(stmt, "inventory").expect("inventory table not found");
+    let _orders_node = find_table_node(&stmt, "orders").expect("orders table not found");
+    let customers_node = find_table_node(&stmt, "customers").expect("customers table not found");
+    let products_node = find_table_node(&stmt, "products").expect("products table not found");
+    let inventory_node = find_table_node(&stmt, "inventory").expect("inventory table not found");
 
     use flowscope_core::JoinType;
 
@@ -6079,6 +6174,7 @@ fn multiple_join_types_captured() {
     let find_join_edge = |node_id: &str| -> Option<&flowscope_core::Edge> {
         stmt.edges
             .iter()
+            .copied()
             .find(|e| e.from.as_ref() == node_id && e.join_type.is_some())
     };
 
@@ -6181,7 +6277,7 @@ fn deeply_nested_and_predicates_split_correctly() {
     let result = run_analysis(sql, Dialect::Generic, None);
     let stmt = first_statement(&result);
 
-    let users_node = find_table_node(stmt, "users").expect("users table not found");
+    let users_node = find_table_node(&stmt, "users").expect("users table not found");
 
     eprintln!("users filters: {:?}", users_node.filters);
 
@@ -6209,7 +6305,7 @@ fn aggregation_detects_grouping_key() {
     let stmt = first_statement(&result);
 
     // Find the region column (grouping key)
-    let region_col = find_column_node(stmt, "region").expect("region column not found");
+    let region_col = find_column_node(&stmt, "region").expect("region column not found");
 
     assert!(
         region_col.aggregation.is_some(),
@@ -6238,7 +6334,7 @@ fn aggregation_detects_aggregate_function() {
     let stmt = first_statement(&result);
 
     // Find the total column (aggregate)
-    let total_col = find_column_node(stmt, "total").expect("total column not found");
+    let total_col = find_column_node(&stmt, "total").expect("total column not found");
 
     assert!(
         total_col.aggregation.is_some(),
@@ -6268,7 +6364,7 @@ fn aggregation_detects_distinct() {
     let stmt = first_statement(&result);
 
     let unique_users_col =
-        find_column_node(stmt, "unique_users").expect("unique_users column not found");
+        find_column_node(&stmt, "unique_users").expect("unique_users column not found");
 
     assert!(
         unique_users_col.aggregation.is_some(),
@@ -6293,8 +6389,8 @@ fn aggregation_no_info_without_group_by() {
     let result = run_analysis(sql, Dialect::Generic, None);
     let stmt = first_statement(&result);
 
-    let region_col = find_column_node(stmt, "region").expect("region column not found");
-    let amount_col = find_column_node(stmt, "amount").expect("amount column not found");
+    let region_col = find_column_node(&stmt, "region").expect("region column not found");
+    let amount_col = find_column_node(&stmt, "amount").expect("amount column not found");
 
     assert!(
         region_col.aggregation.is_none(),
@@ -6317,10 +6413,10 @@ fn aggregation_multiple_grouping_keys() {
     let result = run_analysis(sql, Dialect::Generic, None);
     let stmt = first_statement(&result);
 
-    let region_col = find_column_node(stmt, "region").expect("region column not found");
+    let region_col = find_column_node(&stmt, "region").expect("region column not found");
     let product_type_col =
-        find_column_node(stmt, "product_type").expect("product_type column not found");
-    let avg_price_col = find_column_node(stmt, "avg_price").expect("avg_price column not found");
+        find_column_node(&stmt, "product_type").expect("product_type column not found");
+    let avg_price_col = find_column_node(&stmt, "avg_price").expect("avg_price column not found");
 
     assert!(
         region_col
@@ -6360,7 +6456,7 @@ fn aggregation_nested_in_expression() {
     let stmt = first_statement(&result);
 
     let total_col =
-        find_column_node(stmt, "total_with_tax").expect("total_with_tax column not found");
+        find_column_node(&stmt, "total_with_tax").expect("total_with_tax column not found");
 
     assert!(
         total_col.aggregation.is_some(),
@@ -6387,7 +6483,7 @@ fn aggregation_in_case_expression() {
     let result = run_analysis(sql, Dialect::Generic, None);
     let stmt = first_statement(&result);
 
-    let volume_col = find_column_node(stmt, "volume").expect("volume column not found");
+    let volume_col = find_column_node(&stmt, "volume").expect("volume column not found");
 
     assert!(
         volume_col.aggregation.is_some(),
@@ -6412,7 +6508,7 @@ fn aggregation_qualified_column_as_grouping_key() {
     let result = run_analysis(sql, Dialect::Generic, None);
     let stmt = first_statement(&result);
 
-    let region_col = find_column_node(stmt, "region").expect("region column not found");
+    let region_col = find_column_node(&stmt, "region").expect("region column not found");
 
     assert!(
         region_col
@@ -6472,7 +6568,7 @@ fn nested_derived_tables_track_full_lineage() {
     );
 
     // Should have derivation edges showing data flow
-    let derivations = edges_by_type(stmt, EdgeType::Derivation);
+    let derivations = edges_by_type(&stmt, EdgeType::Derivation);
     assert!(
         !derivations.is_empty(),
         "nested derived tables should produce derivation edges"
@@ -6596,7 +6692,7 @@ fn deeply_nested_cte_chain() {
     );
 
     // Should have derivation edges showing transformations
-    let derivations = edges_by_type(stmt, EdgeType::Derivation);
+    let derivations = edges_by_type(&stmt, EdgeType::Derivation);
     assert!(
         derivations.len() >= 2,
         "CTE chain should produce multiple derivation edges for transformations"
@@ -6668,7 +6764,7 @@ fn case_when_simple_expression() {
     assert!(!result.summary.has_errors, "should parse without errors");
 
     let stmt = first_statement(&result);
-    let status_col = find_column_node(stmt, "status_label");
+    let status_col = find_column_node(&stmt, "status_label");
     assert!(
         status_col.is_some(),
         "CASE expression should produce status_label column"
@@ -6703,8 +6799,8 @@ fn case_when_searched_form() {
     let stmt = first_statement(&result);
 
     // Both CASE expressions should produce columns
-    let size_col = find_column_node(stmt, "size_category");
-    let status_col = find_column_node(stmt, "status_name");
+    let size_col = find_column_node(&stmt, "size_category");
+    let status_col = find_column_node(&stmt, "status_name");
     assert!(size_col.is_some(), "searched CASE should work");
     assert!(status_col.is_some(), "simple CASE should work");
 }
@@ -6728,7 +6824,7 @@ fn case_when_nested_in_function() {
     );
 
     let stmt = first_statement(&result);
-    let col = find_column_node(stmt, "display_name");
+    let col = find_column_node(&stmt, "display_name");
     assert!(col.is_some(), "nested CASE should produce output column");
 }
 
@@ -6757,7 +6853,7 @@ fn case_when_with_subquery() {
     // depending on analyzer implementation. The key test is that parsing succeeds.
 
     let stmt = first_statement(&result);
-    let tier_col = find_column_node(stmt, "tier");
+    let tier_col = find_column_node(&stmt, "tier");
     assert!(
         tier_col.is_some(),
         "CASE with subquery produces tier column"
@@ -6789,8 +6885,8 @@ fn left_semi_join_tracks_tables() {
         );
 
         // Check that join was recognized
-        let orders_node = find_table_node(stmt, "orders");
-        let customers_node = find_table_node(stmt, "customers");
+        let orders_node = find_table_node(&stmt, "orders");
+        let customers_node = find_table_node(&stmt, "customers");
         assert!(orders_node.is_some(), "orders node exists");
         assert!(customers_node.is_some(), "customers node exists");
 
@@ -6825,7 +6921,7 @@ fn left_anti_join_tracks_tables() {
         assert!(tables.contains("orders"), "orders tracked");
         assert!(tables.contains("returns"), "returns tracked");
 
-        let returns_node = find_table_node(stmt, "returns");
+        let returns_node = find_table_node(&stmt, "returns");
         if let Some(ret) = returns_node {
             let join_edge = stmt
                 .edges
@@ -6857,7 +6953,7 @@ fn straight_join_mysql_syntax() {
 
         // STRAIGHT_JOIN is treated as INNER JOIN semantically
         let stmt = first_statement(&result);
-        let cust_node = find_table_node(stmt, "customers");
+        let cust_node = find_table_node(&stmt, "customers");
         if let Some(cust) = cust_node {
             // STRAIGHT_JOIN maps to Inner join type (on edge)
             // Check edges from the node or its owned columns
@@ -7158,7 +7254,7 @@ fn deeply_nested_case_expressions() {
     assert!(!result.summary.has_errors, "nested CASE should parse");
 
     let stmt = first_statement(&result);
-    let col = find_column_node(stmt, "nested_result");
+    let col = find_column_node(&stmt, "nested_result");
     assert!(col.is_some(), "nested CASE produces column");
 }
 
@@ -7184,7 +7280,7 @@ fn case_with_aggregate_in_condition() {
     );
 
     let stmt = first_statement(&result);
-    let col = find_column_node(stmt, "customer_type");
+    let col = find_column_node(&stmt, "customer_type");
     assert!(col.is_some(), "CASE with aggregate produces column");
 }
 
@@ -7230,28 +7326,28 @@ fn multiple_join_types_in_single_query() {
             })
             .and_then(|e| e.join_type)
     };
-    if let Some(cust) = find_table_node(stmt, "customers") {
+    if let Some(cust) = find_table_node(&stmt, "customers") {
         assert_eq!(
             find_join_edge(cust.id.as_ref()),
             Some(JoinType::Inner),
             "INNER JOIN detected on edge"
         );
     }
-    if let Some(prod) = find_table_node(stmt, "products") {
+    if let Some(prod) = find_table_node(&stmt, "products") {
         assert_eq!(
             find_join_edge(prod.id.as_ref()),
             Some(JoinType::Left),
             "LEFT JOIN detected on edge"
         );
     }
-    if let Some(status) = find_table_node(stmt, "order_status") {
+    if let Some(status) = find_table_node(&stmt, "order_status") {
         assert_eq!(
             find_join_edge(status.id.as_ref()),
             Some(JoinType::Right),
             "RIGHT JOIN detected on edge"
         );
     }
-    if let Some(cfg) = find_table_node(stmt, "config") {
+    if let Some(cfg) = find_table_node(&stmt, "config") {
         assert_eq!(
             find_join_edge(cfg.id.as_ref()),
             Some(JoinType::Cross),
@@ -7550,7 +7646,7 @@ fn test_copy_statement_lineage() {
 
     assert!(result.issues.iter().all(|i| i.severity != Severity::Error));
     // COPY FROM: external source -> table (users is target)
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
     assert!(stmt.nodes.iter().any(|n| n.label.contains("users")));
 }
 
@@ -7560,7 +7656,7 @@ fn test_copy_into_snowflake() {
     let result = run_analysis(sql, Dialect::Snowflake, None);
 
     assert!(result.issues.iter().all(|i| i.severity != Severity::Error));
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
     assert!(stmt.nodes.iter().any(|n| n.label.contains("orders")));
 }
 
@@ -7570,7 +7666,7 @@ fn test_copy_to_with_query() {
     let result = run_analysis(sql, Dialect::Postgres, None);
 
     // COPY TO with query: users is source
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
     assert!(stmt.nodes.iter().any(|n| n.label.contains("users")));
 }
 
@@ -7581,7 +7677,7 @@ fn test_copy_with_column_list() {
     let result = run_analysis(sql, Dialect::Postgres, None);
 
     assert!(result.issues.iter().all(|i| i.severity != Severity::Error));
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
 
     // users should be identified as target (COPY FROM loads data into table)
     assert!(
@@ -7597,7 +7693,7 @@ fn test_copy_schema_qualified_table() {
     let result = run_analysis(sql, Dialect::Postgres, None);
 
     assert!(result.issues.iter().all(|i| i.severity != Severity::Error));
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
 
     // Check that qualified name is tracked
     let table_node = stmt
@@ -7624,8 +7720,8 @@ fn test_unload_statement_string_query() {
     let result = run_analysis(sql, Dialect::Redshift, None);
 
     assert!(result.issues.iter().all(|i| i.severity != Severity::Error));
-    let stmt = &result.statements[0];
-    assert_eq!(stmt.statement_type, "UNLOAD");
+    let stmt = StmtView::new(&result, 0);
+    assert_eq!(result.statements[0].statement_type, "UNLOAD");
 
     // orders should be identified as source
     assert!(
@@ -7642,8 +7738,8 @@ fn test_unload_statement_parsed_query() {
     let result = run_analysis(sql, Dialect::Redshift, None);
 
     assert!(result.issues.iter().all(|i| i.severity != Severity::Error));
-    let stmt = &result.statements[0];
-    assert_eq!(stmt.statement_type, "UNLOAD");
+    let stmt = StmtView::new(&result, 0);
+    assert_eq!(result.statements[0].statement_type, "UNLOAD");
 
     // users should be identified as source
     assert!(
@@ -7662,8 +7758,8 @@ IAM_ROLE 'arn:aws:iam::123456789:role/RedshiftCopyRole'"#;
     let result = run_analysis(sql, Dialect::Redshift, None);
 
     assert!(result.issues.iter().all(|i| i.severity != Severity::Error));
-    let stmt = &result.statements[0];
-    assert_eq!(stmt.statement_type, "UNLOAD");
+    let stmt = StmtView::new(&result, 0);
+    assert_eq!(result.statements[0].statement_type, "UNLOAD");
 
     // Should have analytics.orders in lineage
     let table_node = stmt
@@ -7687,7 +7783,7 @@ TO 's3://bucket/out'"#;
     let result = run_analysis(sql, Dialect::Redshift, None);
 
     assert!(result.issues.iter().all(|i| i.severity != Severity::Error));
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
 
     // Both orders and customers should be identified as sources
     let table_labels: Vec<_> = stmt
@@ -7742,7 +7838,7 @@ fn test_alter_table_rename() {
     let result = run_analysis(sql, Dialect::Generic, None);
 
     assert!(result.issues.iter().all(|i| i.severity != Severity::Error));
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
 
     // Both old and new table should appear in lineage
     let labels: Vec<_> = stmt.nodes.iter().map(|n| n.label.as_ref()).collect();
@@ -7792,7 +7888,7 @@ fn test_alter_table_rename_with_schema() {
     let result = run_analysis(sql, Dialect::Generic, None);
 
     assert!(result.issues.iter().all(|i| i.severity != Severity::Error));
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
 
     // Both old and new table should appear in lineage with schema qualification
     let qualified_names: Vec<_> = stmt
@@ -7861,7 +7957,7 @@ fn test_alter_table_rename_inherits_schema_when_unqualified() {
         "Should not produce errors: {:?}",
         result.issues
     );
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
 
     let old_node = stmt
         .nodes
@@ -7927,7 +8023,7 @@ fn test_cross_statement_rename_then_select() {
     assert_eq!(result.statements.len(), 2);
 
     // First statement: RENAME
-    let rename_stmt = &result.statements[0];
+    let rename_stmt = StmtView::new(&result, 0);
     assert!(rename_stmt
         .nodes
         .iter()
@@ -7938,7 +8034,7 @@ fn test_cross_statement_rename_then_select() {
         .any(|n| n.label.as_ref() == "users"));
 
     // Second statement: SELECT from users
-    let select_stmt = &result.statements[1];
+    let select_stmt = StmtView::new(&result, 1);
     assert!(
         select_stmt
             .nodes
@@ -7965,13 +8061,13 @@ fn test_cross_statement_copy_then_select() {
     assert_eq!(result.statements.len(), 2);
 
     // Both statements should reference users table
-    let copy_stmt = &result.statements[0];
+    let copy_stmt = StmtView::new(&result, 0);
     assert!(
         copy_stmt.nodes.iter().any(|n| n.label.as_ref() == "users"),
         "COPY should reference 'users' table"
     );
 
-    let select_stmt = &result.statements[1];
+    let select_stmt = StmtView::new(&result, 1);
     assert!(
         select_stmt
             .nodes
@@ -8000,7 +8096,7 @@ fn test_cross_statement_ctas_then_select() {
     assert_eq!(result.statements.len(), 2);
 
     // First statement: CTAS
-    let ctas_stmt = &result.statements[0];
+    let ctas_stmt = StmtView::new(&result, 0);
     assert!(
         ctas_stmt.nodes.iter().any(|n| n.label.as_ref() == "users"),
         "CTAS should reference source 'users' table"
@@ -8014,7 +8110,7 @@ fn test_cross_statement_ctas_then_select() {
     );
 
     // Second statement: SELECT from active_users
-    let select_stmt = &result.statements[1];
+    let select_stmt = StmtView::new(&result, 1);
     assert!(
         select_stmt
             .nodes
@@ -8044,7 +8140,7 @@ fn test_copy_into_snowflake_with_transformation_query() {
         result.issues
     );
 
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
     assert!(
         stmt.nodes
             .iter()
@@ -8065,7 +8161,7 @@ fn test_copy_into_location_from_table() {
         result.issues
     );
 
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
     assert!(
         stmt.nodes.iter().any(|n| n.label.as_ref() == "orders"),
         "Should have orders table as source"
@@ -8092,7 +8188,7 @@ fn test_copy_into_location_from_query() {
         result.issues
     );
 
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
     // Snowflake normalizes identifiers to uppercase
     let labels: Vec<_> = stmt.nodes.iter().map(|n| n.label.to_uppercase()).collect();
     assert!(
@@ -8127,7 +8223,7 @@ fn test_unload_with_subquery_in_from() {
         result.issues
     );
 
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
     let labels: Vec<_> = stmt.nodes.iter().map(|n| n.label.as_ref()).collect();
     assert!(labels.contains(&"users"), "Should have users table");
 }
@@ -8155,7 +8251,7 @@ fn test_unload_with_scalar_subquery_expression() {
         result.issues
     );
 
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
     let labels: Vec<_> = stmt.nodes.iter().map(|n| n.label.as_ref()).collect();
     assert!(labels.contains(&"users"), "Should have users table");
 
@@ -8203,7 +8299,7 @@ fn test_unload_with_cte() {
         result.issues
     );
 
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
     let labels: Vec<_> = stmt.nodes.iter().map(|n| n.label.as_ref()).collect();
     assert!(labels.contains(&"users"), "Should have users table");
     assert!(labels.contains(&"orders"), "Should have orders table");
@@ -8221,7 +8317,7 @@ fn test_copy_postgres_with_column_list_and_options() {
         result.issues
     );
 
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
     assert!(
         stmt.nodes.iter().any(|n| n.label.as_ref() == "users"),
         "Should have users table"
@@ -8240,7 +8336,7 @@ fn test_copy_to_stdout() {
         result.issues
     );
 
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
     assert!(
         stmt.nodes.iter().any(|n| n.label.as_ref() == "users"),
         "Should have users table as source"
@@ -8288,7 +8384,7 @@ fn test_alter_table_rename_preserves_case_sensitivity() {
         result.issues
     );
 
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
     // Labels include quotes, but qualified_name has the actual case-preserved identifier
     let qualified_names: Vec<_> = stmt
         .nodes
@@ -8324,7 +8420,7 @@ fn test_alter_table_rename_with_full_catalog_path() {
         result.issues
     );
 
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
 
     // Should have both source and target tables
     let tables: Vec<_> = stmt
@@ -8379,7 +8475,7 @@ fn test_alter_table_rename_inherits_catalog_when_partially_qualified() {
     );
 
     // The important thing is that both tables are recognized
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
     let tables: Vec<_> = stmt
         .nodes
         .iter()
@@ -8411,7 +8507,7 @@ fn test_alter_table_rename_cross_schema() {
         result.issues
     );
 
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
 
     // Check that both schemas are captured
     let qualified_names: Vec<_> = stmt
@@ -8477,7 +8573,7 @@ fn backward_inference_basic_select_star() {
     let stmt = first_statement(&result);
 
     // stg_orders should exist as a source table
-    let stg_orders_node = find_table_node(stmt, "stg_orders");
+    let stg_orders_node = find_table_node(&stmt, "stg_orders");
     assert!(
         stg_orders_node.is_some(),
         "stg_orders table node should exist"
@@ -8609,7 +8705,7 @@ fn backward_inference_transitive_chain() {
     let stmt = first_statement(&result);
 
     // raw_events should exist as a source table
-    let raw_events_node = find_table_node(stmt, "raw_events");
+    let raw_events_node = find_table_node(&stmt, "raw_events");
     assert!(
         raw_events_node.is_some(),
         "raw_events table node should exist"
@@ -9176,7 +9272,7 @@ fn nested_joins_track_all_tables() {
     let stmt = first_statement(&result);
 
     // Verify output columns are present
-    let columns = column_labels(stmt);
+    let columns = column_labels(&stmt);
     for expected in ["order_id", "email", "product_name", "supplier_name"] {
         assert!(
             columns.contains(&expected.to_string()),
@@ -9185,7 +9281,7 @@ fn nested_joins_track_all_tables() {
     }
 
     // Verify data flow edges exist (joins create data flow between tables)
-    let data_flow_edges = edges_by_type(stmt, EdgeType::DataFlow);
+    let data_flow_edges = edges_by_type(&stmt, EdgeType::DataFlow);
     assert!(
         !data_flow_edges.is_empty(),
         "expected data flow edges for 4-way join"
@@ -9217,7 +9313,7 @@ fn postgres_array_slicing_tracks_source_table() {
     );
 
     // Verify the table node exists
-    let table_node = find_table_node(stmt, "array_data");
+    let table_node = find_table_node(&stmt, "array_data");
     assert!(
         table_node.is_some(),
         "array_data table node should exist in lineage"
@@ -9260,7 +9356,7 @@ fn lateral_join_tracks_outer_and_subquery_tables() {
     let stmt = first_statement(&result);
 
     // Verify output columns are present
-    let columns = column_labels(stmt);
+    let columns = column_labels(&stmt);
     for expected in [
         "department_id",
         "department_name",
@@ -9304,7 +9400,7 @@ fn filter_clause_tracks_aggregation_sources() {
     let stmt = first_statement(&result);
 
     // Verify output columns are present
-    let columns = column_labels(stmt);
+    let columns = column_labels(&stmt);
     for expected in [
         "department_id",
         "total_salary",
@@ -9348,7 +9444,7 @@ fn group_by_cube_rollup_tracks_source_table() {
     let stmt = first_statement(&result);
 
     // Verify output columns are present
-    let columns = column_labels(stmt);
+    let columns = column_labels(&stmt);
     for expected in ["region", "city", "grp_idx", "num_total"] {
         assert!(
             columns.contains(&expected.to_string()),
@@ -9387,7 +9483,7 @@ fn rollup_tracks_hierarchical_columns() {
     let stmt = first_statement(&result);
 
     // Verify hierarchical columns are present
-    let columns = column_labels(stmt);
+    let columns = column_labels(&stmt);
     for expected in ["year", "quarter", "month", "total_revenue"] {
         assert!(
             columns.contains(&expected.to_string()),
@@ -9426,7 +9522,7 @@ fn cube_tracks_all_dimensions() {
     let stmt = first_statement(&result);
 
     // Verify dimension columns are present
-    let columns = column_labels(stmt);
+    let columns = column_labels(&stmt);
     for expected in [
         "product_category",
         "sales_region",
@@ -9484,7 +9580,7 @@ fn snowflake_lateral_flatten_tracks_source_table() {
     );
 
     let stmt = first_statement(&result);
-    let columns = column_labels(stmt);
+    let columns = column_labels(&stmt);
     assert!(
         columns.iter().any(|c| c.eq_ignore_ascii_case("p_id")),
         "LATERAL FLATTEN pseudocolumns should still produce visible output columns"
@@ -9530,7 +9626,7 @@ fn snowflake_reduce_keeps_output_column_when_lineage_resolution_is_partial() {
 
     let result = run_analysis(sql, Dialect::Snowflake, None);
     let stmt = first_statement(&result);
-    let columns = column_labels(stmt);
+    let columns = column_labels(&stmt);
 
     assert!(
         columns.iter().any(|c| c.eq_ignore_ascii_case("sum_result")),
@@ -9560,7 +9656,7 @@ fn snowflake_group_by_cube_tracks_source() {
     );
 
     let stmt = first_statement(&result);
-    let columns = column_labels(stmt);
+    let columns = column_labels(&stmt);
 
     // Verify output columns (Snowflake normalizes to uppercase)
     for expected in ["NAME", "AGE", "RECORD_COUNT"] {
@@ -9600,7 +9696,7 @@ fn snowflake_grouping_sets_tracks_source() {
     );
 
     let stmt = first_statement(&result);
-    let columns = column_labels(stmt);
+    let columns = column_labels(&stmt);
 
     // Verify output columns
     for expected in ["FOO", "BAR", "CNT"] {
@@ -9645,9 +9741,9 @@ fn type_inference_select_literals_have_correct_types() {
     let stmt = first_statement(&result);
 
     // Find the columns and check their types
-    let int_col = find_column_node(stmt, "int_val").expect("int_val column should exist");
-    let text_col = find_column_node(stmt, "text_val").expect("text_val column should exist");
-    let bool_col = find_column_node(stmt, "bool_val").expect("bool_val column should exist");
+    let int_col = find_column_node(&stmt, "int_val").expect("int_val column should exist");
+    let text_col = find_column_node(&stmt, "text_val").expect("text_val column should exist");
+    let bool_col = find_column_node(&stmt, "bool_val").expect("bool_val column should exist");
 
     // Numbers infer as FLOAT (since we can't distinguish int from float without context)
     assert_eq!(
@@ -9683,11 +9779,11 @@ fn type_inference_select_functions_have_correct_types() {
     let stmt = first_statement(&result);
 
     // Find the columns and check their types
-    let count_col = find_column_node(stmt, "count_val").expect("count_val column should exist");
-    let sum_col = find_column_node(stmt, "sum_val").expect("sum_val column should exist");
-    let concat_col = find_column_node(stmt, "concat_val").expect("concat_val column should exist");
+    let count_col = find_column_node(&stmt, "count_val").expect("count_val column should exist");
+    let sum_col = find_column_node(&stmt, "sum_val").expect("sum_val column should exist");
+    let concat_col = find_column_node(&stmt, "concat_val").expect("concat_val column should exist");
     let timestamp_col =
-        find_column_node(stmt, "timestamp_val").expect("timestamp_val column should exist");
+        find_column_node(&stmt, "timestamp_val").expect("timestamp_val column should exist");
 
     assert_eq!(
         get_column_data_type(count_col),
@@ -9733,7 +9829,7 @@ fn type_inference_cte_types_propagate_to_outer_query() {
     let stmt = first_statement(&result);
 
     // Find the CTE's output columns (they should have types)
-    let cte_node = find_cte_node(stmt, "metrics").expect("metrics CTE should exist");
+    let cte_node = find_cte_node(&stmt, "metrics").expect("metrics CTE should exist");
 
     // Find columns owned by the CTE
     let cte_columns: Vec<_> = stmt
@@ -9861,14 +9957,15 @@ fn test_column_reference_with_schema_returns_correct_type() {
     let result = run_analysis(sql, Dialect::Generic, Some(schema));
     assert!(result.issues.is_empty(), "Should have no issues");
 
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
 
     // Find column nodes and check their types
-    let id_col = find_column_node(stmt, "id").expect("id column should exist");
-    let email_col = find_column_node(stmt, "email").expect("email column should exist");
+    let id_col = find_column_node(&stmt, "id").expect("id column should exist");
+    let email_col = find_column_node(&stmt, "email").expect("email column should exist");
     let created_at_col =
-        find_column_node(stmt, "created_at").expect("created_at column should exist");
-    let is_active_col = find_column_node(stmt, "is_active").expect("is_active column should exist");
+        find_column_node(&stmt, "created_at").expect("created_at column should exist");
+    let is_active_col =
+        find_column_node(&stmt, "is_active").expect("is_active column should exist");
 
     assert_eq!(
         get_column_data_type(id_col),
@@ -9903,11 +10000,11 @@ fn test_column_reference_without_schema_returns_none() {
 
     let result = run_analysis(sql, Dialect::Generic, None);
 
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
 
     // Find column nodes and check their types are None
-    let id_col = find_column_node(stmt, "id").expect("id column should exist");
-    let email_col = find_column_node(stmt, "email").expect("email column should exist");
+    let id_col = find_column_node(&stmt, "id").expect("id column should exist");
+    let email_col = find_column_node(&stmt, "email").expect("email column should exist");
 
     assert_eq!(
         get_column_data_type(id_col),
@@ -9956,12 +10053,12 @@ fn test_qualified_column_reference_with_schema() {
     let result = run_analysis(sql, Dialect::Generic, Some(schema));
     assert!(result.issues.is_empty(), "Should have no issues");
 
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
 
     // Find column nodes and check their types
-    let id_col = find_column_node(stmt, "id").expect("id column should exist");
-    let name_col = find_column_node(stmt, "name").expect("name column should exist");
-    let total_col = find_column_node(stmt, "total").expect("total column should exist");
+    let id_col = find_column_node(&stmt, "id").expect("id column should exist");
+    let name_col = find_column_node(&stmt, "name").expect("name column should exist");
+    let total_col = find_column_node(&stmt, "total").expect("total column should exist");
 
     assert_eq!(
         get_column_data_type(id_col),
@@ -10009,13 +10106,13 @@ fn test_schema_type_normalization() {
     let result = run_analysis(sql, Dialect::Generic, Some(schema));
     assert!(result.issues.is_empty(), "Should have no issues");
 
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
 
-    let int64_col = find_column_node(stmt, "int64_col").expect("int64_col should exist");
-    let varchar_col = find_column_node(stmt, "varchar_col").expect("varchar_col should exist");
-    let float8_col = find_column_node(stmt, "float8_col").expect("float8_col should exist");
-    let datetime_col = find_column_node(stmt, "datetime_col").expect("datetime_col should exist");
-    let bool_col = find_column_node(stmt, "bool_col").expect("bool_col should exist");
+    let int64_col = find_column_node(&stmt, "int64_col").expect("int64_col should exist");
+    let varchar_col = find_column_node(&stmt, "varchar_col").expect("varchar_col should exist");
+    let float8_col = find_column_node(&stmt, "float8_col").expect("float8_col should exist");
+    let datetime_col = find_column_node(&stmt, "datetime_col").expect("datetime_col should exist");
+    let bool_col = find_column_node(&stmt, "bool_col").expect("bool_col should exist");
 
     assert_eq!(
         get_column_data_type(int64_col),
@@ -10048,8 +10145,8 @@ fn test_schema_type_normalization() {
 fn name_spans_single_table_reference() {
     let sql = "SELECT * FROM users WHERE id = 1";
     let result = run_analysis(sql, Dialect::Postgres, None);
-    let stmt = &result.statements[0];
-    let users = find_table_node(stmt, "users").expect("users table node");
+    let stmt = StmtView::new(&result, 0);
+    let users = find_table_node(&stmt, "users").expect("users table node");
 
     assert_eq!(users.name_spans.len(), 1);
     let span = users.name_spans[0];
@@ -10061,8 +10158,8 @@ fn name_spans_single_table_reference() {
 fn name_spans_multiple_table_references() {
     let sql = "SELECT u.id FROM users u WHERE u.id IN (SELECT id FROM users)";
     let result = run_analysis(sql, Dialect::Postgres, None);
-    let stmt = &result.statements[0];
-    let users = find_table_node(stmt, "users").expect("users table node");
+    let stmt = StmtView::new(&result, 0);
+    let users = find_table_node(&stmt, "users").expect("users table node");
 
     assert_eq!(
         users.name_spans.len(),
@@ -10079,7 +10176,7 @@ fn name_spans_cte_with_body_and_references() {
     let sql = "WITH active AS (SELECT id FROM users WHERE active) \
                SELECT a.id FROM active a JOIN active b ON a.id = b.id";
     let result = run_analysis(sql, Dialect::Postgres, None);
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
     let active_nodes: Vec<_> = stmt
         .nodes
         .iter()
@@ -10122,8 +10219,8 @@ fn name_spans_cte_with_body_and_references() {
 fn name_spans_ignores_matches_in_strings_and_comments() {
     let sql = "-- users\nSELECT * FROM users WHERE note = 'see users'";
     let result = run_analysis(sql, Dialect::Postgres, None);
-    let stmt = &result.statements[0];
-    let users = find_table_node(stmt, "users").expect("users table node");
+    let stmt = StmtView::new(&result, 0);
+    let users = find_table_node(&stmt, "users").expect("users table node");
 
     assert_eq!(
         users.name_spans.len(),
@@ -10138,8 +10235,8 @@ fn name_spans_ignores_matches_in_strings_and_comments() {
 fn name_spans_skip_string_literals_before_relation_occurrence() {
     let sql = "SELECT 'users' AS label FROM users";
     let result = run_analysis(sql, Dialect::Postgres, None);
-    let stmt = &result.statements[0];
-    let users = find_table_node(stmt, "users").expect("users table node");
+    let stmt = StmtView::new(&result, 0);
+    let users = find_table_node(&stmt, "users").expect("users table node");
 
     assert_eq!(users.name_spans.len(), 1);
     let span = users.name_spans[0];
@@ -10154,8 +10251,8 @@ fn name_spans_skip_string_literals_before_relation_occurrence() {
 fn name_spans_skip_hash_comments_in_mysql() {
     let sql = "SELECT 1 # users\nFROM users";
     let result = run_analysis(sql, Dialect::Mysql, None);
-    let stmt = &result.statements[0];
-    let users = find_table_node(stmt, "users").expect("users table node");
+    let stmt = StmtView::new(&result, 0);
+    let users = find_table_node(&stmt, "users").expect("users table node");
 
     assert_eq!(users.name_spans.len(), 1);
     let span = users.name_spans[0];
@@ -10170,8 +10267,8 @@ fn name_spans_skip_hash_comments_in_mysql() {
 fn name_spans_skip_dollar_quoted_string_literals() {
     let sql = "SELECT $$users$$ AS x FROM users";
     let result = run_analysis(sql, Dialect::Postgres, None);
-    let stmt = &result.statements[0];
-    let users = find_table_node(stmt, "users").expect("users table node");
+    let stmt = StmtView::new(&result, 0);
+    let users = find_table_node(&stmt, "users").expect("users table node");
 
     assert_eq!(users.name_spans.len(), 1);
     let span = users.name_spans[0];
@@ -10188,8 +10285,8 @@ fn name_spans_empty_on_column_nodes() {
     // per-occurrence column spans require alias/scope resolution.
     let sql = "SELECT id FROM users";
     let result = run_analysis(sql, Dialect::Postgres, None);
-    let stmt = &result.statements[0];
-    let id_col = find_column_node(stmt, "id").expect("id column node");
+    let stmt = StmtView::new(&result, 0);
+    let id_col = find_column_node(&stmt, "id").expect("id column node");
 
     assert!(
         id_col.name_spans.is_empty(),
@@ -10207,8 +10304,8 @@ fn name_spans_recursive_cte_include_recursive_reference() {
         ") SELECT * FROM org"
     );
     let result = run_analysis(sql, Dialect::Postgres, None);
-    let stmt = &result.statements[0];
-    let org = find_cte_node(stmt, "org").expect("org cte node");
+    let stmt = StmtView::new(&result, 0);
+    let org = find_cte_node(&stmt, "org").expect("org cte node");
 
     assert_eq!(
         org.name_spans.len(),
@@ -10225,7 +10322,7 @@ fn name_spans_self_join_are_instance_specific() {
     let sql =
         "SELECT e1.name, e2.name FROM employees e1 JOIN employees e2 ON e1.manager_id = e2.id";
     let result = run_analysis(sql, Dialect::Postgres, None);
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
     let employee_nodes: Vec<_> = stmt
         .nodes
         .iter()
@@ -10254,7 +10351,7 @@ fn name_spans_self_join_are_instance_specific() {
 fn name_spans_distinguish_same_label_qualified_relations() {
     let sql = "SELECT * FROM sales.orders so JOIN archive.orders ao ON so.id = ao.id";
     let result = run_analysis(sql, Dialect::Postgres, None);
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
     let sales_orders = stmt
         .nodes
         .iter()
@@ -10283,7 +10380,7 @@ fn name_spans_distinguish_same_label_qualified_relations() {
 fn name_spans_preserve_quoted_identifier_parts_with_embedded_dots() {
     let sql = "SELECT * FROM \"my.schema\".\"my.table\"";
     let result = run_analysis(sql, Dialect::Postgres, None);
-    let stmt = &result.statements[0];
+    let stmt = StmtView::new(&result, 0);
     let table = stmt
         .nodes
         .iter()
@@ -10300,8 +10397,8 @@ fn cte_body_span_skips_optional_column_list() {
     let sql =
         "WITH metrics(user_id, total) AS (SELECT id, amount FROM orders) SELECT * FROM metrics";
     let result = run_analysis(sql, Dialect::Postgres, None);
-    let stmt = &result.statements[0];
-    let metrics = find_cte_node(stmt, "metrics").expect("metrics cte node");
+    let stmt = StmtView::new(&result, 0);
+    let metrics = find_cte_node(&stmt, "metrics").expect("metrics cte node");
 
     let body = metrics
         .body_span
@@ -10316,8 +10413,8 @@ fn cte_body_span_skips_optional_column_list() {
 fn cte_body_span_skips_materialization_modifiers() {
     let sql = "WITH metrics AS NOT MATERIALIZED (SELECT id FROM orders) SELECT * FROM metrics";
     let result = run_analysis(sql, Dialect::Postgres, None);
-    let stmt = &result.statements[0];
-    let metrics = find_cte_node(stmt, "metrics").expect("metrics cte node");
+    let stmt = StmtView::new(&result, 0);
+    let metrics = find_cte_node(&stmt, "metrics").expect("metrics cte node");
 
     let body = metrics
         .body_span
@@ -10329,8 +10426,8 @@ fn cte_body_span_skips_materialization_modifiers() {
 fn cte_body_span_skips_dollar_quoted_strings() {
     let sql = "WITH metrics AS (SELECT $$)$$ AS x) SELECT * FROM metrics";
     let result = run_analysis(sql, Dialect::Postgres, None);
-    let stmt = &result.statements[0];
-    let metrics = find_cte_node(stmt, "metrics").expect("metrics cte node");
+    let stmt = StmtView::new(&result, 0);
+    let metrics = find_cte_node(&stmt, "metrics").expect("metrics cte node");
 
     let body = metrics
         .body_span

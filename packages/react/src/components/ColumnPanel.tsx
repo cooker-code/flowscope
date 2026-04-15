@@ -3,8 +3,9 @@ import { ArrowRight, Columns3 } from 'lucide-react';
 import { useLineage } from '../store';
 import type { ColumnPanelProps } from '../types';
 import type { Node, Edge } from '@pondpilot/flowscope-core';
-import { isTableLikeType } from '@pondpilot/flowscope-core';
+import { isTableLikeType, nodesInStatement, edgesInStatement } from '@pondpilot/flowscope-core';
 import { COLORS } from '../constants';
+import { scopeNodeToStatement } from '../utils/nodeOccurrences';
 
 interface ColumnInfo {
   node: Node;
@@ -50,23 +51,35 @@ export function ColumnPanel({ className }: ColumnPanelProps): JSX.Element {
 
   const statement = result?.statements[selectedStatementIndex];
 
+  const statementNodes = useMemo(() => {
+    if (!result || !statement) return [] as Node[];
+    return nodesInStatement(result, statement.statementIndex).map((node) =>
+      scopeNodeToStatement(node, statement.statementIndex, statement.sourceName)
+    );
+  }, [result, statement]);
+
+  const statementEdges = useMemo(() => {
+    if (!result || !statement) return [] as Edge[];
+    return edgesInStatement(result, statement.statementIndex);
+  }, [result, statement]);
+
   const selectedNode = useMemo(() => {
     if (!statement || !selectedNodeId) return null;
-    return statement.nodes.find((n) => n.id === selectedNodeId) || null;
-  }, [statement, selectedNodeId]);
+    return statementNodes.find((n) => n.id === selectedNodeId) || null;
+  }, [statement, selectedNodeId, statementNodes]);
 
   const columnInfo = useMemo(() => {
     if (!statement || !selectedNodeId) return null;
-    return findColumnInfo(statement.nodes, statement.edges, selectedNodeId);
-  }, [statement, selectedNodeId]);
+    return findColumnInfo(statementNodes, statementEdges, selectedNodeId);
+  }, [statement, selectedNodeId, statementNodes, statementEdges]);
 
   const tableColumns = useMemo(() => {
     if (!statement || !selectedNode) return [];
     if (isTableLikeType(selectedNode.type)) {
-      return findTableColumns(statement.nodes, statement.edges, selectedNode.id);
+      return findTableColumns(statementNodes, statementEdges, selectedNode.id);
     }
     return [];
-  }, [statement, selectedNode]);
+  }, [statement, selectedNode, statementNodes, statementEdges]);
 
   const flowPath = useMemo(() => {
     if (!selectedNode || !columnInfo) return [];

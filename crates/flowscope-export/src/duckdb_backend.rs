@@ -1,10 +1,11 @@
 //! DuckDB backend implementation.
 
-use crate::join_export::representative_join_edge_indexes;
+use crate::join_export::representative_join_edge_ids;
 use crate::schema::{tables_ddl, views_ddl};
 use crate::ExportError;
 use duckdb::{params, Connection};
 use flowscope_core::AnalyzeResult;
+use std::collections::HashMap;
 use std::fs;
 use tempfile::NamedTempFile;
 
@@ -48,12 +49,11 @@ fn create_schema(conn: &Connection) -> Result<(), ExportError> {
 
 fn write_data(conn: &Connection, result: &AnalyzeResult) -> Result<(), ExportError> {
     write_meta(conn)?;
-    write_statements(conn, result)?;
-    write_nodes(conn, result)?;
-    write_edges(conn, result)?;
-    write_issues(conn, result)?;
+    let statement_row_ids = write_statements(conn, result)?;
+    write_nodes(conn, result, &statement_row_ids)?;
+    write_edges(conn, result, &statement_row_ids)?;
+    write_issues(conn, result, &statement_row_ids)?;
     write_schema_tables(conn, result)?;
-    write_global_lineage(conn, result)?;
     Ok(())
 }
 
@@ -77,13 +77,18 @@ fn write_meta(conn: &Connection) -> Result<(), ExportError> {
     Ok(())
 }
 
-fn write_statements(conn: &Connection, result: &AnalyzeResult) -> Result<(), ExportError> {
+fn write_statements(
+    conn: &Connection,
+    result: &AnalyzeResult,
+) -> Result<HashMap<usize, i64>, ExportError> {
     let mut stmt = conn.prepare(
         "INSERT INTO statements (id, statement_index, statement_type, source_name, span_start, span_end, join_count, complexity_score)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     )?;
 
+    let mut statement_row_ids = HashMap::with_capacity(result.statements.len());
     for (idx, s) in result.statements.iter().enumerate() {
+        statement_row_ids.insert(s.statement_index, idx as i64);
         let (span_start, span_end) = s
             .span
             .map(|sp| (Some(sp.start as i64), Some(sp.end as i64)))
@@ -99,13 +104,35 @@ fn write_statements(conn: &Connection, result: &AnalyzeResult) -> Result<(), Exp
             s.complexity_score as i64,
         ])?;
     }
-    Ok(())
+    Ok(statement_row_ids)
 }
 
-fn write_nodes(conn: &Connection, result: &AnalyzeResult) -> Result<(), ExportError> {
+fn statement_row_id(
+    statement_row_ids: &HashMap<usize, i64>,
+    statement_index: usize,
+) -> Result<i64, ExportError> {
+    statement_row_ids.get(&statement_index).copied().ok_or_else(|| {
+        ExportError::Serialization(format!(
+            "statement index {statement_index} is referenced by the graph but missing from result.statements"
+        ))
+    })
+}
+
+fn write_nodes(
+    conn: &Connection,
+    result: &AnalyzeResult,
+    statement_row_ids: &HashMap<usize, i64>,
+) -> Result<(), ExportError> {
     let mut node_stmt = conn.prepare(
-        "INSERT INTO nodes (id, statement_id, node_type, label, qualified_name, expression, span_start, span_end, resolution_source)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO nodes (id, node_type, label, qualified_name, canonical_catalog, canonical_schema, canonical_name, canonical_column, expression, span_start, span_end, body_span_start, body_span_end, resolution_source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    )?;
+
+    let mut node_stmt_ref =
+        conn.prepare("INSERT INTO node_statements (node_id, statement_id) VALUES (?, ?)")?;
+
+    let mut name_span_stmt = conn.prepare(
+        "INSERT INTO node_name_spans (id, node_id, span_start, span_end) VALUES (?, ?, ?, ?)",
     )?;
 
     let mut filter_stmt = conn.prepare(
@@ -117,48 +144,78 @@ fn write_nodes(conn: &Connection, result: &AnalyzeResult) -> Result<(), ExportEr
     )?;
 
     let mut filter_id: i64 = 0;
+    let mut name_span_id: i64 = 0;
 
-    for (stmt_idx, statement) in result.statements.iter().enumerate() {
-        for node in &statement.nodes {
-            let (span_start, span_end) = node
-                .span
-                .map(|sp| (Some(sp.start as i64), Some(sp.end as i64)))
-                .unwrap_or((None, None));
-            let node_type = format!("{:?}", node.node_type).to_lowercase();
-            let resolution = node
-                .resolution_source
-                .map(|r| format!("{:?}", r).to_lowercase());
+    for node in &result.nodes {
+        let (span_start, span_end) = node
+            .span
+            .map(|sp| (Some(sp.start as i64), Some(sp.end as i64)))
+            .unwrap_or((None, None));
+        let (body_start, body_end) = node
+            .body_span
+            .map(|sp| (Some(sp.start as i64), Some(sp.end as i64)))
+            .unwrap_or((None, None));
+        let node_type = format!("{:?}", node.node_type).to_lowercase();
+        let resolution = node
+            .resolution_source
+            .map(|r| format!("{:?}", r).to_lowercase());
 
-            node_stmt.execute(params![
+        node_stmt.execute(params![
+            node.id.as_ref(),
+            node_type,
+            node.label.as_ref(),
+            node.qualified_name.as_ref().map(|s| s.as_ref()),
+            node.canonical_name
+                .as_ref()
+                .and_then(|c| c.catalog.as_deref()),
+            node.canonical_name
+                .as_ref()
+                .and_then(|c| c.schema.as_deref()),
+            node.canonical_name.as_ref().map(|c| c.name.as_str()),
+            node.canonical_name
+                .as_ref()
+                .and_then(|c| c.column.as_deref()),
+            node.expression.as_ref().map(|s| s.as_ref()),
+            span_start,
+            span_end,
+            body_start,
+            body_end,
+            resolution,
+        ])?;
+
+        for stmt_id in &node.statement_ids {
+            let statement_row_id = statement_row_id(statement_row_ids, *stmt_id)?;
+            node_stmt_ref.execute(params![node.id.as_ref(), statement_row_id])?;
+        }
+
+        for span in node.all_name_spans() {
+            name_span_stmt.execute(params![
+                name_span_id,
                 node.id.as_ref(),
-                stmt_idx as i64,
-                node_type,
-                node.label.as_ref(),
-                node.qualified_name.as_ref().map(|s| s.as_ref()),
-                node.expression.as_ref().map(|s| s.as_ref()),
-                span_start,
-                span_end,
-                resolution,
+                span.start as i64,
+                span.end as i64,
             ])?;
+            name_span_id += 1;
+        }
 
-            // Write filters
-            for filter in &node.filters {
+        for stmt_id in &node.statement_ids {
+            let statement_row_id = statement_row_id(statement_row_ids, *stmt_id)?;
+            for filter in node.filters_for_statement(*stmt_id) {
                 let ft = format!("{:?}", filter.clause_type).to_lowercase();
                 filter_stmt.execute(params![
                     filter_id,
                     node.id.as_ref(),
-                    stmt_idx as i64,
+                    statement_row_id,
                     &filter.expression,
                     ft,
                 ])?;
                 filter_id += 1;
             }
 
-            // Write aggregation info
-            if let Some(agg) = &node.aggregation {
+            if let Some(agg) = node.aggregation_for_statement(*stmt_id) {
                 agg_stmt.execute(params![
                     node.id.as_ref(),
-                    stmt_idx as i64,
+                    statement_row_id,
                     agg.is_grouping_key,
                     &agg.function,
                     agg.distinct,
@@ -169,61 +226,66 @@ fn write_nodes(conn: &Connection, result: &AnalyzeResult) -> Result<(), ExportEr
     Ok(())
 }
 
-fn write_edges(conn: &Connection, result: &AnalyzeResult) -> Result<(), ExportError> {
+fn write_edges(
+    conn: &Connection,
+    result: &AnalyzeResult,
+    statement_row_ids: &HashMap<usize, i64>,
+) -> Result<(), ExportError> {
     let mut stmt = conn.prepare(
-        "INSERT INTO edges (id, statement_id, edge_type, from_node_id, to_node_id, expression, operation, is_approximate)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO edges (id, edge_type, from_node_id, to_node_id, expression, operation, is_approximate)
+         VALUES (?, ?, ?, ?, ?, ?, ?)"
     )?;
+
+    let mut edge_stmt_ref =
+        conn.prepare("INSERT INTO edge_statements (edge_id, statement_id) VALUES (?, ?)")?;
 
     let mut join_stmt = conn.prepare(
-        "INSERT INTO joins (id, edge_id, statement_id, join_type, join_condition) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO joins (id, edge_id, join_type, join_condition) VALUES (?, ?, ?, ?)",
     )?;
 
-    let mut edge_id: i64 = 0;
+    let join_edge_ids = representative_join_edge_ids(&result.nodes, &result.edges);
     let mut join_id: i64 = 0;
-    for (stmt_idx, statement) in result.statements.iter().enumerate() {
-        let join_edge_indexes: std::collections::HashSet<_> =
-            representative_join_edge_indexes(statement)
-                .into_iter()
-                .collect();
 
-        for (edge_idx, edge) in statement.edges.iter().enumerate() {
-            let edge_type = format!("{:?}", edge.edge_type).to_lowercase();
-            stmt.execute(params![
-                edge_id,
-                stmt_idx as i64,
-                edge_type,
-                edge.from.as_ref(),
-                edge.to.as_ref(),
-                edge.expression.as_ref().map(|s| s.as_ref()),
-                edge.operation.as_ref().map(|s| s.as_ref()),
-                edge.approximate.unwrap_or(false),
+    for edge in &result.edges {
+        let edge_type = format!("{:?}", edge.edge_type).to_lowercase();
+        stmt.execute(params![
+            edge.id.as_ref(),
+            edge_type,
+            edge.from.as_ref(),
+            edge.to.as_ref(),
+            edge.expression.as_ref().map(|s| s.as_ref()),
+            edge.operation.as_ref().map(|s| s.as_ref()),
+            edge.approximate.unwrap_or(false),
+        ])?;
+
+        for stmt_id in &edge.statement_ids {
+            let statement_row_id = statement_row_id(statement_row_ids, *stmt_id)?;
+            edge_stmt_ref.execute(params![edge.id.as_ref(), statement_row_id])?;
+        }
+
+        if join_edge_ids.contains(edge.id.as_ref()) {
+            let join_type = edge
+                .join_type
+                .as_ref()
+                .expect("representative join edge must carry join metadata");
+            let jt = format!("{:?}", join_type).to_uppercase();
+            join_stmt.execute(params![
+                join_id,
+                edge.id.as_ref(),
+                jt,
+                edge.join_condition.as_ref().map(|s| s.as_ref()),
             ])?;
-
-            // Export one representative join row per logical relation pair.
-            if join_edge_indexes.contains(&edge_idx) {
-                let join_type = edge
-                    .join_type
-                    .as_ref()
-                    .expect("representative join edge must carry join metadata");
-                let jt = format!("{:?}", join_type).to_uppercase();
-                join_stmt.execute(params![
-                    join_id,
-                    edge_id,
-                    stmt_idx as i64,
-                    jt,
-                    edge.join_condition.as_ref().map(|s| s.as_ref()),
-                ])?;
-                join_id += 1;
-            }
-
-            edge_id += 1;
+            join_id += 1;
         }
     }
     Ok(())
 }
 
-fn write_issues(conn: &Connection, result: &AnalyzeResult) -> Result<(), ExportError> {
+fn write_issues(
+    conn: &Connection,
+    result: &AnalyzeResult,
+    statement_row_ids: &HashMap<usize, i64>,
+) -> Result<(), ExportError> {
     let mut stmt = conn.prepare(
         "INSERT INTO issues (id, statement_id, severity, code, message, span_start, span_end)
          VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -235,9 +297,13 @@ fn write_issues(conn: &Connection, result: &AnalyzeResult) -> Result<(), ExportE
             .span
             .map(|sp| (Some(sp.start as i64), Some(sp.end as i64)))
             .unwrap_or((None, None));
+        let statement_row_id = issue
+            .statement_index
+            .map(|statement_index| statement_row_id(statement_row_ids, statement_index))
+            .transpose()?;
         stmt.execute(params![
             issue_id as i64,
-            issue.statement_index.map(|i| i as i64),
+            statement_row_id,
             severity,
             &issue.code,
             &issue.message,
@@ -286,64 +352,6 @@ fn write_schema_tables(conn: &Connection, result: &AnalyzeResult) -> Result<(), 
             col_id += 1;
         }
     }
-    Ok(())
-}
-
-fn write_global_lineage(conn: &Connection, result: &AnalyzeResult) -> Result<(), ExportError> {
-    let mut node_stmt = conn.prepare(
-        "INSERT INTO global_nodes (id, node_type, label, canonical_catalog, canonical_schema, canonical_name, canonical_column, resolution_source)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-    )?;
-
-    let mut ref_stmt = conn.prepare(
-        "INSERT INTO global_node_statement_refs (id, global_node_id, statement_index, local_node_id)
-         VALUES (?, ?, ?, ?)",
-    )?;
-
-    let mut edge_stmt = conn.prepare(
-        "INSERT INTO global_edges (id, from_node_id, to_node_id, edge_type)
-         VALUES (?, ?, ?, ?)",
-    )?;
-
-    let mut ref_id: i64 = 0;
-    for node in &result.global_lineage.nodes {
-        let node_type = format!("{:?}", node.node_type).to_lowercase();
-        let resolution = node
-            .resolution_source
-            .map(|r| format!("{:?}", r).to_lowercase());
-
-        node_stmt.execute(params![
-            node.id.as_ref(),
-            node_type,
-            node.label.as_ref(),
-            &node.canonical_name.catalog,
-            &node.canonical_name.schema,
-            &node.canonical_name.name,
-            &node.canonical_name.column,
-            resolution,
-        ])?;
-
-        for stmt_ref in &node.statement_refs {
-            ref_stmt.execute(params![
-                ref_id,
-                node.id.as_ref(),
-                stmt_ref.statement_index as i64,
-                stmt_ref.node_id.as_ref().map(|s| s.as_ref()),
-            ])?;
-            ref_id += 1;
-        }
-    }
-
-    for edge in &result.global_lineage.edges {
-        let edge_type = format!("{:?}", edge.edge_type).to_lowercase();
-        edge_stmt.execute(params![
-            edge.id.as_ref(),
-            edge.from.as_ref(),
-            edge.to.as_ref(),
-            edge_type,
-        ])?;
-    }
-
     Ok(())
 }
 

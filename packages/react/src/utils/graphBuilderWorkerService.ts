@@ -6,9 +6,8 @@
  * to a Web Worker, preventing UI blocking when processing large SQL files.
  */
 import type {
-  StatementLineage,
+  AnalyzeResult,
   ResolvedSchemaMetadata,
-  GlobalLineage,
   Node as LineageNode,
 } from '@pondpilot/flowscope-core';
 import type { Node as FlowNode, Edge as FlowEdge } from '@xyflow/react';
@@ -108,14 +107,13 @@ function deserializeEdges(edges: SerializedFlowEdge[]): FlowEdge[] {
  * Options for building a table-view graph in the worker.
  */
 export interface TableGraphBuildOptions {
-  statements: StatementLineage[];
+  result: AnalyzeResult;
   selectedNodeId: string | null;
   searchTerm: string;
   collapsedNodeIds: Set<string>;
   expandedTableIds: Set<string>;
   resolvedSchema: ResolvedSchemaMetadata | null | undefined;
   defaultCollapsed: boolean;
-  globalLineage: GlobalLineage | null | undefined;
   showColumnEdges: boolean;
 }
 
@@ -123,7 +121,7 @@ export interface TableGraphBuildOptions {
  * Options for building a script-view graph in the worker.
  */
 export interface ScriptGraphBuildOptions {
-  statements: StatementLineage[];
+  result: AnalyzeResult;
   selectedNodeId: string | null;
   searchTerm: string;
   showTables: boolean;
@@ -143,14 +141,13 @@ export async function buildTableGraphInWorker(
   const request: GraphBuildRequest = {
     type: 'build-table-graph',
     requestId,
-    statements: options.statements,
+    result: options.result,
     selectedNodeId: options.selectedNodeId,
     searchTerm: options.searchTerm,
     collapsedNodeIds: Array.from(options.collapsedNodeIds),
     expandedTableIds: Array.from(options.expandedTableIds),
     resolvedSchema: options.resolvedSchema ?? null,
     defaultCollapsed: options.defaultCollapsed,
-    globalLineage: options.globalLineage ?? null,
     showColumnEdges: options.showColumnEdges,
   };
 
@@ -176,7 +173,7 @@ export async function buildScriptGraphInWorker(
   const request: ScriptGraphBuildRequest = {
     type: 'build-script-graph',
     requestId,
-    statements: options.statements,
+    result: options.result,
     selectedNodeId: options.selectedNodeId,
     searchTerm: options.searchTerm,
     showTables: options.showTables,

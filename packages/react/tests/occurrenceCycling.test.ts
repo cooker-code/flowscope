@@ -12,33 +12,34 @@ function buildResult(): AnalyzeResult {
       {
         statementIndex: 0,
         statementType: 'SELECT',
-        nodes: [
-          {
-            id: 'table:users',
-            type: 'table',
-            label: 'users',
-            span: { start: 14, end: 19 },
-            nameSpans: [
-              { start: 14, end: 19 },
-              { start: 30, end: 35 },
-              { start: 60, end: 65 },
-            ],
-          },
-          {
-            id: 'cte:active',
-            type: 'cte',
-            label: 'active',
-            span: { start: 5, end: 11 },
-            nameSpans: [{ start: 5, end: 11 }],
-            bodySpan: { start: 15, end: 60 },
-          },
-        ],
-        edges: [],
         joinCount: 0,
         complexityScore: 1,
       },
     ],
-    globalLineage: { nodes: [], edges: [] },
+    nodes: [
+      {
+        id: 'table:users',
+        type: 'table',
+        label: 'users',
+        statementIds: [0],
+        span: { start: 14, end: 19 },
+        nameSpans: [
+          { start: 14, end: 19 },
+          { start: 30, end: 35 },
+          { start: 60, end: 65 },
+        ],
+      },
+      {
+        id: 'cte:active',
+        type: 'cte',
+        label: 'active',
+        statementIds: [0],
+        span: { start: 5, end: 11 },
+        nameSpans: [{ start: 5, end: 11 }],
+        bodySpan: { start: 15, end: 60 },
+      },
+    ],
+    edges: [],
     issues: [],
     summary: {
       statementCount: 1,
@@ -59,16 +60,6 @@ function buildMultiStatementResult(): AnalyzeResult {
         statementIndex: 0,
         statementType: 'SELECT',
         sourceName: 'models/users_a.sql',
-        nodes: [
-          {
-            id: 'table:users',
-            type: 'table',
-            label: 'users',
-            span: { start: 10, end: 15 },
-            nameSpans: [{ start: 10, end: 15 }],
-          },
-        ],
-        edges: [],
         joinCount: 0,
         complexityScore: 1,
       },
@@ -76,24 +67,81 @@ function buildMultiStatementResult(): AnalyzeResult {
         statementIndex: 1,
         statementType: 'SELECT',
         sourceName: 'models/users_b.sql',
-        nodes: [
-          {
-            id: 'table:users',
-            type: 'table',
-            label: 'users',
-            span: { start: 40, end: 45 },
-            nameSpans: [
-              { start: 40, end: 45 },
-              { start: 70, end: 75 },
-            ],
-          },
-        ],
-        edges: [],
         joinCount: 0,
         complexityScore: 1,
       },
     ],
-    globalLineage: { nodes: [], edges: [] },
+    // In the flat model a node referenced by two statements appears once with
+    // statementIds listing both. We emit two distinct Node instances here to
+    // preserve the original test's per-statement `span` / `nameSpans` so the
+    // merge logic has two occurrences to cycle through.
+    nodes: [
+      {
+        id: 'table:users',
+        type: 'table',
+        label: 'users',
+        statementIds: [0],
+        span: { start: 10, end: 15 },
+        nameSpans: [{ start: 10, end: 15 }],
+      },
+      {
+        id: 'table:users',
+        type: 'table',
+        label: 'users',
+        statementIds: [1],
+        span: { start: 40, end: 45 },
+        nameSpans: [
+          { start: 40, end: 45 },
+          { start: 70, end: 75 },
+        ],
+      },
+    ],
+    edges: [],
+    issues: [],
+    summary: {
+      statementCount: 2,
+      tableCount: 1,
+      columnCount: 0,
+      joinCount: 0,
+      complexityScore: 1,
+      issueCount: { errors: 0, warnings: 0, infos: 0 },
+      hasErrors: false,
+    },
+  };
+}
+
+function buildSharedNodeResult(): AnalyzeResult {
+  return {
+    statements: [
+      {
+        statementIndex: 0,
+        statementType: 'SELECT',
+        sourceName: 'models/users_a.sql',
+        joinCount: 0,
+        complexityScore: 1,
+      },
+      {
+        statementIndex: 1,
+        statementType: 'SELECT',
+        sourceName: 'models/users_b.sql',
+        joinCount: 0,
+        complexityScore: 1,
+      },
+    ],
+    nodes: [
+      {
+        id: 'table:users',
+        type: 'table',
+        label: 'users',
+        statementIds: [0, 1],
+        span: { start: 10, end: 15 },
+        nameSpans: [
+          { start: 10, end: 15 },
+          { start: 40, end: 45 },
+        ],
+      },
+    ],
+    edges: [],
     issues: [],
     summary: {
       statementCount: 2,
@@ -199,5 +247,18 @@ describe('occurrence cycling', () => {
     const state = store.getState();
     expect(state.focusedOccurrenceIndex).toBe(2);
     expect(state.highlightedSpan).toEqual({ start: 70, end: 75 });
+  });
+
+  it('does not duplicate occurrences when a flat node is already shared across statements', () => {
+    store.getState().setResult(buildSharedNodeResult());
+    store.getState().selectNode('table:users');
+
+    store.getState().cycleOccurrence('next');
+    expect(store.getState().highlightedSpan).toEqual({ start: 40, end: 45 });
+
+    store.getState().cycleOccurrence('next');
+    const state = store.getState();
+    expect(state.focusedOccurrenceIndex).toBe(0);
+    expect(state.highlightedSpan).toEqual({ start: 10, end: 15 });
   });
 });

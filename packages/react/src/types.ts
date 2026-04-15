@@ -5,7 +5,6 @@ import type {
   Edge,
   Issue,
   Span,
-  StatementLineage,
   SchemaTable,
   FilterPredicate,
   AggregationInfo,
@@ -383,10 +382,4 @@ export interface ColumnNodeData extends Record<string, unknown> {
   sourceName?: string;
 }
 
-/**
- * Extended StatementLineage type with optional source_name field.
- * The core StatementLineage may include source_name when analyzing multiple files.
- */
-export type StatementLineageWithSource = StatementLineage;
-
-export { AnalyzeResult, Node, Edge, Issue, Span, StatementLineage };
+export type { AnalyzeResult, Node, Edge, Issue, Span };
