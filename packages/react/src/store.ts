@@ -179,12 +179,15 @@ export interface LineageState {
   hideCTEs: boolean; // Whether to hide CTEs and show bypass edges (A→CTE→B becomes A→B)
   showScriptTables: boolean;
   navigationRequest: NavigationRequest | null;
+  visibleGraphNodeIds: Set<string>;
   /**
    * Active reveal-in-graph request. Set by the SqlView "Reveal in lineage"
    * action (#24). The nonce forces re-triggering when the same node is
    * revealed twice in a row so the pulse animation restarts.
    */
   revealRequest: { nodeId: string; nonce: number } | null;
+  /** Skip the next graph→editor navigation side effect for a reveal-originated selection. */
+  suppressNextSelectedNodeNavigation: boolean;
   tableFilter: TableFilter;
   isLayouting: boolean;
   isBuilding: boolean;
@@ -225,14 +228,17 @@ export interface LineageState {
   toggleHideCTEs: () => void;
   toggleShowScriptTables: () => void;
   requestNavigation: (request: NavigationRequest | null) => void;
+  setVisibleGraphNodeIds: (nodeIds: Iterable<string>) => void;
   /**
    * Selects the node, bumps the reveal nonce (so repeat invocations retrigger
-   * the graph pulse), and clears any stale highlight span. The GraphView
+   * the graph pulse), and suppresses the immediate graph→editor bounce. The GraphView
    * observes `revealRequest` and drives fitView + the pulse animation.
    */
   revealNodeInGraph: (nodeId: string) => void;
   /** Clear any pending reveal request. */
   clearRevealRequest: () => void;
+  /** Consume and clear the one-shot reveal navigation suppression flag. */
+  consumeSelectedNodeNavigationSuppression: () => boolean;
   setTableFilter: (filter: TableFilter) => void;
   toggleTableFilterSelection: (tableLabel: string) => void;
   setTableFilterDirection: (direction: TableFilterDirection) => void;
@@ -256,7 +262,7 @@ export function createLineageStore(
   const initialColumnEdges = initialState?.showColumnEdges ?? loadColumnEdges();
   const initialHideCTEs = initialState?.hideCTEs ?? loadHideCTEs();
 
-  return createStore<LineageState>((set) => ({
+  return createStore<LineageState>((set, get) => ({
     // Initial state
     result: null,
     sql: '',
@@ -288,7 +294,9 @@ export function createLineageStore(
     hideCTEs: initialHideCTEs,
     showScriptTables: false,
     navigationRequest: null,
+    visibleGraphNodeIds: new Set(),
     revealRequest: null,
+    suppressNextSelectedNodeNavigation: false,
     tableFilter: { selectedTableLabels: new Set(), direction: 'both' },
     isLayouting: false,
     isBuilding: false,
@@ -309,6 +317,7 @@ export function createLineageStore(
           selectedNodeId: null,
           highlightedSpan: null,
           focusedOccurrenceIndex: 0,
+          suppressNextSelectedNodeNavigation: false,
           collapsedNodeIds: new Set(),
           expandedTableIds: new Set(),
           selectedStatementIndex: statementCount === 0 ? 0 : newSelectedStatementIndex,
@@ -326,6 +335,7 @@ export function createLineageStore(
         // calling `selectNode`).
         highlightedSpan: nodeId === null ? null : state.highlightedSpan,
         focusedOccurrenceIndex: 0,
+        suppressNextSelectedNodeNavigation: false,
       })),
 
     cycleOccurrence: (direction) =>
@@ -398,6 +408,7 @@ export function createLineageStore(
         selectedNodeId: null,
         highlightedSpan: null,
         focusedOccurrenceIndex: 0,
+        suppressNextSelectedNodeNavigation: false,
         collapsedNodeIds: new Set(),
       }),
 
@@ -439,17 +450,39 @@ export function createLineageStore(
 
     requestNavigation: (request) => set({ navigationRequest: request }),
 
+    setVisibleGraphNodeIds: (nodeIds) =>
+      set((state) => {
+        const next = new Set(nodeIds);
+        if (
+          next.size === state.visibleGraphNodeIds.size &&
+          Array.from(next).every((id) => state.visibleGraphNodeIds.has(id))
+        ) {
+          return state;
+        }
+        return { visibleGraphNodeIds: next };
+      }),
+
     revealNodeInGraph: (nodeId) =>
       set((state) => ({
         selectedNodeId: nodeId,
+        highlightedSpan: null,
         focusedOccurrenceIndex: 0,
         revealRequest: {
           nodeId,
           nonce: (state.revealRequest?.nonce ?? 0) + 1,
         },
+        suppressNextSelectedNodeNavigation: true,
       })),
 
     clearRevealRequest: () => set({ revealRequest: null }),
+
+    consumeSelectedNodeNavigationSuppression: () => {
+      const shouldSuppress = get().suppressNextSelectedNodeNavigation;
+      if (shouldSuppress) {
+        set({ suppressNextSelectedNodeNavigation: false });
+      }
+      return shouldSuppress;
+    },
 
     setTableFilter: (filter) => set({ tableFilter: filter }),
 
@@ -541,7 +574,9 @@ export function useLineage() {
       hideCTEs: store.hideCTEs,
       showScriptTables: store.showScriptTables,
       navigationRequest: store.navigationRequest,
+      visibleGraphNodeIds: store.visibleGraphNodeIds,
       revealRequest: store.revealRequest,
+      suppressNextSelectedNodeNavigation: store.suppressNextSelectedNodeNavigation,
       tableFilter: store.tableFilter,
       isLayouting: store.isLayouting,
       isBuilding: store.isBuilding,
@@ -567,8 +602,10 @@ export function useLineage() {
       toggleHideCTEs: store.toggleHideCTEs,
       toggleShowScriptTables: store.toggleShowScriptTables,
       requestNavigation: store.requestNavigation,
+      setVisibleGraphNodeIds: store.setVisibleGraphNodeIds,
       revealNodeInGraph: store.revealNodeInGraph,
       clearRevealRequest: store.clearRevealRequest,
+      consumeSelectedNodeNavigationSuppression: store.consumeSelectedNodeNavigationSuppression,
       setTableFilter: store.setTableFilter,
       toggleTableFilterSelection: store.toggleTableFilterSelection,
       setTableFilterDirection: store.setTableFilterDirection,
@@ -604,7 +641,11 @@ export function useLineageState() {
   const hideCTEs = useLineageStore((state) => state.hideCTEs);
   const showScriptTables = useLineageStore((state) => state.showScriptTables);
   const navigationRequest = useLineageStore((state) => state.navigationRequest);
+  const visibleGraphNodeIds = useLineageStore((state) => state.visibleGraphNodeIds);
   const revealRequest = useLineageStore((state) => state.revealRequest);
+  const suppressNextSelectedNodeNavigation = useLineageStore(
+    (state) => state.suppressNextSelectedNodeNavigation
+  );
   const tableFilter = useLineageStore((state) => state.tableFilter);
   const isLayouting = useLineageStore((state) => state.isLayouting);
   const isBuilding = useLineageStore((state) => state.isBuilding);
@@ -629,7 +670,9 @@ export function useLineageState() {
     hideCTEs,
     showScriptTables,
     navigationRequest,
+    visibleGraphNodeIds,
     revealRequest,
+    suppressNextSelectedNodeNavigation,
     tableFilter,
     isLayouting,
     isBuilding,
@@ -660,8 +703,12 @@ export function useLineageActions() {
   const toggleHideCTEs = useLineageStore((state) => state.toggleHideCTEs);
   const toggleShowScriptTables = useLineageStore((state) => state.toggleShowScriptTables);
   const requestNavigation = useLineageStore((state) => state.requestNavigation);
+  const setVisibleGraphNodeIds = useLineageStore((state) => state.setVisibleGraphNodeIds);
   const revealNodeInGraph = useLineageStore((state) => state.revealNodeInGraph);
   const clearRevealRequest = useLineageStore((state) => state.clearRevealRequest);
+  const consumeSelectedNodeNavigationSuppression = useLineageStore(
+    (state) => state.consumeSelectedNodeNavigationSuppression
+  );
   const setTableFilter = useLineageStore((state) => state.setTableFilter);
   const toggleTableFilterSelection = useLineageStore((state) => state.toggleTableFilterSelection);
   const setTableFilterDirection = useLineageStore((state) => state.setTableFilterDirection);
@@ -690,8 +737,10 @@ export function useLineageActions() {
     toggleHideCTEs,
     toggleShowScriptTables,
     requestNavigation,
+    setVisibleGraphNodeIds,
     revealNodeInGraph,
     clearRevealRequest,
+    consumeSelectedNodeNavigationSuppression,
     setTableFilter,
     toggleTableFilterSelection,
     setTableFilterDirection,

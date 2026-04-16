@@ -1,6 +1,7 @@
-import type { AnalyzeResult, Node, Span, StatementMeta } from '@pondpilot/flowscope-core';
+import type { AnalyzeResult, Edge, Node, Span, StatementMeta } from '@pondpilot/flowscope-core';
 
-import { findMergedNodeById, resolveNodeSourceName } from './nodeOccurrences';
+import { OUTPUT_NODE_TYPE } from './lineageHelpers';
+import { mergeNodesForNavigation, resolveNodeSourceName } from './nodeOccurrences';
 
 /**
  * Kind of span an index entry refers to.
@@ -35,7 +36,63 @@ export interface SpanIndex {
   entries: SpanIndexEntry[];
 }
 
+export interface RevealLookupNode {
+  id: string;
+  type: Node['type'];
+  label: string;
+  qualifiedName?: string;
+}
+
+export interface RevealLookup {
+  nodesById: Map<string, RevealLookupNode>;
+  ownerRelationIdByNodeId: Map<string, string>;
+}
+
+export interface ResolveRevealGraphTargetOptions {
+  viewMode: 'script' | 'table';
+  showColumnEdges: boolean;
+  showScriptTables: boolean;
+  visibleNodeIds?: ReadonlySet<string>;
+}
+
 const EMPTY_INDEX: SpanIndex = { entries: [] };
+const EMPTY_LOOKUP: RevealLookup = {
+  nodesById: new Map(),
+  ownerRelationIdByNodeId: new Map(),
+};
+
+function isRelationType(type: Node['type']): boolean {
+  return type === 'table' || type === 'view' || type === 'cte' || type === OUTPUT_NODE_TYPE;
+}
+
+function buildMergedNodeMap(result: AnalyzeResult): Map<string, Node> {
+  const statementById = new Map<number, Pick<StatementMeta, 'sourceName'>>(
+    result.statements.map((statement) => [statement.statementIndex, statement])
+  );
+  const mergedNodes = new Map<string, Node>();
+
+  for (const rawNode of result.nodes) {
+    const sourceName = resolveNodeSourceName(rawNode, statementById);
+    const merged = mergeNodesForNavigation(mergedNodes.get(rawNode.id) ?? null, rawNode, sourceName);
+    mergedNodes.set(rawNode.id, merged);
+  }
+
+  return mergedNodes;
+}
+
+function buildOwnerRelationMap(edges: Edge[], mergedNodes: Map<string, Node>): Map<string, string> {
+  const ownerRelationIdByNodeId = new Map<string, string>();
+
+  for (const edge of edges) {
+    if (edge.type !== 'ownership') continue;
+    const owner = mergedNodes.get(edge.from);
+    if (owner && isRelationType(owner.type)) {
+      ownerRelationIdByNodeId.set(edge.to, owner.id);
+    }
+  }
+
+  return ownerRelationIdByNodeId;
+}
 
 function pushEntries(
   target: SpanIndexEntry[],
@@ -57,35 +114,19 @@ function pushEntries(
  * flat node list. Called once per analysis result; the result is cheap to hold
  * in memo state.
  *
- * Nodes are merged via `findMergedNodeById` so shared nodes (referenced across
- * multiple statements) contribute every occurrence exactly once.
+ * Nodes are merged in a single pass so shared nodes (referenced across
+ * multiple statements) contribute every occurrence exactly once without the
+ * previous per-id rescans over `result.nodes`.
  */
 export function buildSpanIndex(result: AnalyzeResult | null): SpanIndex {
   if (!result || !result.nodes || result.nodes.length === 0) {
     return EMPTY_INDEX;
   }
 
-  // Walk the flat node list, but dedupe by id — `findMergedNodeById` will
-  // rebuild the full per-id occurrence list, so we only need to visit each
-  // unique node once.
-  const seen = new Set<string>();
+  const mergedNodes = buildMergedNodeMap(result);
   const entries: SpanIndexEntry[] = [];
-  const statementById = new Map<number, Pick<StatementMeta, 'sourceName'>>(
-    result.statements.map((s) => [s.statementIndex, s])
-  );
 
-  for (const rawNode of result.nodes) {
-    if (seen.has(rawNode.id)) continue;
-    seen.add(rawNode.id);
-
-    const merged = findMergedNodeById(result, rawNode.id);
-    const node: Node | null = merged ?? rawNode;
-    if (!node) continue;
-    // `resolveNodeSourceName` is imported so callers/consumers can extend the
-    // entry shape later without another pass over the graph. Currently unused
-    // but kept referenced to document the relationship with occurrence data.
-    void resolveNodeSourceName(node, statementById);
-
+  for (const node of mergedNodes.values()) {
     pushEntries(entries, node.id, node.nameSpans, 'name');
     if (node.bodySpan) {
       pushEntries(entries, node.id, [node.bodySpan], 'body');
@@ -116,4 +157,79 @@ export function findNodeAtByteOffset(index: SpanIndex, byteOffset: number): Span
   }
 
   return bestName ?? bestBody;
+}
+
+/**
+ * Build the node/ownership lookup needed to map span hits to actual rendered
+ * graph node ids in the current view.
+ */
+export function buildRevealLookup(result: AnalyzeResult | null): RevealLookup {
+  if (!result || !result.nodes || result.nodes.length === 0) {
+    return EMPTY_LOOKUP;
+  }
+
+  const mergedNodes = buildMergedNodeMap(result);
+  const ownerRelationIdByNodeId = buildOwnerRelationMap(result.edges, mergedNodes);
+  const nodesById = new Map<string, RevealLookupNode>();
+
+  for (const node of mergedNodes.values()) {
+    nodesById.set(node.id, {
+      id: node.id,
+      type: node.type,
+      label: node.label,
+      qualifiedName: node.qualifiedName,
+    });
+  }
+
+  return { nodesById, ownerRelationIdByNodeId };
+}
+
+function toHybridGraphId(node: RevealLookupNode): string | null {
+  if (node.type !== 'table' && node.type !== 'view' && node.type !== OUTPUT_NODE_TYPE) {
+    return null;
+  }
+
+  return `table:${node.qualifiedName || node.label}`;
+}
+
+/**
+ * Resolve a lineage node hit to the actual React Flow node id that is rendered
+ * in the current graph mode. Returns null when the target is not visible in the
+ * active graph representation.
+ */
+export function resolveRevealGraphTarget(
+  lookup: RevealLookup,
+  nodeId: string,
+  options: ResolveRevealGraphTargetOptions
+): string | null {
+  const baseNode = lookup.nodesById.get(nodeId);
+  if (!baseNode) {
+    return null;
+  }
+
+  const relationNode =
+    baseNode.type === 'column'
+      ? lookup.nodesById.get(lookup.ownerRelationIdByNodeId.get(baseNode.id) ?? '') ?? null
+      : baseNode;
+
+  if (!relationNode) {
+    return null;
+  }
+
+  let targetId: string | null = null;
+  if (options.viewMode === 'table') {
+    targetId = relationNode.id;
+  } else if (options.showScriptTables) {
+    targetId = toHybridGraphId(relationNode);
+  }
+
+  if (!targetId) {
+    return null;
+  }
+
+  if (options.visibleNodeIds && !options.visibleNodeIds.has(targetId)) {
+    return null;
+  }
+
+  return targetId;
 }

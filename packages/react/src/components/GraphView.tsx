@@ -366,8 +366,12 @@ export function GraphView({
   const setLayoutMetrics = useLineageStore((store) => store.setLayoutMetrics);
   const setGraphMetrics = useLineageStore((store) => store.setGraphMetrics);
   const requestNavigation = useLineageStore((store) => store.requestNavigation);
+  const setVisibleGraphNodeIds = useLineageStore((store) => store.setVisibleGraphNodeIds);
   const setIsLayouting = useLineageStore((store) => store.setIsLayouting);
   const setIsBuilding = useLineageStore((store) => store.setIsBuilding);
+  const consumeSelectedNodeNavigationSuppression = useLineageStore(
+    (store) => store.consumeSelectedNodeNavigationSuppression
+  );
   const {
     result,
     selectedNodeId,
@@ -576,6 +580,16 @@ export function GraphView({
     [filteredGraph, highlightIds]
   );
   const renderGraphRef = useRef(renderGraph);
+
+  useEffect(() => {
+    setVisibleGraphNodeIds(filteredGraph.nodes.map((node) => node.id));
+  }, [filteredGraph.nodes, setVisibleGraphNodeIds]);
+
+  useEffect(() => {
+    return () => {
+      setVisibleGraphNodeIds([]);
+    };
+  }, [setVisibleGraphNodeIds]);
 
   useEffect(() => {
     renderGraphRef.current = renderGraph;
@@ -1046,6 +1060,10 @@ export function GraphView({
       return;
     }
 
+    if (consumeSelectedNodeNavigationSuppression()) {
+      return;
+    }
+
     const lineageNode = lineageNodeMapRef.current.get(selectedNodeId);
     if (!lineageNode) {
       return;
@@ -1073,7 +1091,12 @@ export function GraphView({
         targetType,
       });
     }
-  }, [requestNavigation, focusedOccurrenceIndex, selectedNodeId]);
+  }, [
+    requestNavigation,
+    focusedOccurrenceIndex,
+    selectedNodeId,
+    consumeSelectedNodeNavigationSuppression,
+  ]);
 
   const handlePaneClick = useCallback(() => {
     actions.selectNode(null);

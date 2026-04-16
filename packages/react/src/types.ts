@@ -122,6 +122,8 @@ export interface LineageState {
   showScriptTables: boolean;
   /** Request to navigate to a specific file and location */
   navigationRequest: NavigationRequest | null;
+  /** Node ids currently rendered in the graph after filtering */
+  visibleGraphNodeIds: Set<string>;
   /** Table filter configuration */
   tableFilter: TableFilter;
 }
@@ -167,6 +169,12 @@ export interface LineageActions {
   toggleShowScriptTables: () => void;
   /** Request navigation to a file/location */
   requestNavigation: (request: NavigationRequest | null) => void;
+  /** Update the set of graph node ids currently visible in the viewport */
+  setVisibleGraphNodeIds: (nodeIds: Iterable<string>) => void;
+  /** Select a graph node from the SQL editor without bouncing back to the editor */
+  revealNodeInGraph: (nodeId: string) => void;
+  /** Clear any pending reveal request */
+  clearRevealRequest: () => void;
   /** Set the table filter */
   setTableFilter: (filter: TableFilter) => void;
   /** Toggle selection of a table in the filter */

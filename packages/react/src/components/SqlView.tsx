@@ -9,7 +9,12 @@ import { charOffsetToByteOffset } from '@pondpilot/flowscope-core';
 import { useLineage, useLineageStore } from '../store';
 import type { SqlViewProps } from '../types';
 import { trySpanToCharRange } from '../utils/sqlSpans';
-import { buildSpanIndex, findNodeAtByteOffset } from '../utils/revealInGraph';
+import {
+  buildRevealLookup,
+  buildSpanIndex,
+  findNodeAtByteOffset,
+  resolveRevealGraphTarget,
+} from '../utils/revealInGraph';
 
 type HighlightRange = { from: number; to: number; className: string };
 
@@ -68,6 +73,7 @@ export function SqlView({
 }: SqlViewProps): JSX.Element {
   const { state, actions } = useLineage();
   const revealNodeInGraph = useLineageStore((store) => store.revealNodeInGraph);
+  const visibleGraphNodeIds = useLineageStore((store) => store.visibleGraphNodeIds);
   const isControlled = value !== undefined;
 
   // Warn in dev mode if highlightedSpan is passed without value (it will be ignored)
@@ -105,6 +111,7 @@ export function SqlView({
   // Interval index of every known `nameSpan` / `bodySpan` in the current
   // analysis result. Rebuilt only when the result identity changes.
   const spanIndex = useMemo(() => buildSpanIndex(state.result), [state.result]);
+  const revealLookup = useMemo(() => buildRevealLookup(state.result), [state.result]);
 
   // Node id under the caret, or null when the cursor is in whitespace / the
   // index is empty. Drives the "Reveal in lineage" button and the context-menu
@@ -121,9 +128,24 @@ export function SqlView({
       if (spanIndex.entries.length === 0) return null;
       const byteOffset = charOffsetToByteOffset(sqlText, charOffset);
       const hit = findNodeAtByteOffset(spanIndex, byteOffset);
-      return hit ? hit.nodeId : null;
+      if (!hit) return null;
+
+      return resolveRevealGraphTarget(revealLookup, hit.nodeId, {
+        viewMode: state.viewMode,
+        showColumnEdges: state.showColumnEdges,
+        showScriptTables: state.showScriptTables,
+        visibleNodeIds: visibleGraphNodeIds,
+      });
     },
-    [sqlText, spanIndex]
+    [
+      revealLookup,
+      sqlText,
+      spanIndex,
+      state.showColumnEdges,
+      state.showScriptTables,
+      state.viewMode,
+      visibleGraphNodeIds,
+    ]
   );
 
   // CodeMirror update listener — recomputes the reveal candidate on every

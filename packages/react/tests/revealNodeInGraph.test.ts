@@ -15,8 +15,10 @@ describe('revealNodeInGraph', () => {
 
     const state = store.getState();
     expect(state.selectedNodeId).toBe('table:users');
+    expect(state.highlightedSpan).toBeNull();
     expect(state.focusedOccurrenceIndex).toBe(0);
     expect(state.revealRequest).toEqual({ nodeId: 'table:users', nonce: 1 });
+    expect(state.suppressNextSelectedNodeNavigation).toBe(true);
   });
 
   it('bumps the nonce when the same node is revealed repeatedly', () => {
@@ -34,5 +36,13 @@ describe('revealNodeInGraph', () => {
     const state = store.getState();
     expect(state.revealRequest).toBeNull();
     expect(state.selectedNodeId).toBe('cte:active');
+  });
+
+  it('consumeSelectedNodeNavigationSuppression skips the bounce only once', () => {
+    store.getState().revealNodeInGraph('cte:active');
+
+    expect(store.getState().consumeSelectedNodeNavigationSuppression()).toBe(true);
+    expect(store.getState().suppressNextSelectedNodeNavigation).toBe(false);
+    expect(store.getState().consumeSelectedNodeNavigationSuppression()).toBe(false);
   });
 });
