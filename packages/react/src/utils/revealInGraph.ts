@@ -172,9 +172,20 @@ function pushEntries(
 
 /**
  * Decide whether reveal-in-graph can safely use the current editor buffer.
- * Controlled editors are only revealable when they still show the analyzed SQL;
- * multi-file analysis additionally requires an explicit source name so byte
- * offsets cannot resolve into another file's spans.
+ *
+ * Controlled editors split into two modes:
+ *
+ * - When `analyzedSourceName` is provided and matches a statement source, byte
+ *   offsets in the result are scoped to that source, not the `analyzedSql`
+ *   corpus. Multi-file hosts like the demo app concatenate files (with headers
+ *   like `-- File: x.sql`) into `analyzedSql`, so an `sqlText === analyzedSql`
+ *   equality check is structurally wrong there. We trust the caller to clear
+ *   `analyzedSourceName` (or re-run analysis) when the editor buffer diverges
+ *   from the analyzed source text — that's the only staleness signal we have
+ *   without tracking per-source analyzed content.
+ * - Without `analyzedSourceName`, spans are interpreted against `analyzedSql`
+ *   directly, so we require `sqlText === analyzedSql` and a single source to
+ *   avoid mapping offsets into the wrong file's text.
  */
 export function resolveRevealAnalysisScope(
   options: ResolveRevealAnalysisScopeOptions
@@ -189,14 +200,14 @@ export function resolveRevealAnalysisScope(
     return { enabled: true };
   }
 
-  if (sqlText !== analyzedSql) {
-    return { enabled: false };
-  }
-
   if (analyzedSourceName) {
     return result.statements.some((statement) => statement.sourceName === analyzedSourceName)
       ? { enabled: true, sourceName: analyzedSourceName }
       : { enabled: false };
+  }
+
+  if (sqlText !== analyzedSql) {
+    return { enabled: false };
   }
 
   const sourceNames = new Set(

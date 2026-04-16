@@ -233,14 +233,13 @@ describe('resolveRevealAnalysisScope', () => {
     issues: [],
   } as unknown as AnalyzeResult;
 
-  it('disables reveal when a controlled editor buffer is stale', () => {
+  it('disables reveal when a controlled editor buffer is stale without a source name', () => {
     expect(
       resolveRevealAnalysisScope({
         result: multiFileResult,
         isControlled: true,
         sqlText: 'select * from edited_users',
         analyzedSql: 'select * from users',
-        analyzedSourceName: 'a.sql',
       })
     ).toEqual({ enabled: false });
   });
@@ -263,6 +262,21 @@ describe('resolveRevealAnalysisScope', () => {
         isControlled: true,
         sqlText: 'select * from users',
         analyzedSql: 'select * from users',
+        analyzedSourceName: 'b.sql',
+      })
+    ).toEqual({ enabled: true, sourceName: 'b.sql' });
+  });
+
+  it('trusts analyzedSourceName over the full-corpus equality check', () => {
+    // Multi-file hosts (e.g. the demo app) concatenate files with headers into
+    // `analyzedSql`, so `sqlText` (one file) never equals the corpus. The
+    // source name signals that spans are scoped to that file.
+    expect(
+      resolveRevealAnalysisScope({
+        result: multiFileResult,
+        isControlled: true,
+        sqlText: 'select * from users',
+        analyzedSql: '-- File: a.sql\nselect 1;\n\n-- File: b.sql\nselect * from users',
         analyzedSourceName: 'b.sql',
       })
     ).toEqual({ enabled: true, sourceName: 'b.sql' });
