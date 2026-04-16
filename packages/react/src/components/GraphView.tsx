@@ -1052,10 +1052,14 @@ export function GraphView({
     [actions, focusedOccurrenceIndex, selectedNodeId]
   );
 
-  // Nonce of the most recently honored reveal-originated selection. The bounce
-  // effect keys suppression off this ref so each reveal suppresses at most one
-  // navigation, even if the effect re-fires later (e.g. focusedOccurrenceIndex
-  // changes) or two reveals land in the same render.
+  // Track the latest reveal request via a ref so the bounce effect can peek at
+  // it without re-firing when `clearRevealRequest` lands ~100ms after a reveal
+  // (which would otherwise navigate to the reveal target and defeat the
+  // suppression). `consumedRevealSuppressionNonceRef` guarantees each reveal
+  // suppresses at most one bounce, so repeat reveals of the same node still
+  // work even though the effect only keys on selection changes.
+  const revealRequestRef = useRef(revealRequest);
+  revealRequestRef.current = revealRequest;
   const consumedRevealSuppressionNonceRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -1063,13 +1067,14 @@ export function GraphView({
       return;
     }
 
+    const currentRevealRequest = revealRequestRef.current;
     if (
-      revealRequest &&
-      revealRequest.suppressNavigation &&
-      revealRequest.nodeId === selectedNodeId &&
-      revealRequest.nonce !== consumedRevealSuppressionNonceRef.current
+      currentRevealRequest &&
+      currentRevealRequest.suppressNavigation &&
+      currentRevealRequest.nodeId === selectedNodeId &&
+      currentRevealRequest.nonce !== consumedRevealSuppressionNonceRef.current
     ) {
-      consumedRevealSuppressionNonceRef.current = revealRequest.nonce;
+      consumedRevealSuppressionNonceRef.current = currentRevealRequest.nonce;
       return;
     }
 
@@ -1100,7 +1105,7 @@ export function GraphView({
         targetType,
       });
     }
-  }, [requestNavigation, focusedOccurrenceIndex, selectedNodeId, revealRequest]);
+  }, [requestNavigation, focusedOccurrenceIndex, selectedNodeId]);
 
   const handlePaneClick = useCallback(() => {
     actions.selectNode(null);
