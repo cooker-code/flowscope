@@ -1,7 +1,20 @@
-import type { AnalyzeResult, Edge, Node, Span, StatementMeta } from '@pondpilot/flowscope-core';
+import {
+  type AnalyzeResult,
+  type Edge,
+  type Node,
+  type Span,
+  type StatementMeta,
+  edgesInStatement,
+  nodesInStatement,
+} from '@pondpilot/flowscope-core';
 
 import { OUTPUT_NODE_TYPE } from './lineageHelpers';
-import { mergeNodesForNavigation, resolveNodeSourceName } from './nodeOccurrences';
+import {
+  getBodySpans,
+  mergeNodesForNavigation,
+  resolveNodeSourceName,
+  scopeNodeToStatement,
+} from './nodeOccurrences';
 
 /**
  * Kind of span an index entry refers to.
@@ -55,6 +68,19 @@ export interface ResolveRevealGraphTargetOptions {
   visibleNodeIds?: ReadonlySet<string>;
 }
 
+export interface ResolveRevealAnalysisScopeOptions {
+  result: AnalyzeResult | null;
+  isControlled: boolean;
+  sqlText: string;
+  analyzedSql: string;
+  analyzedSourceName?: string;
+}
+
+export interface RevealAnalysisScope {
+  enabled: boolean;
+  sourceName?: string;
+}
+
 const EMPTY_INDEX: SpanIndex = { entries: [] };
 const EMPTY_LOOKUP: RevealLookup = {
   nodesById: new Map(),
@@ -65,19 +91,50 @@ function isRelationType(type: Node['type']): boolean {
   return type === 'table' || type === 'view' || type === 'cte' || type === OUTPUT_NODE_TYPE;
 }
 
-function buildMergedNodeMap(result: AnalyzeResult): Map<string, Node> {
+function buildMergedNodeMap(result: AnalyzeResult, sourceName?: string): Map<string, Node> {
   const statementById = new Map<number, Pick<StatementMeta, 'sourceName'>>(
     result.statements.map((statement) => [statement.statementIndex, statement])
   );
   const mergedNodes = new Map<string, Node>();
+  const statements = sourceName
+    ? result.statements.filter((statement) => statement.sourceName === sourceName)
+    : result.statements;
 
-  for (const rawNode of result.nodes) {
-    const sourceName = resolveNodeSourceName(rawNode, statementById);
-    const merged = mergeNodesForNavigation(mergedNodes.get(rawNode.id) ?? null, rawNode, sourceName);
-    mergedNodes.set(rawNode.id, merged);
+  // Re-scope nodes per statement so source-filtered reveal only indexes spans
+  // from the text currently shown in the editor.
+  for (const statement of statements) {
+    for (const rawNode of nodesInStatement(result, statement.statementIndex)) {
+      const resolvedSourceName =
+        statement.sourceName ?? resolveNodeSourceName(rawNode, statementById) ?? sourceName;
+      const scopedNode = scopeNodeToStatement(rawNode, statement.statementIndex, resolvedSourceName);
+      const merged = mergeNodesForNavigation(
+        mergedNodes.get(scopedNode.id) ?? null,
+        scopedNode,
+        resolvedSourceName
+      );
+      mergedNodes.set(scopedNode.id, merged);
+    }
   }
 
   return mergedNodes;
+}
+
+function buildScopedEdges(result: AnalyzeResult, sourceName?: string): Edge[] {
+  if (!sourceName) {
+    return result.edges;
+  }
+
+  const edgesById = new Map<string, Edge>();
+  for (const statement of result.statements) {
+    if (statement.sourceName !== sourceName) continue;
+    for (const edge of edgesInStatement(result, statement.statementIndex)) {
+      if (!edgesById.has(edge.id)) {
+        edgesById.set(edge.id, edge);
+      }
+    }
+  }
+
+  return Array.from(edgesById.values());
 }
 
 function buildOwnerRelationMap(edges: Edge[], mergedNodes: Map<string, Node>): Map<string, string> {
@@ -110,6 +167,44 @@ function pushEntries(
 }
 
 /**
+ * Decide whether reveal-in-graph can safely use the current editor buffer.
+ * Controlled editors are only revealable when they still show the analyzed SQL;
+ * multi-file analysis additionally requires an explicit source name so byte
+ * offsets cannot resolve into another file's spans.
+ */
+export function resolveRevealAnalysisScope(
+  options: ResolveRevealAnalysisScopeOptions
+): RevealAnalysisScope {
+  const { result, isControlled, sqlText, analyzedSql, analyzedSourceName } = options;
+
+  if (!result) {
+    return { enabled: false };
+  }
+
+  if (!isControlled) {
+    return { enabled: true };
+  }
+
+  if (sqlText !== analyzedSql) {
+    return { enabled: false };
+  }
+
+  if (analyzedSourceName) {
+    return result.statements.some((statement) => statement.sourceName === analyzedSourceName)
+      ? { enabled: true, sourceName: analyzedSourceName }
+      : { enabled: false };
+  }
+
+  const sourceNames = new Set(
+    result.statements
+      .map((statement) => statement.sourceName)
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+  );
+
+  return sourceNames.size > 1 ? { enabled: false } : { enabled: true };
+}
+
+/**
  * Build an interval index of every known `nameSpan` and `bodySpan` across the
  * flat node list. Called once per analysis result; the result is cheap to hold
  * in memo state.
@@ -118,19 +213,17 @@ function pushEntries(
  * multiple statements) contribute every occurrence exactly once without the
  * previous per-id rescans over `result.nodes`.
  */
-export function buildSpanIndex(result: AnalyzeResult | null): SpanIndex {
+export function buildSpanIndex(result: AnalyzeResult | null, sourceName?: string): SpanIndex {
   if (!result || !result.nodes || result.nodes.length === 0) {
     return EMPTY_INDEX;
   }
 
-  const mergedNodes = buildMergedNodeMap(result);
+  const mergedNodes = buildMergedNodeMap(result, sourceName);
   const entries: SpanIndexEntry[] = [];
 
   for (const node of mergedNodes.values()) {
     pushEntries(entries, node.id, node.nameSpans, 'name');
-    if (node.bodySpan) {
-      pushEntries(entries, node.id, [node.bodySpan], 'body');
-    }
+    pushEntries(entries, node.id, getBodySpans(node), 'body');
   }
 
   return { entries };
@@ -163,13 +256,13 @@ export function findNodeAtByteOffset(index: SpanIndex, byteOffset: number): Span
  * Build the node/ownership lookup needed to map span hits to actual rendered
  * graph node ids in the current view.
  */
-export function buildRevealLookup(result: AnalyzeResult | null): RevealLookup {
+export function buildRevealLookup(result: AnalyzeResult | null, sourceName?: string): RevealLookup {
   if (!result || !result.nodes || result.nodes.length === 0) {
     return EMPTY_LOOKUP;
   }
 
-  const mergedNodes = buildMergedNodeMap(result);
-  const ownerRelationIdByNodeId = buildOwnerRelationMap(result.edges, mergedNodes);
+  const mergedNodes = buildMergedNodeMap(result, sourceName);
+  const ownerRelationIdByNodeId = buildOwnerRelationMap(buildScopedEdges(result, sourceName), mergedNodes);
   const nodesById = new Map<string, RevealLookupNode>();
 
   for (const node of mergedNodes.values()) {

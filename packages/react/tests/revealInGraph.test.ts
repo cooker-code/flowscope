@@ -7,6 +7,7 @@ import {
   buildRevealLookup,
   buildSpanIndex,
   findNodeAtByteOffset,
+  resolveRevealAnalysisScope,
   resolveRevealGraphTarget,
 } from '../src/utils/revealInGraph';
 
@@ -128,6 +129,122 @@ describe('buildSpanIndex', () => {
       { start: 0, end: 5 },
       { start: 10, end: 15 },
     ]);
+  });
+
+  it('indexes every merged body span, not just the first one', () => {
+    const result = {
+      statements: [
+        { statementIndex: 0, sourceName: 'a.sql' },
+        { statementIndex: 1, sourceName: 'b.sql' },
+      ],
+      nodes: [
+        {
+          id: 'cte:users',
+          type: 'cte',
+          label: 'users',
+          statementIds: [0],
+          bodySpan: { start: 20, end: 40 },
+          metadata: { bodySpans: [{ start: 20, end: 40 }] },
+        },
+        {
+          id: 'cte:users',
+          type: 'cte',
+          label: 'users',
+          statementIds: [1],
+          bodySpan: { start: 120, end: 160 },
+          metadata: { bodySpans: [{ start: 120, end: 160 }] },
+        },
+      ],
+      edges: [],
+      issues: [],
+    } as unknown as AnalyzeResult;
+
+    const index = buildSpanIndex(result);
+    expect(
+      index.entries.filter((entry) => entry.kind === 'body').map((entry) => entry.span)
+    ).toEqual([
+      { start: 20, end: 40 },
+      { start: 120, end: 160 },
+    ]);
+  });
+
+  it('can scope indexing to a single source file', () => {
+    const result = {
+      statements: [
+        { statementIndex: 0, sourceName: 'a.sql' },
+        { statementIndex: 1, sourceName: 'b.sql' },
+      ],
+      nodes: [
+        {
+          id: 'table:users',
+          type: 'table',
+          label: 'users',
+          statementIds: [0],
+          nameSpans: [{ start: 0, end: 5 }],
+          metadata: { occurrenceSpans: [{ start: 0, end: 5 }] },
+        },
+        {
+          id: 'table:users',
+          type: 'table',
+          label: 'users',
+          statementIds: [1],
+          nameSpans: [{ start: 10, end: 15 }],
+          metadata: { occurrenceSpans: [{ start: 10, end: 15 }] },
+        },
+      ],
+      edges: [],
+      issues: [],
+    } as unknown as AnalyzeResult;
+
+    const index = buildSpanIndex(result, 'b.sql');
+    expect(index.entries.map((entry) => entry.span)).toEqual([{ start: 10, end: 15 }]);
+  });
+});
+
+describe('resolveRevealAnalysisScope', () => {
+  const multiFileResult = {
+    statements: [
+      { statementIndex: 0, sourceName: 'a.sql' },
+      { statementIndex: 1, sourceName: 'b.sql' },
+    ],
+    nodes: [],
+    edges: [],
+    issues: [],
+  } as unknown as AnalyzeResult;
+
+  it('disables reveal when a controlled editor buffer is stale', () => {
+    expect(
+      resolveRevealAnalysisScope({
+        result: multiFileResult,
+        isControlled: true,
+        sqlText: 'select * from edited_users',
+        analyzedSql: 'select * from users',
+        analyzedSourceName: 'a.sql',
+      })
+    ).toEqual({ enabled: false });
+  });
+
+  it('disables reveal for multi-file controlled editors without an explicit source', () => {
+    expect(
+      resolveRevealAnalysisScope({
+        result: multiFileResult,
+        isControlled: true,
+        sqlText: 'select * from users',
+        analyzedSql: 'select * from users',
+      })
+    ).toEqual({ enabled: false });
+  });
+
+  it('allows reveal when the controlled editor is scoped to a known source', () => {
+    expect(
+      resolveRevealAnalysisScope({
+        result: multiFileResult,
+        isControlled: true,
+        sqlText: 'select * from users',
+        analyzedSql: 'select * from users',
+        analyzedSourceName: 'b.sql',
+      })
+    ).toEqual({ enabled: true, sourceName: 'b.sql' });
   });
 });
 

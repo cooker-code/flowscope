@@ -262,6 +262,8 @@ export interface SqlViewProps {
   isDark?: boolean;
   /** Span to highlight and scroll to in the editor (for controlled mode navigation) */
   highlightedSpan?: Span | null;
+  /** Source file currently shown in controlled mode; used to scope reveal lookups safely */
+  analyzedSourceName?: string;
 }
 
 /**

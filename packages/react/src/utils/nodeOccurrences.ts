@@ -161,6 +161,10 @@ function getBodyIndexesForStatement(node: Node, statementIndex: number): number[
   return statementIds.flatMap((value, index) => (value === statementIndex ? [index] : []));
 }
 
+export function getBodySpans(node: Node): Span[] {
+  return buildBodySpans(node);
+}
+
 export function getBodySpanForSourceName(node: Node, sourceName?: string): Span | undefined {
   const bodySpans = buildBodySpans(node);
   if (bodySpans.length === 0) {

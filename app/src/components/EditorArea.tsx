@@ -258,6 +258,9 @@ export function EditorArea({
             editable={sqlViewMode === 'template' && !isReadOnly}
             isDark={isDark}
             highlightedSpan={sqlViewMode === 'template' ? highlightedSpan : null}
+            analyzedSourceName={
+              sqlViewMode === 'template' ? activeFile.path || activeFile.name : undefined
+            }
           />
         </ErrorBoundary>
         {isReadOnly && (

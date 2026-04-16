@@ -13,6 +13,7 @@ import {
   buildRevealLookup,
   buildSpanIndex,
   findNodeAtByteOffset,
+  resolveRevealAnalysisScope,
   resolveRevealGraphTarget,
 } from '../utils/revealInGraph';
 
@@ -70,6 +71,7 @@ export function SqlView({
   value,
   isDark,
   highlightedSpan: highlightedSpanProp,
+  analyzedSourceName,
 }: SqlViewProps): JSX.Element {
   const { state, actions } = useLineage();
   const revealNodeInGraph = useLineageStore((store) => store.revealNodeInGraph);
@@ -108,10 +110,32 @@ export function SqlView({
   const editorRef = useRef<ReactCodeMirrorRef>(null);
   const lastAutoScrolledHighlightKeyRef = useRef<string | null>(null);
 
+  const revealScope = useMemo(
+    () =>
+      resolveRevealAnalysisScope({
+        result: state.result,
+        isControlled,
+        sqlText,
+        analyzedSql: state.sql,
+        analyzedSourceName,
+      }),
+    [analyzedSourceName, isControlled, sqlText, state.result, state.sql]
+  );
+
   // Interval index of every known `nameSpan` / `bodySpan` in the current
-  // analysis result. Rebuilt only when the result identity changes.
-  const spanIndex = useMemo(() => buildSpanIndex(state.result), [state.result]);
-  const revealLookup = useMemo(() => buildRevealLookup(state.result), [state.result]);
+  // analysis result. Rebuilt only when the relevant analysis slice changes.
+  const spanIndex = useMemo(
+    () =>
+      revealScope.enabled ? buildSpanIndex(state.result, revealScope.sourceName) : buildSpanIndex(null),
+    [revealScope.enabled, revealScope.sourceName, state.result]
+  );
+  const revealLookup = useMemo(
+    () =>
+      revealScope.enabled
+        ? buildRevealLookup(state.result, revealScope.sourceName)
+        : buildRevealLookup(null),
+    [revealScope.enabled, revealScope.sourceName, state.result]
+  );
 
   // Node id under the caret, or null when the cursor is in whitespace / the
   // index is empty. Drives the "Reveal in lineage" button and the context-menu
@@ -125,7 +149,7 @@ export function SqlView({
   const computeRevealCandidate = useCallback(
     (charOffset: number | null): string | null => {
       if (charOffset === null) return null;
-      if (spanIndex.entries.length === 0) return null;
+      if (!revealScope.enabled || spanIndex.entries.length === 0) return null;
       const byteOffset = charOffsetToByteOffset(sqlText, charOffset);
       const hit = findNodeAtByteOffset(spanIndex, byteOffset);
       if (!hit) return null;
@@ -139,6 +163,7 @@ export function SqlView({
     },
     [
       revealLookup,
+      revealScope.enabled,
       sqlText,
       spanIndex,
       state.showColumnEdges,
@@ -173,22 +198,38 @@ export function SqlView({
     setRevealCandidateId(computeRevealCandidate(head));
   }, [computeRevealCandidate]);
 
-  const handleReveal = useCallback(() => {
-    if (!revealCandidateId) return;
-    revealNodeInGraph(revealCandidateId);
-  }, [revealCandidateId, revealNodeInGraph]);
+  const handleReveal = useCallback(
+    (nodeId: string | null = revealCandidateId) => {
+      if (!nodeId) return;
+      revealNodeInGraph(nodeId);
+    },
+    [revealCandidateId, revealNodeInGraph]
+  );
+
+  const getRevealCandidateAtClientPoint = useCallback(
+    (x: number, y: number): string | null => {
+      const view = editorRef.current?.view;
+      if (!view) return null;
+      const pos = view.posAtCoords({ x, y });
+      return computeRevealCandidate(pos ?? null);
+    },
+    [computeRevealCandidate]
+  );
 
   // Wire a context-menu entry on the editor DOM. We can't directly inject
   // into the native menu, so we suppress it when a candidate exists and show
   // a lightweight overlay at the click position.
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(
+    null
+  );
   const handleContextMenu = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
-      if (!revealCandidateId) return;
+      const nodeId = getRevealCandidateAtClientPoint(event.clientX, event.clientY);
+      if (!nodeId) return;
       event.preventDefault();
-      setContextMenu({ x: event.clientX, y: event.clientY });
+      setContextMenu({ x: event.clientX, y: event.clientY, nodeId });
     },
-    [revealCandidateId]
+    [getRevealCandidateAtClientPoint]
   );
 
   useEffect(() => {
@@ -274,7 +315,7 @@ export function SqlView({
         <button
           type="button"
           className="flowscope-reveal-action"
-          onClick={handleReveal}
+          onClick={() => handleReveal()}
           title="Center the graph on the node under the cursor"
         >
           Reveal in lineage
@@ -306,7 +347,7 @@ export function SqlView({
             right: 'auto',
           }}
           onClick={() => {
-            handleReveal();
+            handleReveal(contextMenu.nodeId);
             setContextMenu(null);
           }}
         >
