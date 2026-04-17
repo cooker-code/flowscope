@@ -104,7 +104,7 @@ export function EditorToolbar({
             ) : (
               <Play className="h-3.5 w-3.5 fill-current" />
             )}
-            <span className="hidden sm:inline">Run</span>
+            <span className="hidden sm:inline">Lineage</span>
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

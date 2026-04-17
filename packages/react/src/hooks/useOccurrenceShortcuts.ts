@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
-import { useLineageActions } from '../store';
+import { useLineageActions, useLineageStore } from '../store';
+import { findMergedNodeById, resolveNodeSourceName } from '../utils/nodeOccurrences';
 
 /**
  * Global keyboard shortcuts for cycling through the focused node's
@@ -14,12 +15,34 @@ import { useLineageActions } from '../store';
  */
 export function useOccurrenceShortcuts(): void {
   const { cycleOccurrence } = useLineageActions();
+  // Mirror the store slices we need into refs so the keydown handler can
+  // read them synchronously without re-binding on every change.
+  const selectedNodeId = useLineageStore((state) => state.selectedNodeId);
+  const result = useLineageStore((state) => state.result);
+  const stalePaths = useLineageStore((state) => state.stalePaths);
+  const staleStateRef = useRef({ selectedNodeId, result, stalePaths });
+  staleStateRef.current = { selectedNodeId, result, stalePaths };
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (event.key !== 'n' && event.key !== 'N') return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
+
+      // Suppress when the selected node's file is stale — its name spans
+      // no longer match the editor text, so cycling would jump to wrong
+      // positions.
+      const snapshot = staleStateRef.current;
+      if (snapshot.selectedNodeId && snapshot.result) {
+        const node = findMergedNodeById(snapshot.result, snapshot.selectedNodeId);
+        if (node) {
+          const statementById = new Map(
+            snapshot.result.statements.map((s) => [s.statementIndex, s])
+          );
+          const sourceName = resolveNodeSourceName(node, statementById);
+          if (sourceName && snapshot.stalePaths.has(sourceName)) return;
+        }
+      }
 
       event.preventDefault();
       cycleOccurrence(event.shiftKey ? 'prev' : 'next');

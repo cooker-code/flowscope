@@ -193,6 +193,19 @@ export interface LineageState {
   tableFilter: TableFilter;
   isLayouting: boolean;
   isBuilding: boolean;
+  /**
+   * Snapshot of the SQL text each path held when the most recent analysis
+   * ran, keyed by the same `sourceName` the analyzer uses. Consumers diff
+   * this against live file content to decide whether the graph's spans are
+   * still aligned with the editor (#22). `null` before any analysis has run.
+   */
+  analyzedContentByPath: ReadonlyMap<string, string> | null;
+  /**
+   * Paths whose current content has diverged from `analyzedContentByPath`.
+   * Populated by the app layer (which owns the live file content) via
+   * `setStalePaths`. Nav affordances gated by membership in this set (#22).
+   */
+  stalePaths: ReadonlySet<string>;
 
   // Actions
   setResult: (result: AnalyzeResult | null) => void;
@@ -245,6 +258,20 @@ export interface LineageState {
   clearTableFilter: () => void;
   setIsLayouting: (isLayouting: boolean) => void;
   setIsBuilding: (isBuilding: boolean) => void;
+  /**
+   * Replace the analyzed-content snapshot. Called after a successful
+   * analysis run with a path→content map covering every file that went
+   * into the analyzer. Pass `null` to clear (e.g. when the result itself
+   * is cleared).
+   */
+  setAnalyzedContent: (map: ReadonlyMap<string, string> | null) => void;
+  /**
+   * Replace the set of paths whose live content diverges from the analyzed
+   * snapshot. Computed by the app and pushed here so that components
+   * without access to the project store (the graph's OccurrenceCycler,
+   * useOccurrenceShortcuts) can gate on staleness uniformly.
+   */
+  setStalePaths: (paths: Iterable<string>) => void;
 }
 
 /**
@@ -299,6 +326,8 @@ export function createLineageStore(
     tableFilter: { selectedTableLabels: new Set(), direction: 'both' },
     isLayouting: false,
     isBuilding: false,
+    analyzedContentByPath: null,
+    stalePaths: new Set(),
     ...initialState,
 
     // Actions
@@ -320,6 +349,10 @@ export function createLineageStore(
           collapsedNodeIds: new Set(),
           expandedTableIds: new Set(),
           selectedStatementIndex: statementCount === 0 ? 0 : newSelectedStatementIndex,
+          // Clearing the result invalidates any staleness derived from it.
+          // A successful re-analysis will immediately refill these via
+          // setAnalyzedContent / setStalePaths in the app layer.
+          ...(result === null ? { analyzedContentByPath: null, stalePaths: new Set() } : {}),
         };
       }),
 
@@ -509,6 +542,22 @@ export function createLineageStore(
     setIsLayouting: (isLayouting) => set({ isLayouting }),
 
     setIsBuilding: (isBuilding) => set({ isBuilding }),
+
+    setAnalyzedContent: (map) => set({ analyzedContentByPath: map }),
+
+    setStalePaths: (paths) =>
+      set((state) => {
+        const next = new Set(paths);
+        if (next.size !== state.stalePaths.size) {
+          return { stalePaths: next };
+        }
+        for (const path of next) {
+          if (!state.stalePaths.has(path)) {
+            return { stalePaths: next };
+          }
+        }
+        return state;
+      }),
   }));
 }
 
@@ -570,6 +619,8 @@ export function useLineage() {
       tableFilter: store.tableFilter,
       isLayouting: store.isLayouting,
       isBuilding: store.isBuilding,
+      analyzedContentByPath: store.analyzedContentByPath,
+      stalePaths: store.stalePaths,
     },
     actions: {
       setResult: store.setResult,
@@ -601,6 +652,8 @@ export function useLineage() {
       clearTableFilter: store.clearTableFilter,
       setIsLayouting: store.setIsLayouting,
       setIsBuilding: store.setIsBuilding,
+      setAnalyzedContent: store.setAnalyzedContent,
+      setStalePaths: store.setStalePaths,
     },
   };
 }
@@ -635,6 +688,8 @@ export function useLineageState() {
   const tableFilter = useLineageStore((state) => state.tableFilter);
   const isLayouting = useLineageStore((state) => state.isLayouting);
   const isBuilding = useLineageStore((state) => state.isBuilding);
+  const analyzedContentByPath = useLineageStore((state) => state.analyzedContentByPath);
+  const stalePaths = useLineageStore((state) => state.stalePaths);
 
   return {
     result,
@@ -661,6 +716,8 @@ export function useLineageState() {
     tableFilter,
     isLayouting,
     isBuilding,
+    analyzedContentByPath,
+    stalePaths,
   };
 }
 
@@ -697,6 +754,8 @@ export function useLineageActions() {
   const clearTableFilter = useLineageStore((state) => state.clearTableFilter);
   const setIsLayouting = useLineageStore((state) => state.setIsLayouting);
   const setIsBuilding = useLineageStore((state) => state.setIsBuilding);
+  const setAnalyzedContent = useLineageStore((state) => state.setAnalyzedContent);
+  const setStalePaths = useLineageStore((state) => state.setStalePaths);
 
   return {
     setResult,
@@ -728,5 +787,7 @@ export function useLineageActions() {
     clearTableFilter,
     setIsLayouting,
     setIsBuilding,
+    setAnalyzedContent,
+    setStalePaths,
   };
 }

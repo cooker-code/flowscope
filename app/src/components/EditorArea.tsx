@@ -1,7 +1,12 @@
 import { useEffect, useCallback, useRef, useMemo, useState } from 'react';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { Loader2, AlertCircle, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
-import { SqlView, useLineageState } from '@pondpilot/flowscope-react';
+import {
+  SqlView,
+  computeStalePaths,
+  useLineageActions,
+  useLineageState,
+} from '@pondpilot/flowscope-react';
 import { cn } from '@/lib/utils';
 import { useProject } from '@/lib/project-store';
 import { useThemeStore, resolveTheme } from '@/lib/theme-store';
@@ -58,7 +63,9 @@ export function EditorArea({
   const previousSchema = useRef<string | null>(null);
   const previousHideCTEs = useRef<boolean | null>(null);
 
-  const { hideCTEs, highlightedSpan, result } = useLineageState();
+  const { hideCTEs, highlightedSpan, result, analyzedContentByPath, stalePaths } =
+    useLineageState();
+  const { setStalePaths } = useLineageActions();
 
   // SQL view mode toggle: 'template' shows original templated SQL, 'resolved' shows compiled SQL
   const [sqlViewMode, setSqlViewMode] = useState<SqlViewMode>('template');
@@ -105,6 +112,23 @@ export function EditorArea({
       });
     }
   }, [activeFile?.id]);
+
+  // Recompute stale paths whenever the snapshot or any live file content
+  // changes. `currentFiles` intentionally reads from `currentProject?.files`
+  // directly so editor keystrokes feed in without a debounce — staleness
+  // should flip the moment the buffer diverges.
+  const currentFiles = useMemo(
+    () =>
+      (currentProject?.files ?? [])
+        .filter((f) => f.name.endsWith('.sql'))
+        .map((f) => ({ path: f.path, content: f.content })),
+    [currentProject?.files]
+  );
+
+  useEffect(() => {
+    const next = computeStalePaths(analyzedContentByPath, currentFiles);
+    setStalePaths(next);
+  }, [analyzedContentByPath, currentFiles, setStalePaths]);
 
   // Auto-trigger re-analysis when schema or hideCTEs changes.
   // Consolidated into a single effect to prevent duplicate analyses when both change.
@@ -226,6 +250,8 @@ export function EditorArea({
 
   const allFileCount = currentProject.files.filter((f) => f.name.endsWith('.sql')).length;
   const selectedCount = currentProject.selectedFileIds?.length || 0;
+  const activePath = activeFile.path || activeFile.name;
+  const isActiveFileStale = stalePaths.has(activePath);
 
   return (
     <div className={cn('flex flex-col h-full bg-background', className)}>
@@ -244,6 +270,18 @@ export function EditorArea({
         showSqlViewToggle={showSqlViewToggle}
         hasResolvedSql={!!resolvedSql}
       />
+
+      {isActiveFileStale && (
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="stale-graph-banner"
+          className="flex items-center gap-2 px-3 py-1.5 text-xs border-b bg-amber-500/10 text-amber-900 dark:text-amber-100 border-amber-500/30"
+        >
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          <span>Graph is out of sync with text &mdash; re-run analysis to enable navigation.</span>
+        </div>
+      )}
 
       <div
         ref={editorContainerRef}

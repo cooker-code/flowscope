@@ -103,3 +103,6 @@ export {
 } from './utils/graphTraversal';
 
 export type { ApplyTableFilterResult } from './utils/graphTraversal';
+
+// Stale-graph tracking
+export { computeStalePaths } from './utils/staleContent';
