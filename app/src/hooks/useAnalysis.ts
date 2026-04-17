@@ -297,6 +297,13 @@ export function useAnalysis(backendReady: boolean, options?: UseAnalysisOptions)
         // allowing UI interactions and worker callbacks to proceed without blocking
         startTransition(() => {
           actionsRef.current.setResult(cached.result);
+          // Cache hits imply the current file content already matches what
+          // was analyzed (cache key is content-derived), so seed the
+          // staleness snapshot from the live files used to build `context`.
+          actionsRef.current.setAnalyzedContent(
+            new Map(context.files.map((f) => [f.name, f.content]))
+          );
+          actionsRef.current.setStalePaths([]);
         });
         storeResult(activeProjectId, cached.result, hideCTEs);
         setMetrics(activeProjectId, {
@@ -467,6 +474,13 @@ export function useAnalysis(backendReady: boolean, options?: UseAnalysisOptions)
           // allowing UI interactions and worker callbacks to proceed without blocking
           startTransition(() => {
             actionsRef.current.setResult(analysisResponse.result);
+            // Snapshot the exact content that was just analyzed so the
+            // staleness gate (#22) has a baseline to diff future edits
+            // against. Keyed by the same path the analyzer keys statements by.
+            actionsRef.current.setAnalyzedContent(
+              new Map(context.files.map((f) => [f.name, f.content]))
+            );
+            actionsRef.current.setStalePaths([]);
           });
           if (activeProjectId) {
             storeResult(activeProjectId, analysisResponse.result, hideCTEs);

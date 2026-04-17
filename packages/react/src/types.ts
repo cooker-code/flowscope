@@ -139,6 +139,19 @@ export interface LineageState {
   revealRequest: { nodeId: string; nonce: number; suppressNavigation: boolean } | null;
   /** Table filter configuration */
   tableFilter: TableFilter;
+  /**
+   * Snapshot of the SQL text each path held when the most recent analysis
+   * ran, keyed by the analyzer's `sourceName`. `null` before any analysis
+   * has run. Consumers diff this against live file content to gate graph↔
+   * text navigation on staleness (#22).
+   */
+  analyzedContentByPath: ReadonlyMap<string, string> | null;
+  /**
+   * Paths whose live content has diverged from `analyzedContentByPath`.
+   * Written by the app layer; read by components that need to disable nav
+   * (OccurrenceCycler, useOccurrenceShortcuts, SqlView reveal button).
+   */
+  stalePaths: ReadonlySet<string>;
 }
 
 /**
@@ -204,6 +217,10 @@ export interface LineageActions {
   setTableFilterDirection: (direction: TableFilterDirection) => void;
   /** Clear the table filter */
   clearTableFilter: () => void;
+  /** Replace the analyzed-content snapshot (or clear with null). */
+  setAnalyzedContent: (map: ReadonlyMap<string, string> | null) => void;
+  /** Replace the set of paths whose content has diverged from the snapshot. */
+  setStalePaths: (paths: Iterable<string>) => void;
 }
 
 /**

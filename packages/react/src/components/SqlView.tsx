@@ -76,7 +76,13 @@ export function SqlView({
   const { state, actions } = useLineage();
   const revealNodeInGraph = useLineageStore((store) => store.revealNodeInGraph);
   const visibleGraphNodeIds = useLineageStore((store) => store.visibleGraphNodeIds);
+  const stalePaths = useLineageStore((store) => store.stalePaths);
   const isControlled = value !== undefined;
+  // When the caller declares which analyzed source this editor represents,
+  // treat the reveal action as stale if that path has diverged from the
+  // analyzed snapshot. Offsets from the stale span index would land in the
+  // wrong place, so we'd rather hide the affordance than navigate wrong.
+  const isCurrentSourceStale = Boolean(analyzedSourceName && stalePaths.has(analyzedSourceName));
 
   // Warn in dev mode if highlightedSpan is passed without value (it will be ignored)
   if (process.env.NODE_ENV !== 'production' && !isControlled && highlightedSpanProp !== undefined) {
@@ -294,7 +300,7 @@ export function SqlView({
     }
   }, [highlightedSpan, issueHighlights, isControlled, sqlText]);
 
-  const canReveal = revealCandidateId !== null;
+  const canReveal = revealCandidateId !== null && !isCurrentSourceStale;
 
   return (
     <div className={`flowscope-sql-view ${className || ''}`} onMouseDown={handleEditorMouseDown}>
