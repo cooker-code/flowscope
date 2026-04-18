@@ -1,12 +1,14 @@
 import { useMemo, useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { sql } from '@codemirror/lang-sql';
+import { autocompletion } from '@codemirror/autocomplete';
 import { EditorView, Decoration, type DecorationSet } from '@codemirror/view';
 import { StateField, StateEffect } from '@codemirror/state';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { charOffsetToByteOffset } from '@pondpilot/flowscope-core';
 
 import { useLineage, useLineageStore } from '../store';
+import { createSqlCompletionSource } from '../completion';
 import type { SqlViewProps } from '../types';
 import { trySpanToCharRange } from '../utils/sqlSpans';
 import {
@@ -72,6 +74,9 @@ export function SqlView({
   isDark,
   highlightedSpan: highlightedSpanProp,
   analyzedSourceName,
+  dialect,
+  completionSchema,
+  disableCompletion = false,
 }: SqlViewProps): JSX.Element {
   const { state, actions } = useLineage();
   const revealNodeInGraph = useLineageStore((store) => store.revealNodeInGraph);
@@ -236,6 +241,29 @@ export function SqlView({
     [computeRevealCandidate, handleReveal]
   );
 
+  // Mirror dialect/schema into refs so the completion source reads the latest
+  // values without requiring a CodeMirror reconfigure on every change.
+  const dialectRef = useRef(dialect);
+  const schemaRef = useRef(completionSchema);
+  useEffect(() => {
+    dialectRef.current = dialect;
+  }, [dialect]);
+  useEffect(() => {
+    schemaRef.current = completionSchema;
+  }, [completionSchema]);
+
+  const completionExtension = useMemo(() => {
+    if (!editable || disableCompletion) return null;
+    const source = createSqlCompletionSource({
+      getDialect: () => dialectRef.current ?? 'generic',
+      getSchema: () => schemaRef.current,
+      onError: (error) => {
+        console.warn('FlowScope SQL completion failed:', error);
+      },
+    });
+    return autocompletion({ override: [source] });
+  }, [editable, disableCompletion]);
+
   const extensions = useMemo(
     () => [
       sql(),
@@ -244,8 +272,9 @@ export function SqlView({
       EditorView.lineWrapping,
       EditorView.editable.of(editable),
       selectionListener,
+      ...(completionExtension ? [completionExtension] : []),
     ],
-    [editable, selectionListener]
+    [editable, selectionListener, completionExtension]
   );
 
   const theme = useMemo(() => (isDark ? oneDark : 'light'), [isDark]);

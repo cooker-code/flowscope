@@ -299,6 +299,7 @@ export function EditorArea({
             analyzedSourceName={
               sqlViewMode === 'template' ? activeFile.path || activeFile.name : undefined
             }
+            dialect={currentProject.dialect}
           />
         </ErrorBoundary>
         {isReadOnly && (

@@ -106,3 +106,7 @@ export type { ApplyTableFilterResult } from './utils/graphTraversal';
 
 // Stale-graph tracking
 export { computeStalePaths } from './utils/staleContent';
+
+// Completion
+export { createSqlCompletionSource, mapCompletionItem } from './completion';
+export type { SqlCompletionSourceOptions } from './completion';

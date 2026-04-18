@@ -6,6 +6,8 @@ import type {
   Issue,
   Span,
   SchemaTable,
+  SchemaMetadata,
+  Dialect,
   FilterPredicate,
   AggregationInfo,
 } from '@pondpilot/flowscope-core';
@@ -302,6 +304,21 @@ export interface SqlViewProps {
   highlightedSpan?: Span | null;
   /** Source file currently shown in controlled mode; used to scope reveal lookups safely */
   analyzedSourceName?: string;
+  /**
+   * SQL dialect used when the built-in completion source is active. Defaults
+   * to `'generic'`. Only consulted while `editable` is true.
+   */
+  dialect?: Dialect;
+  /**
+   * Schema catalog forwarded to the completion engine for column resolution.
+   * Optional; omit when no catalog is available.
+   */
+  completionSchema?: SchemaMetadata;
+  /**
+   * Disable the built-in SQL completion source. Defaults to `false`.
+   * Useful when the embedder wants to supply its own completion extension.
+   */
+  disableCompletion?: boolean;
 }
 
 /**
