@@ -72,6 +72,21 @@ describe('createSqlCompletionSource', () => {
     expect(result!.options.map((o) => o.label)).toEqual(['users']);
   });
 
+  it('keeps trigger punctuation in place by not replacing symbol tokens', async () => {
+    completionItemsMock.mockResolvedValue(
+      engineResult({
+        token: { value: '.', kind: 'symbol', span: { start: 10, end: 11 } },
+      })
+    );
+    const source = createSqlCompletionSource();
+
+    const result = await source(contextAt('SELECT cte.', 11));
+
+    expect(result).not.toBeNull();
+    expect(result!.from).toBe(11);
+    expect(result!.to).toBe(11);
+  });
+
   it('returns null when the engine reports shouldShow=false', async () => {
     completionItemsMock.mockResolvedValue(engineResult({ shouldShow: false }));
     const source = createSqlCompletionSource();
@@ -117,6 +132,25 @@ describe('createSqlCompletionSource', () => {
 
     expect(await firstCall).toBeNull();
     expect(await secondCall).not.toBeNull();
+  });
+
+  it('clamps an out-of-range token span to the document length', async () => {
+    // Simulate a stale / buggy engine response whose token span extends
+    // beyond the current document. We expect the source to clamp rather than
+    // hand CodeMirror invalid offsets.
+    const doc = 'SELECT us';
+    completionItemsMock.mockResolvedValue(
+      engineResult({
+        token: { value: 'us', kind: 'identifier', span: { start: 7, end: 9999 } },
+      })
+    );
+    const source = createSqlCompletionSource();
+
+    const result = await source(contextAt(doc, doc.length));
+
+    expect(result).not.toBeNull();
+    expect(result!.from).toBe(7);
+    expect(result!.to).toBe(doc.length);
   });
 
   it('swallows engine errors and forwards them to onError instead of throwing', async () => {

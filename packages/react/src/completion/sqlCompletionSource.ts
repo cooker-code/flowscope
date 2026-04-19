@@ -3,7 +3,12 @@ import type {
   CompletionResult,
   CompletionSource,
 } from '@codemirror/autocomplete';
-import { completionItems, type Dialect, type SchemaMetadata } from '@pondpilot/flowscope-core';
+import {
+  completionItems,
+  type CompletionToken,
+  type Dialect,
+  type SchemaMetadata,
+} from '@pondpilot/flowscope-core';
 
 import { mapCompletionItem } from './mapCompletionItem';
 
@@ -18,6 +23,24 @@ export interface SqlCompletionSourceOptions {
 
 /** Re-query only while the user is still typing within a single identifier. */
 const IDENTIFIER_CONTINUATION = /^[\w$]*$/;
+const REPLACEABLE_TOKEN_KINDS = new Set(['identifier', 'keyword']);
+
+function resolveCompletionRange(
+  token: CompletionToken | undefined,
+  cursorOffset: number,
+  docLength: number
+): { from: number; to: number } {
+  const clamp = (offset: number) => Math.max(0, Math.min(docLength, offset));
+  const cursor = clamp(cursorOffset);
+
+  if (!token || !REPLACEABLE_TOKEN_KINDS.has(token.kind ?? '')) {
+    return { from: cursor, to: cursor };
+  }
+
+  const from = clamp(token.span.start);
+  const to = Math.max(from, clamp(token.span.end));
+  return { from, to };
+}
 
 /**
  * CodeMirror `CompletionSource` backed by flowscope's engine.
@@ -56,9 +79,15 @@ export function createSqlCompletionSource(
         return null;
       }
 
-      const token = result.token;
-      const from = token ? token.span.start : cursorOffset;
-      const to = token ? token.span.end : cursorOffset;
+      // Only replace the current token when the engine says the cursor is
+      // inside an identifier/keyword. Trigger characters like `.`, `(`, and
+      // `,` should stay in the document so qualified refs and function calls
+      // remain intact.
+      const { from, to } = resolveCompletionRange(
+        result.token,
+        cursorOffset,
+        context.state.doc.length
+      );
 
       return {
         from,

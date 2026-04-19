@@ -10,12 +10,20 @@ interface LineageExplorerInnerProps {
   result: LineageExplorerProps['result'];
   sql: LineageExplorerProps['sql'];
   onSqlChange?: (sql: string) => void;
+  dialect?: LineageExplorerProps['dialect'];
+  completionSchema?: LineageExplorerProps['completionSchema'];
+  disableCompletion?: LineageExplorerProps['disableCompletion'];
+  onCompletionError?: LineageExplorerProps['onCompletionError'];
 }
 
 function LineageExplorerInner({
   result,
   sql,
   onSqlChange,
+  dialect,
+  completionSchema,
+  disableCompletion,
+  onCompletionError,
 }: LineageExplorerInnerProps): JSX.Element {
   const { actions } = useLineage();
 
@@ -31,7 +39,14 @@ function LineageExplorerInner({
     <div className="flowscope-explorer-inner">
       <div className="flowscope-main-layout">
         <div className="flowscope-left-panel">
-          <SqlView editable={!!onSqlChange} onChange={onSqlChange} />
+          <SqlView
+            editable={!!onSqlChange}
+            onChange={onSqlChange}
+            dialect={dialect}
+            completionSchema={completionSchema}
+            disableCompletion={disableCompletion}
+            onCompletionError={onCompletionError}
+          />
           <IssuesPanel />
         </div>
         <div className="flowscope-center-panel">
@@ -53,6 +68,10 @@ export function LineageExplorer({
   onSqlChange,
   theme = 'light',
   defaultLayoutAlgorithm,
+  dialect,
+  completionSchema,
+  disableCompletion,
+  onCompletionError,
 }: LineageExplorerProps): JSX.Element {
   const themeClass = theme === 'dark' ? 'dark' : '';
 
@@ -63,7 +82,15 @@ export function LineageExplorer({
       defaultLayoutAlgorithm={defaultLayoutAlgorithm}
     >
       <div className={`flowscope-explorer ${themeClass} ${className || ''}`.trim()}>
-        <LineageExplorerInner result={result} sql={sql} onSqlChange={onSqlChange} />
+        <LineageExplorerInner
+          result={result}
+          sql={sql}
+          onSqlChange={onSqlChange}
+          dialect={dialect}
+          completionSchema={completionSchema}
+          disableCompletion={disableCompletion}
+          onCompletionError={onCompletionError}
+        />
       </div>
     </LineageProvider>
   );

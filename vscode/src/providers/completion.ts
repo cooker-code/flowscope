@@ -8,15 +8,23 @@ import type { CompletionItem as FlowscopeCompletionItem, Dialect } from '../type
  * CTE / column names recovered from the current parse.
  */
 export class FlowScopeCompletionProvider implements vscode.CompletionItemProvider {
-  /** Completions fire on every typed character, plus `.` for qualified refs. */
+  /**
+   * `.` auto-triggers completion for qualified refs. Typing alphabetic
+   * characters relies on VS Code's default behavior (manual invocation with
+   * Ctrl+Space, or re-query while a completion list is already open).
+   */
   public static readonly triggerCharacters: readonly string[] = ['.'];
 
   public provideCompletionItems(
     document: vscode.TextDocument,
     position: vscode.Position,
-    _token: vscode.CancellationToken,
+    token: vscode.CancellationToken,
     _context: vscode.CompletionContext
   ): vscode.ProviderResult<vscode.CompletionList> {
+    if (token.isCancellationRequested) {
+      return null;
+    }
+
     const config = vscode.workspace.getConfiguration('flowscope');
     if (!config.get<boolean>('enableCompletion', true)) {
       return null;
@@ -27,16 +35,27 @@ export class FlowScopeCompletionProvider implements vscode.CompletionItemProvide
     }
 
     const sql = document.getText();
-    const dialect = config.get<Dialect>('dialect', 'generic');
+    const dialect = resolveDialect(config);
     // `document.offsetAt` yields a UTF-16 code-unit offset, which matches
     // `encoding: 'utf16'` on the engine request — no byte conversion needed.
     const cursorOffset = document.offsetAt(position);
+
+    if (token.isCancellationRequested) {
+      return null;
+    }
 
     let result;
     try {
       result = completionItems({ sql, dialect, cursorOffset, encoding: 'utf16' });
     } catch (error) {
-      console.warn('FlowScope completion failed:', error);
+      console.warn(
+        '[FlowScope] completion failed:',
+        error instanceof Error ? error.message : String(error)
+      );
+      return null;
+    }
+
+    if (token.isCancellationRequested) {
       return null;
     }
 
@@ -44,18 +63,53 @@ export class FlowScopeCompletionProvider implements vscode.CompletionItemProvide
       return null;
     }
 
-    const replaceRange = result.token
-      ? new vscode.Range(
-          document.positionAt(result.token.span.start),
-          document.positionAt(result.token.span.end)
-        )
-      : undefined;
+    const replaceRange = resolveReplaceRange(document, result.token);
 
     return new vscode.CompletionList(
       result.items.map((item) => toVsCodeCompletionItem(item, replaceRange)),
       /* isIncomplete */ false
     );
   }
+}
+
+function resolveReplaceRange(
+  document: vscode.TextDocument,
+  token: { kind?: string; span: { start: number; end: number } } | undefined
+): vscode.Range | undefined {
+  if (!token || (token.kind !== 'identifier' && token.kind !== 'keyword')) {
+    return undefined;
+  }
+
+  const docLength = document.getText().length;
+  const clamp = (offset: number) => Math.max(0, Math.min(docLength, offset));
+  const from = clamp(token.span.start);
+  const to = Math.max(from, clamp(token.span.end));
+  return new vscode.Range(document.positionAt(from), document.positionAt(to));
+}
+
+const VALID_DIALECTS: readonly Dialect[] = [
+  'generic',
+  'ansi',
+  'bigquery',
+  'clickhouse',
+  'databricks',
+  'duckdb',
+  'hive',
+  'mssql',
+  'mysql',
+  'postgres',
+  'redshift',
+  'snowflake',
+  'sqlite',
+];
+
+function resolveDialect(config: vscode.WorkspaceConfiguration): Dialect {
+  const raw = config.get<string>('dialect', 'generic');
+  if ((VALID_DIALECTS as readonly string[]).includes(raw)) {
+    return raw as Dialect;
+  }
+  console.warn(`[FlowScope] unknown dialect "${raw}" in settings; falling back to "generic".`);
+  return 'generic';
 }
 
 const VSCODE_KIND_BY_FLOWSCOPE_KIND: Record<

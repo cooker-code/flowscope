@@ -27,9 +27,11 @@ const FALLBACK_DETAIL: Record<CompletionItemKind, string> = {
 };
 
 /**
- * Engine scores are context-weighted and span 0–1000+, while CodeMirror's
- * `boost` is a small adjustment applied after its own fuzzy-match score.
- * Scaling down keeps the relative ordering without drowning CM's matcher.
+ * Engine scores are context-weighted and typically span 0–1000+, while
+ * CodeMirror's `boost` is a small adjustment applied after its own fuzzy-match
+ * score (commonly used in the range roughly -10..+10). Dividing by 100 maps
+ * engine scores into that range, preserving relative ordering without
+ * overwhelming CM's matcher. Adjust if the engine's score range changes.
  */
 const BOOST_SCALE = 100;
 

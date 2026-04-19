@@ -77,6 +77,7 @@ export function SqlView({
   dialect,
   completionSchema,
   disableCompletion = false,
+  onCompletionError,
 }: SqlViewProps): JSX.Element {
   const { state, actions } = useLineage();
   const revealNodeInGraph = useLineageStore((store) => store.revealNodeInGraph);
@@ -241,16 +242,22 @@ export function SqlView({
     [computeRevealCandidate, handleReveal]
   );
 
-  // Mirror dialect/schema into refs so the completion source reads the latest
-  // values without requiring a CodeMirror reconfigure on every change.
+  // Mirror dialect/schema/onError into refs so the completion source reads the
+  // latest values without requiring a CodeMirror reconfigure on every change.
+  // That is also why these refs are intentionally *not* listed as deps of the
+  // memoized completion extension below.
   const dialectRef = useRef(dialect);
   const schemaRef = useRef(completionSchema);
+  const onCompletionErrorRef = useRef(onCompletionError);
   useEffect(() => {
     dialectRef.current = dialect;
   }, [dialect]);
   useEffect(() => {
     schemaRef.current = completionSchema;
   }, [completionSchema]);
+  useEffect(() => {
+    onCompletionErrorRef.current = onCompletionError;
+  }, [onCompletionError]);
 
   const completionExtension = useMemo(() => {
     if (!editable || disableCompletion) return null;
@@ -258,7 +265,17 @@ export function SqlView({
       getDialect: () => dialectRef.current ?? 'generic',
       getSchema: () => schemaRef.current,
       onError: (error) => {
-        console.warn('FlowScope SQL completion failed:', error);
+        const handler = onCompletionErrorRef.current;
+        if (handler) {
+          handler(error);
+          return;
+        }
+        // Log only the message to avoid dumping the full error (which may
+        // embed SQL/schema fragments) into shared consoles.
+        console.warn(
+          '[FlowScope] SQL completion failed:',
+          error instanceof Error ? error.message : String(error)
+        );
       },
     });
     // `acceptCompletion` is a no-op (returns false) when no popup is open, so
