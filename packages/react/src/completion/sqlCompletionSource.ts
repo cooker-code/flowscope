@@ -21,6 +21,20 @@ export interface SqlCompletionSourceOptions {
   onError?: (error: unknown) => void;
 }
 
+function reportCompletionError(error: unknown, onError?: (error: unknown) => void): void {
+  if (onError) {
+    onError(error);
+    return;
+  }
+
+  // Log only the message to avoid dumping the full error (which may embed
+  // SQL/schema fragments) into shared consoles.
+  console.warn(
+    '[FlowScope] SQL completion failed:',
+    error instanceof Error ? error.message : String(error)
+  );
+}
+
 /** Re-query only while the user is still typing within a single identifier. */
 const IDENTIFIER_CONTINUATION = /^[\w$]*$/;
 const REPLACEABLE_TOKEN_KINDS = new Set(['identifier', 'keyword']);
@@ -99,7 +113,7 @@ export function createSqlCompletionSource(
       if (requestId !== requestCounter) {
         return null;
       }
-      onError?.(error);
+      reportCompletionError(error, onError);
       return null;
     }
   };

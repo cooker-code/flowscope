@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EditorState } from '@codemirror/state';
 import { CompletionContext } from '@codemirror/autocomplete';
 import type { CompletionItemsResult } from '@pondpilot/flowscope-core';
@@ -42,6 +42,10 @@ function engineResult(overrides: Partial<CompletionItemsResult> = {}): Completio
 
 beforeEach(() => {
   completionItemsMock.mockReset();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('createSqlCompletionSource', () => {
@@ -163,5 +167,18 @@ describe('createSqlCompletionSource', () => {
 
     expect(result).toBeNull();
     expect(onError).toHaveBeenCalledWith(error);
+  });
+
+  it('logs a warning when the engine throws and no onError hook is supplied', async () => {
+    const error = new Error('engine blew up');
+    completionItemsMock.mockRejectedValue(error);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const source = createSqlCompletionSource();
+
+    const result = await source(contextAt('SELECT ', 7));
+
+    expect(result).toBeNull();
+    expect(warn).toHaveBeenCalledWith('[FlowScope] SQL completion failed:', 'engine blew up');
+    warn.mockRestore();
   });
 });

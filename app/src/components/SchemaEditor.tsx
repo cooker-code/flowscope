@@ -26,6 +26,7 @@ export function SchemaEditor({
   open,
   onOpenChange,
   schemaSQL,
+  dialect,
   onSave,
   isReadOnly = false,
 }: SchemaEditorProps) {
@@ -74,6 +75,7 @@ export function SchemaEditor({
             className="h-full"
             editable={!isReadOnly}
             isDark={isDark}
+            dialect={dialect}
           />
         </div>
 

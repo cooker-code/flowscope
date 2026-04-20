@@ -7,13 +7,20 @@ import type { CompletionItem as FlowscopeCompletionItem, Dialect } from '../type
  * dialect keywords, built-in functions, operators, and any table / view /
  * CTE / column names recovered from the current parse.
  */
+const IDENTIFIER_TRIGGER_CHARACTERS = [
+  '.',
+  '_',
+  '$',
+  ...'abcdefghijklmnopqrstuvwxyz',
+  ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+] as const;
+
 export class FlowScopeCompletionProvider implements vscode.CompletionItemProvider {
   /**
-   * `.` auto-triggers completion for qualified refs. Typing alphabetic
-   * characters relies on VS Code's default behavior (manual invocation with
-   * Ctrl+Space, or re-query while a completion list is already open).
+   * Trigger on identifier characters so keyword/function/table suggestions
+   * appear while the user types, not only after manual invocation or `.`.
    */
-  public static readonly triggerCharacters: readonly string[] = ['.'];
+  public static readonly triggerCharacters: readonly string[] = IDENTIFIER_TRIGGER_CHARACTERS;
 
   public provideCompletionItems(
     document: vscode.TextDocument,

@@ -26,11 +26,12 @@ export async function initWasm(extensionPath: string): Promise<void> {
   try {
     // Use dynamic require for the WASM module
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    wasmModule = require(wasmNodePath);
+    const loadedWasmModule = require(wasmNodePath) as typeof import('../wasm-node/flowscope_wasm');
+    wasmModule = loadedWasmModule;
 
     // Install panic hook for better error messages
-    if (wasmModule.set_panic_hook) {
-      wasmModule.set_panic_hook();
+    if (loadedWasmModule.set_panic_hook) {
+      loadedWasmModule.set_panic_hook();
     }
   } catch (error) {
     throw new Error(
