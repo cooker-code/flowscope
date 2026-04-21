@@ -272,6 +272,7 @@ function buildTableNodeData(
     qualifiedName,
     schema: canonical?.schema,
     database: canonical?.catalog,
+    description: node.description,
   };
 }
 
@@ -358,6 +359,7 @@ export function buildFlowNodes(
           name: childNode.label,
           expression: childNode.expression,
           aggregation: childNode.aggregation,
+          description: childNode.description,
         });
         tableColumnMap.set(parentNode.id, cols);
         ownedColumnIds.add(childNode.id);
@@ -389,10 +391,11 @@ export function buildFlowNodes(
       isExpanded,
       resolvedSchema
     );
-    const {
-      columns: displayColumns,
-      lineageHiddenColumnCount,
-    } = filterColumnsForColumnLineage(columns, connectedColumnIds, columnFilterOptions);
+    const { columns: displayColumns, lineageHiddenColumnCount } = filterColumnsForColumnLineage(
+      columns,
+      connectedColumnIds,
+      columnFilterOptions
+    );
 
     flowNodes.push({
       id: node.id,
@@ -425,10 +428,7 @@ export function buildFlowNodes(
   if (isSelect) {
     outputNodes.forEach((outputNode) => {
       const outputColumns = outputColumnsByNodeId.get(outputNode.id) || [];
-      const {
-        columns: displayColumns,
-        lineageHiddenColumnCount,
-      } = filterColumnsForColumnLineage(
+      const { columns: displayColumns, lineageHiddenColumnCount } = filterColumnsForColumnLineage(
         outputColumns,
         connectedColumnIds,
         columnFilterOptions
@@ -451,10 +451,7 @@ export function buildFlowNodes(
     const virtualOutputColumns =
       outputColumnsByNodeId.get(GRAPH_CONFIG.VIRTUAL_OUTPUT_NODE_ID) || [];
     if (virtualOutputColumns.length > 0) {
-      const {
-        columns: displayColumns,
-        lineageHiddenColumnCount,
-      } = filterColumnsForColumnLineage(
+      const { columns: displayColumns, lineageHiddenColumnCount } = filterColumnsForColumnLineage(
         virtualOutputColumns,
         connectedColumnIds,
         columnFilterOptions

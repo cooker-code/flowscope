@@ -288,6 +288,18 @@ pub struct Node {
     /// Presence indicates the query uses GROUP BY; the fields indicate the column's role.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aggregation: Option<AggregationInfo>,
+
+    /// Plain-text description harvested from SQL comments on the declaration.
+    ///
+    /// Sources: `COMMENT ON TABLE`, `COMMENT ON COLUMN`, and inline
+    /// `CREATE TABLE ... COMMENT '...'` clauses (column and table level).
+    /// Free-form SQL line/block comments are not considered.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::serde_utils::deserialize_option_arc_str"
+    )]
+    pub description: Option<Arc<str>>,
 }
 
 impl Default for Node {
@@ -307,6 +319,7 @@ impl Default for Node {
             resolution_source: None,
             filters: Vec::new(),
             aggregation: None,
+            description: None,
         }
     }
 }

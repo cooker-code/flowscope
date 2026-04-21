@@ -50,6 +50,7 @@ export interface SerializedColumnInfo {
   isHighlighted?: boolean;
   sourceName?: string;
   aggregation?: AggregationInfo;
+  description?: string;
 }
 
 /**
@@ -72,6 +73,7 @@ export interface SerializedTableNodeData extends Record<string, unknown> {
   qualifiedName?: string;
   schema?: string;
   database?: string;
+  description?: string;
 }
 
 /**
@@ -406,6 +408,7 @@ function buildTableNodeData(
     qualifiedName,
     schema: canonical?.schema,
     database: canonical?.catalog,
+    description: node.description,
   };
 }
 
@@ -493,6 +496,7 @@ function buildFlowNodes(
           name: childNode.label,
           expression: childNode.expression,
           aggregation: childNode.aggregation,
+          description: childNode.description,
         });
         tableColumnMap.set(parentNode.id, cols);
         ownedColumnIds.add(childNode.id);
@@ -521,10 +525,11 @@ function buildFlowNodes(
       isExpanded,
       resolvedSchema
     );
-    const {
-      columns: displayColumns,
-      lineageHiddenColumnCount,
-    } = filterColumnsForColumnLineage(columns, connectedColumnIds, columnFilterOptions);
+    const { columns: displayColumns, lineageHiddenColumnCount } = filterColumnsForColumnLineage(
+      columns,
+      connectedColumnIds,
+      columnFilterOptions
+    );
 
     flowNodes.push({
       id: node.id,
@@ -557,10 +562,7 @@ function buildFlowNodes(
   if (isSelect) {
     outputNodes.forEach((outputNode) => {
       const outputColumns = outputColumnsByNodeId.get(outputNode.id) || [];
-      const {
-        columns: displayColumns,
-        lineageHiddenColumnCount,
-      } = filterColumnsForColumnLineage(
+      const { columns: displayColumns, lineageHiddenColumnCount } = filterColumnsForColumnLineage(
         outputColumns,
         connectedColumnIds,
         columnFilterOptions
@@ -583,10 +585,7 @@ function buildFlowNodes(
     const virtualOutputColumns =
       outputColumnsByNodeId.get(GRAPH_CONFIG.VIRTUAL_OUTPUT_NODE_ID) || [];
     if (virtualOutputColumns.length > 0) {
-      const {
-        columns: displayColumns,
-        lineageHiddenColumnCount,
-      } = filterColumnsForColumnLineage(
+      const { columns: displayColumns, lineageHiddenColumnCount } = filterColumnsForColumnLineage(
         virtualOutputColumns,
         connectedColumnIds,
         columnFilterOptions

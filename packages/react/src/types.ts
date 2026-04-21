@@ -429,6 +429,8 @@ export interface TableNodeData extends Record<string, unknown> {
   schema?: string;
   /** Database/catalog name extracted from qualified name */
   database?: string;
+  /** Plain-text description from a SQL `COMMENT ON TABLE` / inline table comment */
+  description?: string;
 }
 
 /**
@@ -447,6 +449,8 @@ export interface ColumnNodeInfo {
   sourceName?: string;
   /** Aggregation information if this column is aggregated or a grouping key */
   aggregation?: AggregationInfo;
+  /** Plain-text description from a SQL `COMMENT ON COLUMN` / inline column comment */
+  description?: string;
 }
 
 /**

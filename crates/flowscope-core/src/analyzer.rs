@@ -17,6 +17,7 @@ mod complexity;
 mod context;
 pub(crate) mod cross_statement;
 mod ddl;
+mod descriptions;
 mod diagnostics;
 mod expression;
 mod functions;
@@ -32,11 +33,13 @@ pub mod visitor;
 
 use context::StatementContext;
 use cross_statement::CrossStatementTracker;
+use descriptions::DescriptionKey;
 use helpers::{
     build_column_schemas_with_constraints, find_identifier_span, find_relation_occurrence_spans,
 };
 use input::{collect_statements, StatementInput};
 use schema_registry::SchemaRegistry;
+use std::collections::HashMap;
 
 // Re-export for use in other analyzer modules
 pub(crate) use schema_registry::TableResolution;
@@ -93,6 +96,9 @@ pub(crate) struct Analyzer<'a> {
     depth_limit_statements: HashSet<usize>,
     /// SQL linter (None if linting is disabled).
     linter: Option<Linter>,
+    /// Descriptions harvested from structured SQL comments.
+    /// Keyed by canonical table path (plus column for column targets).
+    pub(crate) descriptions: HashMap<DescriptionKey, Arc<str>>,
 }
 
 impl<'a> Analyzer<'a> {
@@ -124,6 +130,7 @@ impl<'a> Analyzer<'a> {
             current_statement_source: None,
             depth_limit_statements: HashSet::new(),
             linter,
+            descriptions: HashMap::new(),
         }
     }
 
@@ -443,6 +450,8 @@ impl<'a> Analyzer<'a> {
 
     /// Pre-registers CREATE TABLE/VIEW targets so earlier statements can resolve them.
     fn precollect_ddl(&mut self, statements: &[StatementInput]) {
+        self.descriptions = self.collect_description_map(statements);
+
         for (index, stmt_input) in statements.iter().enumerate() {
             match &stmt_input.statement {
                 Statement::CreateTable(create) => {

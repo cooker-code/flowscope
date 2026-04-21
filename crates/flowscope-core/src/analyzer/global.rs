@@ -40,7 +40,8 @@ impl<'a> Analyzer<'a> {
             self.statement_lineages.clone()
         };
 
-        let (statements, nodes, edges) = self.flatten_lineages(statement_lineages);
+        let (statements, mut nodes, edges) = self.flatten_lineages(statement_lineages);
+        self.apply_descriptions(&mut nodes, &edges);
         let summary = self.build_summary(&nodes);
         let resolved_schema = self.build_resolved_schema();
 

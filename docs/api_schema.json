@@ -598,6 +598,10 @@
                 "type": "null"
               }
             ]
+          },
+          "description": {
+            "description": "Plain-text description harvested from SQL comments on the declaration.\n\nSources: `COMMENT ON TABLE`, `COMMENT ON COLUMN`, and inline\n`CREATE TABLE ... COMMENT '...'` clauses (column and table level).\nFree-form SQL line/block comments are not considered.",
+            "type": ["string", "null"]
           }
         },
         "required": ["id", "type", "label"]

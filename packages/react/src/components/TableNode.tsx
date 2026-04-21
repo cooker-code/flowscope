@@ -21,6 +21,55 @@ const COLUMN_ROW_HEIGHT = 24;
 // the canvas or dragging the node itself.
 const COLUMN_LIST_INTERACTION_CLASS_NAME = 'nodrag nopan nowheel custom-scrollbar';
 
+interface DescriptionIndicatorProps {
+  description?: string;
+  color: string;
+  ariaLabel: string;
+}
+
+/**
+ * Small speech-bubble glyph surfaced next to a table or column label whenever
+ * the node carries a description harvested from SQL comments. The description
+ * text is rendered as a native browser tooltip — the source string comes from
+ * SQL and is treated as plain text, no HTML interpretation is performed.
+ */
+function DescriptionIndicator({
+  description,
+  color,
+  ariaLabel,
+}: DescriptionIndicatorProps): JSX.Element | null {
+  if (!description) return null;
+  return (
+    <span
+      role="img"
+      aria-label={`${ariaLabel}: ${description}`}
+      title={description}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        color,
+        marginLeft: 4,
+        opacity: 0.75,
+        flexShrink: 0,
+      }}
+    >
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      </svg>
+    </span>
+  );
+}
+
 interface AggregationIndicatorProps {
   aggregation?: AggregationInfo;
   colors: {
@@ -159,6 +208,11 @@ function ColumnRow({
           {sanitizeIdentifier(col.name)}
         </span>
         <AggregationIndicator aggregation={col.aggregation} colors={colors} />
+        <DescriptionIndicator
+          description={col.description}
+          color={textSecondary}
+          ariaLabel={`Description for ${col.name}`}
+        />
       </span>
       <Handle
         type="source"
@@ -483,6 +537,12 @@ function TableNodeComponent({ id, data, selected }: NodeProps): JSX.Element {
         </div>
 
         <OccurrenceCycler nodeId={id} />
+
+        <DescriptionIndicator
+          description={nodeData.description}
+          color={palette.textSecondary}
+          ariaLabel={`Description for ${nodeData.label}`}
+        />
 
         {isBaseTable && !isVirtualOutput && (
           <span

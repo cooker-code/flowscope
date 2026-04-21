@@ -497,6 +497,14 @@ export interface Node {
   filters?: FilterPredicate[];
   /** For column nodes: aggregation information if this column is aggregated or a grouping key */
   aggregation?: AggregationInfo;
+  /**
+   * Plain-text description harvested from SQL comments on the declaration.
+   *
+   * Populated from `COMMENT ON TABLE`, `COMMENT ON COLUMN`, and inline
+   * `CREATE TABLE ... COMMENT '...'` clauses (column and table level).
+   * Free-form SQL line/block comments are not considered.
+   */
+  description?: string;
 }
 
 /** The type of a node in the lineage graph. */
