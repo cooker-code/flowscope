@@ -314,6 +314,8 @@ impl<'a> Analyzer<'a> {
                 source_name,
                 source_sql,
                 source_range,
+                source_sql_untemplated,
+                source_range_untemplated,
                 templating_applied,
                 ..
             },
@@ -334,6 +336,11 @@ impl<'a> Analyzer<'a> {
             } else {
                 None
             };
+            let original_sql = source_sql_untemplated.as_deref().and_then(|sql| {
+                source_range_untemplated
+                    .as_ref()
+                    .and_then(|range| sql.get(range.clone()).map(str::to_string))
+            });
             self.current_statement_source = Some(StatementSourceSlice {
                 sql: source_sql,
                 range: source_range.clone(),
@@ -345,6 +352,8 @@ impl<'a> Analyzer<'a> {
                 &statement,
                 source_name_owned,
                 source_range,
+                source_range_untemplated,
+                original_sql,
                 resolved_sql,
             );
             self.current_statement_source = None;

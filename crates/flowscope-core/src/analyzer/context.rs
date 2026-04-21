@@ -1,5 +1,5 @@
 use super::helpers::generate_output_node_id;
-use crate::types::{Edge, FilterClauseType, FilterPredicate, JoinType, Node, NodeType};
+use crate::types::{Edge, FilterClauseType, FilterPredicate, JoinType, Node, NodeType, Span};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -460,6 +460,7 @@ impl StatementContext {
         model_name: &str,
         canonical_id: Arc<str>,
         node_type: NodeType,
+        span: Option<Span>,
     ) -> Arc<str> {
         if let Some(existing) = self.output_node_id.as_ref() {
             return existing.clone();
@@ -471,6 +472,7 @@ impl StatementContext {
             node_type,
             label: label.clone(),
             qualified_name: Some(label),
+            span,
             ..Default::default()
         };
 

@@ -43,7 +43,9 @@ const STATEMENT_SCOPE_METADATA_KEY = 'statementScope';
  * Returns the node ids for relations created by a statement (e.g. CREATE TABLE/VIEW).
  * For CREATE statements we prefer nodes that receive data_flow edges; when lineage
  * does not include explicit flows (simple CREATE TABLE), we fall back to the sole
- * relation node or one that matches the statement type.
+ * relation node or one that matches the statement type. dbt bare-SELECT model sinks
+ * are also treated as created relations when a table/view owns projected columns
+ * with no qualified name.
  *
  * Operates on a per-statement view of the flat `AnalyzeResult`: pass the statement
  * type together with the nodes and edges that participate in that statement
@@ -54,21 +56,33 @@ export function getCreatedRelationNodeIds(
   nodes: Node[],
   edges: Edge[]
 ): Set<string> {
-  if (!CREATE_STATEMENT_TYPES.has(statementType)) {
-    return new Set();
-  }
-
   const relationNodes = nodes.filter((n) => n.type === 'table' || n.type === 'view');
   const relationNodeIds = new Set(relationNodes.map((n) => n.id));
+  const columnNodes = new Map(
+    nodes.filter((n) => n.type === 'column').map((node) => [node.id, node])
+  );
 
   const createdNodeIds = new Set<string>();
   for (const edge of edges) {
+    if (
+      edge.type === 'ownership' &&
+      relationNodeIds.has(edge.from) &&
+      !columnNodes.get(edge.to)?.qualifiedName
+    ) {
+      createdNodeIds.add(edge.from);
+      continue;
+    }
+
     if (edge.type === 'data_flow' && relationNodeIds.has(edge.to)) {
       createdNodeIds.add(edge.to);
     }
   }
 
   if (createdNodeIds.size > 0) {
+    return createdNodeIds;
+  }
+
+  if (!CREATE_STATEMENT_TYPES.has(statementType)) {
     return createdNodeIds;
   }
 

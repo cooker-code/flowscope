@@ -26,11 +26,11 @@ fn analyze_with_template(
     analyze(&request)
 }
 
-/// Helper to check if a table with the given name exists in the result.
+/// Helper to check if a persistent relation with the given name exists in the result.
 /// Checks both the label and qualified_name fields.
 fn has_table(result: &flowscope_core::AnalyzeResult, table_name: &str) -> bool {
     result.nodes.iter().any(|node| {
-        if node.node_type != NodeType::Table {
+        if !matches!(node.node_type, NodeType::Table | NodeType::View) {
             return false;
         }
         // Check label first
@@ -1526,8 +1526,8 @@ GROUP BY customer_id
     );
 
     // The first statement's sink should be materialized as the model's
-    // canonical Table node (issue #32) so it unifies with consumer
-    // references.
+    // canonical relation node (issue #32) so it unifies with consumer
+    // references while preserving the configured relation type.
     let first_stmt = result
         .statements
         .first()
@@ -1544,8 +1544,8 @@ GROUP BY customer_id
     let sink = sink_node.unwrap();
     assert_eq!(
         sink.node_type,
-        NodeType::Table,
-        "dbt model sink should be materialized as a Table, not an Output"
+        NodeType::View,
+        "dbt model sink should preserve the dbt materialized='view' relation type"
     );
     assert_eq!(
         sink.qualified_name.as_ref().map(|s| s.as_ref()),
@@ -1761,6 +1761,90 @@ fn dbt_model_name_extraction_from_path() {
         sink_node.unwrap().label.as_ref(),
         "stg_customers",
         "Should extract 'stg_customers' from 'models/staging/stg_customers.sql'"
+    );
+}
+
+#[test]
+#[cfg(feature = "templating")]
+fn dbt_view_models_materialize_as_view_nodes() {
+    let model = r#"
+{{ config(materialized='view') }}
+SELECT 1 AS id
+"#;
+
+    let result = analyze_dbt_files(vec![FileSource {
+        name: "models/marts/orders_view.sql".to_string(),
+        content: model.to_string(),
+    }]);
+
+    let sink_node = result.statements.first().and_then(|statement| {
+        result
+            .nodes_in_statement(statement.statement_index)
+            .find(|node| {
+                node.label.as_ref() == "orders_view"
+                    && matches!(node.node_type, NodeType::Table | NodeType::View)
+            })
+    });
+
+    let sink_node = sink_node.expect("dbt view model should produce a sink node");
+    assert_eq!(
+        sink_node.node_type,
+        NodeType::View,
+        "dbt models configured as materialized='view' should surface as View nodes"
+    );
+}
+
+#[test]
+#[cfg(feature = "templating")]
+fn dbt_merged_model_node_keeps_producer_occurrence_metadata() {
+    let producer = "SELECT 1 AS id";
+    let consumer = "SELECT * FROM {{ ref('stg_constants') }}";
+
+    let result = analyze_dbt_files(vec![
+        FileSource {
+            name: "models/stg_constants.sql".to_string(),
+            content: producer.to_string(),
+        },
+        FileSource {
+            name: "models/fct_constants.sql".to_string(),
+            content: consumer.to_string(),
+        },
+    ]);
+
+    let node = result
+        .nodes
+        .iter()
+        .find(|node| {
+            node.node_type.is_table_like()
+                && node
+                    .canonical_name
+                    .as_ref()
+                    .map(|canonical| canonical.name.as_str() == "stg_constants")
+                    .unwrap_or(false)
+        })
+        .expect("merged stg_constants node should exist");
+
+    let occurrence_source_names = node
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("occurrenceSourceNames"))
+        .and_then(serde_json::Value::as_array)
+        .expect("merged node should record occurrence source names");
+
+    assert!(
+        node.all_name_spans().len() >= 2,
+        "merged node should keep both the producer definition span and consumer ref span"
+    );
+    assert_eq!(
+        occurrence_source_names.first().and_then(serde_json::Value::as_str),
+        Some("models/stg_constants.sql"),
+        "producer file should be the first occurrence so graph reveal navigates to the model definition"
+    );
+    assert!(
+        occurrence_source_names
+            .iter()
+            .any(|value| value.as_str() == Some("models/fct_constants.sql")),
+        "consumer ref occurrences should still be retained on the merged node"
     );
 }
 

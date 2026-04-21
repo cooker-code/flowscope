@@ -49,6 +49,8 @@ impl<'a> Analyzer<'a> {
         statement: &Statement,
         source_name: Option<String>,
         source_range: Range<usize>,
+        original_source_range: Option<Range<usize>>,
+        original_sql: Option<String>,
         resolved_sql: Option<String>,
     ) -> Result<StatementLineage, ParseError> {
         let mut ctx = StatementContext::new(index);
@@ -66,16 +68,36 @@ impl<'a> Analyzer<'a> {
                 // Normalize the model name to match how table references are normalized
                 // (e.g., Snowflake normalizes to uppercase)
                 let normalized_model_name = model_name.map(|n| self.normalize_table_name(n));
+                let model_node_type = original_sql
+                    .as_deref()
+                    .and_then(parse_dbt_model_materialization)
+                    .map(|materialization| match materialization {
+                        DbtMaterialization::View => NodeType::View,
+                    })
+                    .unwrap_or(NodeType::Table);
 
                 let sink_target_id = if let Some(ref name) = normalized_model_name {
                     // Register the model as a produced table so downstream files
                     // that reference it via `ref(...)` see a known relation.
-                    self.tracker.record_produced(name, index);
+                    if model_node_type == NodeType::View {
+                        self.tracker.record_view_produced(name, index);
+                    } else {
+                        self.tracker.record_produced(name, index);
+                    }
                     // Materialize the sink as the canonical relation node so it
                     // unifies with consumer FROM references sharing the same
                     // canonical name (see issue #32).
                     let (canonical_id, node_type) = self.tracker.relation_identity(name);
-                    let sink_id = ctx.ensure_model_relation_sink(name, canonical_id, node_type);
+                    let producer_span = original_source_range
+                        .as_ref()
+                        .map(|range| Span::new(range.start, range.end))
+                        .unwrap_or_else(|| Span::new(source_range.start, source_range.end));
+                    let sink_id = ctx.ensure_model_relation_sink(
+                        name,
+                        canonical_id,
+                        node_type,
+                        Some(producer_span),
+                    );
                     Some(sink_id.to_string())
                 } else {
                     ctx.ensure_output_node_with_model(None);
@@ -961,6 +983,30 @@ impl<'a> Analyzer<'a> {
     #[cfg(not(feature = "templating"))]
     fn is_dbt_mode(&self) -> bool {
         false
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DbtMaterialization {
+    View,
+}
+
+fn parse_dbt_model_materialization(sql: &str) -> Option<DbtMaterialization> {
+    let lower = sql.to_ascii_lowercase();
+    let materialized_index = lower.find("materialized")?;
+    let after_key = &lower[materialized_index + "materialized".len()..];
+    let equals_index = after_key.find('=')?;
+    let after_equals = after_key[equals_index + 1..].trim_start();
+    let quote = after_equals.chars().next()?;
+    if quote != '\'' && quote != '"' {
+        return None;
+    }
+
+    let rest = &after_equals[quote.len_utf8()..];
+    let end = rest.find(quote)?;
+    match &rest[..end] {
+        "view" => Some(DbtMaterialization::View),
+        _ => None,
     }
 }
 

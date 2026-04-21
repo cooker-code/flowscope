@@ -1388,4 +1388,51 @@ describe('graphBuilders DML handling', () => {
       )
     ).toBeDefined();
   });
+
+  it('includes dbt relation sinks as written relations in script graph mode', () => {
+    const statements: TestStatement[] = [
+      {
+        statementIndex: 0,
+        statementType: 'SELECT',
+        sourceName: 'models/constants.sql',
+        joinCount: 0,
+        complexityScore: 1,
+        nodes: [
+          {
+            id: 'table:constants',
+            type: 'table',
+            label: 'constants',
+            qualifiedName: 'constants',
+          },
+          {
+            id: 'column:constants.id',
+            type: 'column',
+            label: 'id',
+          },
+        ],
+        edges: [
+          {
+            id: 'own:constants.id',
+            from: 'table:constants',
+            to: 'column:constants.id',
+            type: 'ownership',
+          },
+        ],
+      },
+    ];
+
+    const { nodes, edges } = buildScriptLevelGraph(toResult(statements), null, '', true);
+
+    expect(nodes.find((node) => node.id === 'table:constants')).toBeDefined();
+    expect(
+      edges.find(
+        (edge) => edge.source === 'script:models/constants.sql' && edge.target === 'table:constants'
+      )
+    ).toBeDefined();
+    expect(
+      edges.find(
+        (edge) => edge.source === 'table:constants' && edge.target === 'script:models/constants.sql'
+      )
+    ).toBeUndefined();
+  });
 });

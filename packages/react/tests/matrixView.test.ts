@@ -414,6 +414,69 @@ describe('extractScriptDependencies', () => {
     expect(producerToConsumer).toBeDefined();
     expect(producerToConsumer!.sharedTables).toEqual(['analytics.producer_model']);
   });
+
+  it('treats dbt relation sinks as written relations for script dependencies', () => {
+    const statements: TestStatement[] = [
+      {
+        statementIndex: 0,
+        statementType: 'SELECT',
+        sourceName: 'producer.sql',
+        joinCount: 0,
+        complexityScore: 1,
+        nodes: [
+          {
+            id: 'table:producer_model',
+            type: 'table',
+            label: 'producer_model',
+            qualifiedName: 'analytics.producer_model',
+          },
+          {
+            id: 'column:producer_model.id',
+            type: 'column',
+            label: 'id',
+          },
+        ],
+        edges: [
+          {
+            id: 'own:producer_model.id',
+            from: 'table:producer_model',
+            to: 'column:producer_model.id',
+            type: 'ownership',
+          },
+        ],
+      },
+      {
+        statementIndex: 1,
+        statementType: 'SELECT',
+        sourceName: 'consumer.sql',
+        joinCount: 0,
+        complexityScore: 1,
+        nodes: [
+          {
+            id: 'producer_ref',
+            type: 'table',
+            label: 'producer_model',
+            qualifiedName: 'analytics.producer_model',
+          },
+          {
+            id: 'consumer_sink',
+            type: 'output',
+            label: 'consumer_model',
+            qualifiedName: 'analytics.consumer_model',
+          },
+        ],
+        edges: [],
+      },
+    ];
+
+    const { dependencies } = extractScriptDependencies(toResult(statements));
+    const producerToConsumer = dependencies.find(
+      (d) => d.sourceScript === 'producer.sql' && d.targetScript === 'consumer.sql'
+    );
+
+    expect(producerToConsumer).toBeDefined();
+    expect(producerToConsumer!.sharedTables).toEqual(['analytics.producer_model']);
+  });
 });
 
 describe('buildTableMatrix', () => {
