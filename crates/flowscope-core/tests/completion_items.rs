@@ -1335,6 +1335,69 @@ fn nested_subquery_correlated() {
 }
 
 // =============================================================================
+// Alias Shadowing Tests - same alias name reused across nested scopes
+// =============================================================================
+
+#[test]
+#[ignore = "tracked in #41: nested-scope alias shadowing not yet filtered by cursor"]
+fn alias_shadowing_inner_subquery_wins() {
+    // Inner `FROM orders u` shadows outer `FROM users u`; cursor after `u.`
+    // inside the inner scope must resolve to orders (has `total`), not users.
+    let request = request_at_cursor(
+        "SELECT * FROM users u WHERE EXISTS (SELECT 1 FROM orders u WHERE u.|)",
+        Some(sample_schema()),
+    );
+    let result = completion_items(&request);
+    assert!(result.should_show);
+    assert!(
+        result.items.iter().any(|item| item.label == "total"),
+        "inner `u.` should resolve to orders (exposes `total`)"
+    );
+    assert!(
+        !result.items.iter().any(|item| item.label == "email"),
+        "inner `u.` must not leak outer users columns (`email`)"
+    );
+}
+
+#[test]
+#[ignore = "tracked in #41: nested-scope alias shadowing not yet filtered by cursor"]
+fn alias_shadowing_outer_scope_unaffected() {
+    // Outer `u.` after a subquery that shadows `u` should still resolve to users.
+    let request = request_at_cursor(
+        "SELECT u.| FROM users u WHERE EXISTS (SELECT 1 FROM orders u WHERE u.id = 1)",
+        Some(sample_schema()),
+    );
+    let result = completion_items(&request);
+    assert!(result.should_show);
+    assert!(
+        result.items.iter().any(|item| item.label == "email"),
+        "outer `u.` should resolve to users (exposes `email`)"
+    );
+    assert!(
+        !result.items.iter().any(|item| item.label == "total"),
+        "outer `u.` must not pick up the inner-scope shadow (`total`)"
+    );
+}
+
+#[test]
+fn alias_shadowing_across_statements() {
+    // Same alias `t` bound to different tables in two statements;
+    // cursor in statement 2 must see statement-2's binding only.
+    let sql = "SELECT t.id FROM users t; SELECT t.| FROM orders t";
+    let request = request_at_cursor(sql, Some(sample_schema()));
+    let result = completion_items(&request);
+    assert!(result.should_show);
+    assert!(
+        result.items.iter().any(|item| item.label == "total"),
+        "statement 2 `t.` should resolve to orders (exposes `total`)"
+    );
+    assert!(
+        !result.items.iter().any(|item| item.label == "email"),
+        "statement 2 `t.` must not leak statement 1's users binding (`email`)"
+    );
+}
+
+// =============================================================================
 // CASE Expression Tests - WHEN/THEN/ELSE Completion
 // =============================================================================
 
