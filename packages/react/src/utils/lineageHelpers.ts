@@ -44,8 +44,10 @@ const STATEMENT_SCOPE_METADATA_KEY = 'statementScope';
  * For CREATE statements we prefer nodes that receive data_flow edges; when lineage
  * does not include explicit flows (simple CREATE TABLE), we fall back to the sole
  * relation node or one that matches the statement type. dbt bare-SELECT model sinks
- * are also treated as created relations when a table/view owns projected columns
- * with no qualified name.
+ * are also treated as created relations when a table/view owns statement-local
+ * projection columns. We identify those columns from the statement's edge shape
+ * instead of `qualifiedName` because flattened column nodes may inherit a
+ * qualified name from another statement after producer/consumer merging.
  *
  * Operates on a per-statement view of the flat `AnalyzeResult`: pass the statement
  * type together with the nodes and edges that participate in that statement
@@ -58,19 +60,32 @@ export function getCreatedRelationNodeIds(
 ): Set<string> {
   const relationNodes = nodes.filter((n) => n.type === 'table' || n.type === 'view');
   const relationNodeIds = new Set(relationNodes.map((n) => n.id));
-  const columnNodes = new Map(
-    nodes.filter((n) => n.type === 'column').map((node) => [node.id, node])
-  );
+  const columnNodeIds = new Set(nodes.filter((n) => n.type === 'column').map((node) => node.id));
+  const incomingNonOwnershipCounts = new Map<string, number>();
+  const outgoingNonOwnershipCounts = new Map<string, number>();
+
+  for (const edge of edges) {
+    if (edge.type === 'ownership') {
+      continue;
+    }
+
+    outgoingNonOwnershipCounts.set(edge.from, (outgoingNonOwnershipCounts.get(edge.from) ?? 0) + 1);
+    incomingNonOwnershipCounts.set(edge.to, (incomingNonOwnershipCounts.get(edge.to) ?? 0) + 1);
+  }
 
   const createdNodeIds = new Set<string>();
   for (const edge of edges) {
-    if (
-      edge.type === 'ownership' &&
-      relationNodeIds.has(edge.from) &&
-      !columnNodes.get(edge.to)?.qualifiedName
-    ) {
-      createdNodeIds.add(edge.from);
-      continue;
+    // Relation sinks own either projected columns fed by intra-statement flow
+    // edges, or isolated columns such as `SELECT 1 AS id` where the projection
+    // has no non-ownership edges at all. Source-table columns are only emitted
+    // as lineage inputs, so they have outgoing flow edges but no incoming ones.
+    if (edge.type === 'ownership' && relationNodeIds.has(edge.from) && columnNodeIds.has(edge.to)) {
+      const incoming = incomingNonOwnershipCounts.get(edge.to) ?? 0;
+      const outgoing = outgoingNonOwnershipCounts.get(edge.to) ?? 0;
+      if (incoming > 0 || (incoming === 0 && outgoing === 0)) {
+        createdNodeIds.add(edge.from);
+        continue;
+      }
     }
 
     if (edge.type === 'data_flow' && relationNodeIds.has(edge.to)) {

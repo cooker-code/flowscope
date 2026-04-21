@@ -434,6 +434,9 @@ describe('extractScriptDependencies', () => {
             id: 'column:producer_model.id',
             type: 'column',
             label: 'id',
+            // Simulate a merged producer/consumer column node that inherited a
+            // source qualifiedName from another statement.
+            qualifiedName: 'analytics.producer_model.id',
           },
         ],
         edges: [

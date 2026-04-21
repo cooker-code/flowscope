@@ -80,6 +80,13 @@ pub(crate) struct CrossStatementTracker {
     ///
     /// Used to determine node type (view vs table) for ID generation.
     pub(crate) produced_views: HashSet<String>,
+    /// Canonical names that are known to materialize as views even before the
+    /// producing statement is analyzed.
+    ///
+    /// This is populated during pre-collection for dbt models so consumer
+    /// references resolved earlier in the workload still get the canonical
+    /// `view_*` identity and merge with the later producer sink.
+    pub(crate) declared_views: HashSet<String>,
     /// Maps table canonical name -> list of statement indices that consume it.
     ///
     /// A single table can be consumed by multiple statements.
@@ -100,6 +107,7 @@ impl CrossStatementTracker {
         Self {
             produced_tables: HashMap::new(),
             produced_views: HashSet::new(),
+            declared_views: HashSet::new(),
             consumed_tables: HashMap::new(),
             all_relations: HashSet::new(),
             all_ctes: HashSet::new(),
@@ -122,7 +130,15 @@ impl CrossStatementTracker {
     /// This also calls `record_produced` internally.
     pub(crate) fn record_view_produced(&mut self, canonical: &str, statement_index: usize) {
         self.produced_views.insert(canonical.to_string());
+        self.declared_views.insert(canonical.to_string());
         self.record_produced(canonical, statement_index);
+    }
+
+    /// Records that a relation is known to materialize as a view before the
+    /// producer statement is analyzed.
+    pub(crate) fn declare_view(&mut self, canonical: &str) {
+        self.declared_views.insert(canonical.to_string());
+        self.all_relations.insert(canonical.to_string());
     }
 
     /// Records that a table was consumed by a statement.
@@ -147,7 +163,11 @@ impl CrossStatementTracker {
     /// Checks if a canonical name refers to a view.
     #[cfg(test)]
     pub(crate) fn is_view(&self, canonical: &str) -> bool {
-        self.produced_views.contains(canonical)
+        self.is_view_relation(canonical)
+    }
+
+    fn is_view_relation(&self, canonical: &str) -> bool {
+        self.produced_views.contains(canonical) || self.declared_views.contains(canonical)
     }
 
     /// Checks if a table was produced by an earlier statement.
@@ -171,6 +191,7 @@ impl CrossStatementTracker {
     pub(crate) fn remove(&mut self, canonical: &str) {
         self.produced_tables.remove(canonical);
         self.produced_views.remove(canonical);
+        self.declared_views.remove(canonical);
     }
 
     /// Returns the correct node ID and type for a relation (view vs table).
@@ -178,7 +199,7 @@ impl CrossStatementTracker {
     /// Views get IDs prefixed with "view_", tables get "table_".
     /// This ensures consistent node identification across the lineage graph.
     pub(crate) fn relation_identity(&self, canonical: &str) -> (Arc<str>, NodeType) {
-        if self.produced_views.contains(canonical) {
+        if self.is_view_relation(canonical) {
             (generate_node_id("view", canonical), NodeType::View)
         } else {
             (generate_node_id("table", canonical), NodeType::Table)
@@ -214,7 +235,7 @@ impl CrossStatementTracker {
         }
 
         let instance_key = format!("{canonical}::{alias}::scope_{scope_id}");
-        if self.produced_views.contains(canonical) {
+        if self.is_view_relation(canonical) {
             (generate_node_id("view", &instance_key), NodeType::View)
         } else {
             (generate_node_id("table", &instance_key), NodeType::Table)
@@ -321,6 +342,18 @@ mod tests {
         assert_eq!(table_type, NodeType::Table);
 
         let (view_id, view_type) = tracker.relation_identity("public.my_view");
+        assert!(view_id.starts_with("view_"));
+        assert_eq!(view_type, NodeType::View);
+    }
+
+    #[test]
+    fn test_declared_view_uses_view_identity_before_producer_runs() {
+        let mut tracker = CrossStatementTracker::new();
+
+        tracker.declare_view("models.future_view");
+
+        assert!(tracker.is_view("models.future_view"));
+        let (view_id, view_type) = tracker.relation_identity("models.future_view");
         assert!(view_id.starts_with("view_"));
         assert_eq!(view_type, NodeType::View);
     }
@@ -440,6 +473,7 @@ mod tests {
         assert!(tracker.produced_tables.is_empty());
         assert!(tracker.consumed_tables.is_empty());
         assert!(tracker.produced_views.is_empty());
+        assert!(tracker.declared_views.is_empty());
     }
 
     #[test]

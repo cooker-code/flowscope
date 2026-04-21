@@ -1796,6 +1796,56 @@ SELECT 1 AS id
 
 #[test]
 #[cfg(feature = "templating")]
+fn dbt_view_model_unifies_with_consumer_even_when_consumer_is_analyzed_first() {
+    let consumer = "SELECT * FROM {{ ref('orders_view') }}";
+    let producer = r#"
+{{ config(materialized='view') }}
+SELECT 1 AS id
+"#;
+
+    let result = analyze_dbt_files(vec![
+        FileSource {
+            name: "models/fct_orders.sql".to_string(),
+            content: consumer.to_string(),
+        },
+        FileSource {
+            name: "models/orders_view.sql".to_string(),
+            content: producer.to_string(),
+        },
+    ]);
+
+    let orders_view_nodes: Vec<_> = result
+        .nodes
+        .iter()
+        .filter(|node| {
+            node.node_type.is_table_like()
+                && node
+                    .canonical_name
+                    .as_ref()
+                    .map(|canonical| canonical.name.as_str() == "orders_view")
+                    .unwrap_or(false)
+        })
+        .collect();
+
+    assert_eq!(
+        orders_view_nodes.len(),
+        1,
+        "consumer and producer should collapse into one canonical orders_view node"
+    );
+    let orders_view = orders_view_nodes[0];
+    assert_eq!(
+        orders_view.node_type,
+        NodeType::View,
+        "future dbt view producers should predeclare a view identity for earlier consumers"
+    );
+    assert!(
+        orders_view.statement_ids.contains(&0) && orders_view.statement_ids.contains(&1),
+        "unified orders_view node should be referenced by both the consumer and producer"
+    );
+}
+
+#[test]
+#[cfg(feature = "templating")]
 fn dbt_merged_model_node_keeps_producer_occurrence_metadata() {
     let producer = "SELECT 1 AS id";
     let consumer = "SELECT * FROM {{ ref('stg_constants') }}";

@@ -1408,6 +1408,9 @@ describe('graphBuilders DML handling', () => {
             id: 'column:constants.id',
             type: 'column',
             label: 'id',
+            // Simulate a merged producer/consumer column node that picked up a
+            // source qualifiedName from another statement.
+            qualifiedName: 'constants.id',
           },
         ],
         edges: [

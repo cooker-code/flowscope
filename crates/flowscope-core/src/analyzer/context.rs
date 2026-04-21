@@ -148,7 +148,15 @@ pub(crate) struct StatementContext {
     pub(crate) table_node_ids: HashMap<String, Arc<str>>,
     /// Output columns for this statement (for column lineage)
     pub(crate) output_columns: Vec<OutputColumn>,
-    /// Output node ID for SELECT statements
+    /// Id of this statement's sink node. Holds one of two shapes:
+    ///
+    /// - A statement-scoped `Output` node id, produced by
+    ///   [`Self::ensure_output_node_with_model`] for standalone SELECTs.
+    /// - A canonical relation id (Table/View), produced by
+    ///   [`Self::ensure_model_relation_sink`] for dbt models. Using the
+    ///   canonical id here is what lets downstream `ref(...)` consumers
+    ///   merge onto the same node, so multi-hop dbt chains render as one
+    ///   connected graph instead of per-file fragments.
     pub(crate) output_node_id: Option<Arc<str>>,
     /// Statement-global output columns for named CTE definitions.
     /// Scope-local alias materialization lives on [`Scope::subquery_columns`] so reused

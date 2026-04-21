@@ -39,6 +39,7 @@ use helpers::{
 };
 use input::{collect_statements, StatementInput};
 use schema_registry::SchemaRegistry;
+use statements::{dbt_model_relation_type, extract_model_name};
 use std::collections::HashMap;
 
 // Re-export for use in other analyzer modules
@@ -461,6 +462,10 @@ impl<'a> Analyzer<'a> {
     fn precollect_ddl(&mut self, statements: &[StatementInput]) {
         self.descriptions = self.collect_description_map(statements);
 
+        if self.is_dbt_mode() {
+            self.precollect_dbt_models(statements);
+        }
+
         for (index, stmt_input) in statements.iter().enumerate() {
             match &stmt_input.statement {
                 Statement::CreateTable(create) => {
@@ -471,6 +476,34 @@ impl<'a> Analyzer<'a> {
                 }
                 _ => {}
             }
+        }
+    }
+
+    fn precollect_dbt_models(&mut self, statements: &[StatementInput]) {
+        for stmt_input in statements {
+            let Statement::Query(_) = &stmt_input.statement else {
+                continue;
+            };
+
+            let Some(source_name) = stmt_input.source_name.as_deref() else {
+                continue;
+            };
+
+            let original_sql = stmt_input
+                .source_sql_untemplated
+                .as_deref()
+                .and_then(|sql| {
+                    stmt_input
+                        .source_range_untemplated
+                        .as_ref()
+                        .and_then(|range| sql.get(range.clone()))
+                });
+            if dbt_model_relation_type(original_sql) != NodeType::View {
+                continue;
+            }
+
+            let model_name = self.normalize_table_name(extract_model_name(source_name));
+            self.tracker.declare_view(&model_name);
         }
     }
 

@@ -17,6 +17,7 @@ use crate::error::ParseError;
 use crate::types::{
     issue_codes, Edge, EdgeType, Issue, JoinType, Node, NodeType, Span, StatementLineage,
 };
+use regex::Regex;
 use sqlparser::ast::{
     self, AlterTableOperation, Assignment, CopyIntoSnowflakeKind, CopySource, CopyTarget, Expr,
     FromTable, MergeAction, MergeClause, MergeInsertKind, ObjectName, RenameTableNameKind,
@@ -24,7 +25,7 @@ use sqlparser::ast::{
 };
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 #[cfg(feature = "tracing")]
 use tracing::{info, info_span};
 
@@ -68,13 +69,7 @@ impl<'a> Analyzer<'a> {
                 // Normalize the model name to match how table references are normalized
                 // (e.g., Snowflake normalizes to uppercase)
                 let normalized_model_name = model_name.map(|n| self.normalize_table_name(n));
-                let model_node_type = original_sql
-                    .as_deref()
-                    .and_then(parse_dbt_model_materialization)
-                    .map(|materialization| match materialization {
-                        DbtMaterialization::View => NodeType::View,
-                    })
-                    .unwrap_or(NodeType::Table);
+                let model_node_type = dbt_model_relation_type(original_sql.as_deref());
 
                 let sink_target_id = if let Some(ref name) = normalized_model_name {
                     // Register the model as a produced table so downstream files
@@ -971,7 +966,7 @@ impl<'a> Analyzer<'a> {
 
     /// Checks if the analyzer is running in dbt template mode.
     #[cfg(feature = "templating")]
-    fn is_dbt_mode(&self) -> bool {
+    pub(super) fn is_dbt_mode(&self) -> bool {
         self.request
             .template_config
             .as_ref()
@@ -981,32 +976,270 @@ impl<'a> Analyzer<'a> {
 
     /// Checks if the analyzer is running in dbt template mode.
     #[cfg(not(feature = "templating"))]
-    fn is_dbt_mode(&self) -> bool {
+    pub(super) fn is_dbt_mode(&self) -> bool {
         false
     }
 }
 
+/// Recognized dbt materializations. Adapter-specific values not listed here
+/// fall through to `None` in the parser and are treated as the default
+/// (physical table) by the caller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DbtMaterialization {
+    Table,
     View,
+    Incremental,
+    Ephemeral,
+    Snapshot,
+    MaterializedView,
 }
 
+impl DbtMaterialization {
+    /// Maps a materialization to the lineage node type that best represents
+    /// how downstream queries will observe it. `ephemeral` models are inlined
+    /// CTEs with no persisted relation, so they are treated as views for
+    /// lineage purposes.
+    fn node_type(self) -> NodeType {
+        match self {
+            DbtMaterialization::Table
+            | DbtMaterialization::Incremental
+            | DbtMaterialization::Snapshot => NodeType::Table,
+            DbtMaterialization::View
+            | DbtMaterialization::Ephemeral
+            | DbtMaterialization::MaterializedView => NodeType::View,
+        }
+    }
+}
+
+/// Matches a `materialized='value'` kwarg. Value must be a bare identifier
+/// (word chars), which fits every real dbt materialization and avoids
+/// matching inside arbitrary strings.
+static MATERIALIZED_KWARG: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)materialized\s*=\s*(?:'(\w+)'|"(\w+)")"#)
+        .expect("materialized kwarg regex is valid")
+});
+
+/// Parses the dbt materialization from the raw (untemplated) model SQL.
+///
+/// Scoped to the body of the first `config(...)` call so that the word
+/// `materialized` appearing elsewhere (column names, comments, string
+/// literals outside `config`) cannot produce false positives.
 fn parse_dbt_model_materialization(sql: &str) -> Option<DbtMaterialization> {
+    let body = find_config_call_body(sql)?;
+    let captures = MATERIALIZED_KWARG.captures(body)?;
+    let value = captures.get(1).or_else(|| captures.get(2))?.as_str();
+    match value.to_ascii_lowercase().as_str() {
+        "table" => Some(DbtMaterialization::Table),
+        "view" => Some(DbtMaterialization::View),
+        "incremental" => Some(DbtMaterialization::Incremental),
+        "ephemeral" => Some(DbtMaterialization::Ephemeral),
+        "snapshot" => Some(DbtMaterialization::Snapshot),
+        "materialized_view" => Some(DbtMaterialization::MaterializedView),
+        _ => None,
+    }
+}
+
+pub(super) fn dbt_model_relation_type(sql: Option<&str>) -> NodeType {
+    sql.and_then(parse_dbt_model_materialization)
+        .map(DbtMaterialization::node_type)
+        .unwrap_or(NodeType::Table)
+}
+
+/// Returns the substring between the opening `(` of the first `config(...)`
+/// call in `sql` and its matching `)`.
+///
+/// Tracks paren depth while skipping over string literals (single and double
+/// quoted, with `\` escapes), so nested calls like
+/// `config(materialized='view', partition_by=date_trunc('day', x))` resolve
+/// correctly. Requires `config` to be a standalone identifier (not a suffix
+/// of another word). Returns `None` if no `config(` is found or the call is
+/// unterminated.
+fn find_config_call_body(sql: &str) -> Option<&str> {
+    // `config` is ASCII, so byte-indexing the lowercased copy matches `sql`
+    // byte-for-byte.
     let lower = sql.to_ascii_lowercase();
-    let materialized_index = lower.find("materialized")?;
-    let after_key = &lower[materialized_index + "materialized".len()..];
-    let equals_index = after_key.find('=')?;
-    let after_equals = after_key[equals_index + 1..].trim_start();
-    let quote = after_equals.chars().next()?;
-    if quote != '\'' && quote != '"' {
+    let bytes = sql.as_bytes();
+    let mut search_from = 0;
+
+    while let Some(rel) = lower[search_from..].find("config") {
+        let start = search_from + rel;
+        let after_keyword = start + "config".len();
+
+        // Reject `reconfig`, `preconfigure`, etc.
+        if start > 0 {
+            let prev = bytes[start - 1];
+            if prev.is_ascii_alphanumeric() || prev == b'_' {
+                search_from = after_keyword;
+                continue;
+            }
+        }
+
+        // Allow whitespace between `config` and `(`.
+        let mut cursor = after_keyword;
+        while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        }
+        if cursor >= bytes.len() || bytes[cursor] != b'(' {
+            search_from = after_keyword;
+            continue;
+        }
+
+        let body_start = cursor + 1;
+        let mut depth: u32 = 1;
+        let mut quote: Option<u8> = None;
+        let mut i = body_start;
+        while i < bytes.len() {
+            let b = bytes[i];
+            if let Some(q) = quote {
+                if b == b'\\' && i + 1 < bytes.len() {
+                    i += 2;
+                    continue;
+                }
+                if b == q {
+                    quote = None;
+                }
+            } else {
+                match b {
+                    b'\'' | b'"' => quote = Some(b),
+                    b'(' => depth += 1,
+                    b')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return Some(&sql[body_start..i]);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            i += 1;
+        }
         return None;
     }
 
-    let rest = &after_equals[quote.len_utf8()..];
-    let end = rest.find(quote)?;
-    match &rest[..end] {
-        "view" => Some(DbtMaterialization::View),
-        _ => None,
+    None
+}
+
+#[cfg(test)]
+mod dbt_materialization_tests {
+    use super::{parse_dbt_model_materialization, DbtMaterialization};
+
+    #[test]
+    fn matches_single_quoted_view() {
+        let sql = "{{ config(materialized='view') }}\nSELECT 1";
+        assert_eq!(
+            parse_dbt_model_materialization(sql),
+            Some(DbtMaterialization::View)
+        );
+    }
+
+    #[test]
+    fn matches_double_quoted_view() {
+        let sql = r#"{{ config(materialized="view") }} SELECT 1"#;
+        assert_eq!(
+            parse_dbt_model_materialization(sql),
+            Some(DbtMaterialization::View)
+        );
+    }
+
+    #[test]
+    fn tolerates_whitespace_around_tokens() {
+        let sql = "{{ config (  materialized   =   'view'  ) }} SELECT 1";
+        assert_eq!(
+            parse_dbt_model_materialization(sql),
+            Some(DbtMaterialization::View)
+        );
+    }
+
+    #[test]
+    fn handles_nested_parens_in_sibling_kwargs() {
+        let sql = "{{ config(materialized='view', partition_by=date_trunc('day', ts)) }} \
+                   SELECT 1";
+        assert_eq!(
+            parse_dbt_model_materialization(sql),
+            Some(DbtMaterialization::View)
+        );
+    }
+
+    #[test]
+    fn recognizes_all_known_materializations() {
+        let cases = [
+            ("table", DbtMaterialization::Table),
+            ("view", DbtMaterialization::View),
+            ("incremental", DbtMaterialization::Incremental),
+            ("ephemeral", DbtMaterialization::Ephemeral),
+            ("snapshot", DbtMaterialization::Snapshot),
+            ("materialized_view", DbtMaterialization::MaterializedView),
+        ];
+        for (keyword, expected) in cases {
+            let sql = format!("{{{{ config(materialized='{keyword}') }}}} SELECT 1");
+            assert_eq!(
+                parse_dbt_model_materialization(&sql),
+                Some(expected),
+                "failed for materialization '{keyword}'"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_materialization_returns_none() {
+        let sql = "{{ config(materialized='customthing') }} SELECT 1";
+        assert_eq!(parse_dbt_model_materialization(sql), None);
+    }
+
+    #[test]
+    fn node_type_mapping() {
+        use crate::types::NodeType;
+        assert_eq!(DbtMaterialization::Table.node_type(), NodeType::Table);
+        assert_eq!(DbtMaterialization::Incremental.node_type(), NodeType::Table);
+        assert_eq!(DbtMaterialization::Snapshot.node_type(), NodeType::Table);
+        assert_eq!(DbtMaterialization::View.node_type(), NodeType::View);
+        assert_eq!(DbtMaterialization::Ephemeral.node_type(), NodeType::View);
+        assert_eq!(
+            DbtMaterialization::MaterializedView.node_type(),
+            NodeType::View
+        );
+    }
+
+    #[test]
+    fn ignores_materialized_outside_config() {
+        let sql = "-- materialized='view'\nSELECT materialized FROM t";
+        assert_eq!(parse_dbt_model_materialization(sql), None);
+    }
+
+    #[test]
+    fn ignores_config_substring_of_another_identifier() {
+        let sql = "{{ reconfig(materialized='view') }} SELECT 1";
+        assert_eq!(parse_dbt_model_materialization(sql), None);
+    }
+
+    #[test]
+    fn unterminated_config_call_returns_none() {
+        let sql = "{{ config(materialized='view'";
+        assert_eq!(parse_dbt_model_materialization(sql), None);
+    }
+
+    #[test]
+    fn paren_inside_string_does_not_close_config() {
+        let sql = r#"{{ config(alias=')', materialized='view') }} SELECT 1"#;
+        assert_eq!(
+            parse_dbt_model_materialization(sql),
+            Some(DbtMaterialization::View)
+        );
+    }
+
+    #[test]
+    fn case_insensitive_keywords() {
+        let sql = "{{ CONFIG(MATERIALIZED='VIEW') }} SELECT 1";
+        assert_eq!(
+            parse_dbt_model_materialization(sql),
+            Some(DbtMaterialization::View)
+        );
+    }
+
+    #[test]
+    fn returns_none_when_materialized_kwarg_missing() {
+        let sql = "{{ config(tags=['daily']) }} SELECT 1";
+        assert_eq!(parse_dbt_model_materialization(sql), None);
     }
 }
 
@@ -1015,7 +1248,7 @@ fn parse_dbt_model_materialization(sql: &str) -> Option<DbtMaterialization> {
 /// Given a path like `models/staging/stg_customers.sql`, extracts `stg_customers`.
 /// Supports both `.sql` and `.sql.jinja` file extensions used by dbt.
 /// This is used to register dbt model outputs for cross-statement linking.
-fn extract_model_name(path: &str) -> &str {
+pub(super) fn extract_model_name(path: &str) -> &str {
     // Get the filename from the path
     let filename = path.rsplit('/').next().unwrap_or(path);
     // Also handle Windows-style paths
