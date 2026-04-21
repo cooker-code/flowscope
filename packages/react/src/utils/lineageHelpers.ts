@@ -6,6 +6,29 @@ const CREATE_STATEMENT_TYPES = new Set(['CREATE_TABLE', 'CREATE_TABLE_AS', 'CREA
 /** Node type constant for output nodes. */
 export const OUTPUT_NODE_TYPE = 'output' as Node['type'];
 
+type RelationNode = Node & { type: 'table' | 'view' };
+
+function isRelationNode(node: Node): node is RelationNode {
+  return node.type === 'table' || node.type === 'view';
+}
+
+/**
+ * A column owned by a relation node is a statement-local projection when it
+ * either has at least one non-ownership incoming edge (fed by intra-statement
+ * flows) or has no non-ownership edges at all (e.g., `SELECT 1 AS id`).
+ * Source-table columns are excluded because they only carry outgoing flow
+ * edges — they feed the projection rather than being produced by it.
+ */
+function isCreatedProjectionColumn(
+  columnId: string,
+  incomingNonOwnershipCounts: Map<string, number>,
+  outgoingNonOwnershipCounts: Map<string, number>
+): boolean {
+  const incoming = incomingNonOwnershipCounts.get(columnId) ?? 0;
+  const outgoing = outgoingNonOwnershipCounts.get(columnId) ?? 0;
+  return incoming > 0 || (incoming === 0 && outgoing === 0);
+}
+
 /**
  * React Flow node id used for table/view/output relations in the hybrid
  * script-plus-tables graph view. The id is built from the qualified name when
@@ -58,7 +81,7 @@ export function getCreatedRelationNodeIds(
   nodes: Node[],
   edges: Edge[]
 ): Set<string> {
-  const relationNodes = nodes.filter((n) => n.type === 'table' || n.type === 'view');
+  const relationNodes = nodes.filter(isRelationNode);
   const relationNodeIds = new Set(relationNodes.map((n) => n.id));
   const columnNodeIds = new Set(nodes.filter((n) => n.type === 'column').map((node) => node.id));
   const incomingNonOwnershipCounts = new Map<string, number>();
@@ -75,17 +98,14 @@ export function getCreatedRelationNodeIds(
 
   const createdNodeIds = new Set<string>();
   for (const edge of edges) {
-    // Relation sinks own either projected columns fed by intra-statement flow
-    // edges, or isolated columns such as `SELECT 1 AS id` where the projection
-    // has no non-ownership edges at all. Source-table columns are only emitted
-    // as lineage inputs, so they have outgoing flow edges but no incoming ones.
-    if (edge.type === 'ownership' && relationNodeIds.has(edge.from) && columnNodeIds.has(edge.to)) {
-      const incoming = incomingNonOwnershipCounts.get(edge.to) ?? 0;
-      const outgoing = outgoingNonOwnershipCounts.get(edge.to) ?? 0;
-      if (incoming > 0 || (incoming === 0 && outgoing === 0)) {
-        createdNodeIds.add(edge.from);
-        continue;
-      }
+    if (
+      edge.type === 'ownership' &&
+      relationNodeIds.has(edge.from) &&
+      columnNodeIds.has(edge.to) &&
+      isCreatedProjectionColumn(edge.to, incomingNonOwnershipCounts, outgoingNonOwnershipCounts)
+    ) {
+      createdNodeIds.add(edge.from);
+      continue;
     }
 
     if (edge.type === 'data_flow' && relationNodeIds.has(edge.to)) {

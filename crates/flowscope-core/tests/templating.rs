@@ -922,7 +922,9 @@ fn dbt_snapshot_block_content_preserved() {
 //   - marts: customers, orders, daily_revenue
 
 #[cfg(feature = "templating")]
-use flowscope_core::{EdgeType, FileSource};
+use flowscope_core::{
+    ColumnSchema, EdgeType, FileSource, ResolutionSource, SchemaMetadata, SchemaTable,
+};
 
 /// Helper to run multi-file dbt analysis.
 #[cfg(feature = "templating")]
@@ -1796,6 +1798,37 @@ SELECT 1 AS id
 
 #[test]
 #[cfg(feature = "templating")]
+fn dbt_later_config_call_controls_materialization() {
+    let model = r#"
+{{ config(tags=['daily']) }}
+{{ config(materialized='view') }}
+SELECT 1 AS id
+"#;
+
+    let result = analyze_dbt_files(vec![FileSource {
+        name: "models/orders_view.sql".to_string(),
+        content: model.to_string(),
+    }]);
+
+    let sink_node = result.statements.first().and_then(|statement| {
+        result
+            .nodes_in_statement(statement.statement_index)
+            .find(|node| {
+                node.label.as_ref() == "orders_view"
+                    && matches!(node.node_type, NodeType::Table | NodeType::View)
+            })
+    });
+
+    let sink_node = sink_node.expect("dbt model should produce a sink node");
+    assert_eq!(
+        sink_node.node_type,
+        NodeType::View,
+        "a later config(materialized=...) call should control the dbt sink relation type"
+    );
+}
+
+#[test]
+#[cfg(feature = "templating")]
 fn dbt_view_model_unifies_with_consumer_even_when_consumer_is_analyzed_first() {
     let consumer = "SELECT * FROM {{ ref('orders_view') }}";
     let producer = r#"
@@ -1841,6 +1874,83 @@ SELECT 1 AS id
     assert!(
         orders_view.statement_ids.contains(&0) && orders_view.statement_ids.contains(&1),
         "unified orders_view node should be referenced by both the consumer and producer"
+    );
+}
+
+#[test]
+#[cfg(feature = "templating")]
+fn dbt_forward_ref_to_model_does_not_remain_unresolved() {
+    let request = AnalyzeRequest {
+        sql: String::new(),
+        files: Some(vec![
+            FileSource {
+                name: "models/consumer.sql".to_string(),
+                content: "SELECT * FROM {{ ref('producer') }}".to_string(),
+            },
+            FileSource {
+                name: "models/producer.sql".to_string(),
+                content: "SELECT id FROM {{ source('raw', 'events') }}".to_string(),
+            },
+        ]),
+        dialect: Dialect::Postgres,
+        source_name: None,
+        options: None,
+        schema: Some(SchemaMetadata {
+            tables: vec![SchemaTable {
+                catalog: None,
+                schema: Some("raw".to_string()),
+                name: "events".to_string(),
+                columns: vec![ColumnSchema {
+                    name: "id".to_string(),
+                    data_type: Some("int".to_string()),
+                    is_primary_key: None,
+                    foreign_key: None,
+                }],
+            }],
+            ..SchemaMetadata::default()
+        }),
+        template_config: Some(TemplateConfig {
+            mode: TemplateMode::Dbt,
+            context: HashMap::new(),
+        }),
+    };
+
+    let result = analyze(&request);
+
+    assert!(
+        !result.issues.iter().any(|issue| {
+            issue.code == flowscope_core::issue_codes::UNRESOLVED_REFERENCE
+                && issue.message.contains("producer")
+        }),
+        "dbt model refs should be predeclared so forward references do not stay unresolved: {:?}",
+        result.issues
+    );
+
+    let producer = result
+        .nodes
+        .iter()
+        .find(|node| {
+            node.node_type.is_table_like()
+                && node
+                    .canonical_name
+                    .as_ref()
+                    .map(|canonical| canonical.name.as_str() == "producer")
+                    .unwrap_or(false)
+        })
+        .expect("producer node should exist");
+
+    let has_placeholder = producer
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("placeholder"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+
+    assert_eq!(producer.resolution_source, None);
+    assert_ne!(producer.resolution_source, Some(ResolutionSource::Unknown));
+    assert!(
+        !has_placeholder,
+        "producer node should not retain unresolved placeholder metadata once its model file is known"
     );
 }
 

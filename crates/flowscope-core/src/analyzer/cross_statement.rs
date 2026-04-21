@@ -136,6 +136,7 @@ impl CrossStatementTracker {
 
     /// Records that a relation is known to materialize as a view before the
     /// producer statement is analyzed.
+    #[cfg(test)]
     pub(crate) fn declare_view(&mut self, canonical: &str) {
         self.declared_views.insert(canonical.to_string());
         self.all_relations.insert(canonical.to_string());

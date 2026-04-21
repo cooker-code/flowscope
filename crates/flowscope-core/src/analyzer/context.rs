@@ -157,7 +157,7 @@ pub(crate) struct StatementContext {
     ///   canonical id here is what lets downstream `ref(...)` consumers
     ///   merge onto the same node, so multi-hop dbt chains render as one
     ///   connected graph instead of per-file fragments.
-    pub(crate) output_node_id: Option<Arc<str>>,
+    pub(crate) sink_node_id: Option<Arc<str>>,
     /// Statement-global output columns for named CTE definitions.
     /// Scope-local alias materialization lives on [`Scope::subquery_columns`] so reused
     /// aliases do not leak across sibling branches or nested scopes.
@@ -234,7 +234,7 @@ impl StatementContext {
             current_join_info: JoinInfo::default(),
             table_node_ids: HashMap::new(),
             output_columns: Vec::new(),
-            output_node_id: None,
+            sink_node_id: None,
             aliased_subquery_columns: HashMap::new(),
             scope_stack: Vec::new(),
             next_scope_id: 0,
@@ -428,7 +428,7 @@ impl StatementContext {
     /// will use the model name as both its label and qualified_name. This
     /// enables proper cross-statement linking for dbt model references.
     pub(crate) fn ensure_output_node_with_model(&mut self, model_name: Option<&str>) -> Arc<str> {
-        if let Some(existing) = self.output_node_id.as_ref() {
+        if let Some(existing) = self.sink_node_id.as_ref() {
             return existing.clone();
         }
 
@@ -449,7 +449,7 @@ impl StatementContext {
         };
 
         self.add_node(output_node);
-        self.output_node_id = Some(node_id.clone());
+        self.sink_node_id = Some(node_id.clone());
         node_id
     }
 
@@ -470,7 +470,7 @@ impl StatementContext {
         node_type: NodeType,
         span: Option<Span>,
     ) -> Arc<str> {
-        if let Some(existing) = self.output_node_id.as_ref() {
+        if let Some(existing) = self.sink_node_id.as_ref() {
             return existing.clone();
         }
 
@@ -485,12 +485,12 @@ impl StatementContext {
         };
 
         self.add_node(sink_node);
-        self.output_node_id = Some(canonical_id.clone());
+        self.sink_node_id = Some(canonical_id.clone());
         canonical_id
     }
 
-    pub(crate) fn output_node_id(&self) -> Option<&Arc<str>> {
-        self.output_node_id.as_ref()
+    pub(crate) fn sink_node_id(&self) -> Option<&Arc<str>> {
+        self.sink_node_id.as_ref()
     }
 
     /// Push a new scope onto the stack (entering a SELECT/subquery)

@@ -39,7 +39,7 @@ use helpers::{
 };
 use input::{collect_statements, StatementInput};
 use schema_registry::SchemaRegistry;
-use statements::{dbt_model_relation_type, extract_model_name};
+use statements::{dbt_model_relation_type, extract_model_name, StatementSource};
 use std::collections::HashMap;
 
 // Re-export for use in other analyzer modules
@@ -352,10 +352,12 @@ impl<'a> Analyzer<'a> {
                 index,
                 &statement,
                 source_name_owned,
-                source_range,
-                source_range_untemplated,
-                original_sql,
-                resolved_sql,
+                StatementSource {
+                    source_range,
+                    original_source_range: source_range_untemplated,
+                    original_sql,
+                    resolved_sql,
+                },
             );
             self.current_statement_source = None;
 
@@ -480,7 +482,7 @@ impl<'a> Analyzer<'a> {
     }
 
     fn precollect_dbt_models(&mut self, statements: &[StatementInput]) {
-        for stmt_input in statements {
+        for (index, stmt_input) in statements.iter().enumerate() {
             let Statement::Query(_) = &stmt_input.statement else {
                 continue;
             };
@@ -498,12 +500,12 @@ impl<'a> Analyzer<'a> {
                         .as_ref()
                         .and_then(|range| sql.get(range.clone()))
                 });
-            if dbt_model_relation_type(original_sql) != NodeType::View {
-                continue;
-            }
-
             let model_name = self.normalize_table_name(extract_model_name(source_name));
-            self.tracker.declare_view(&model_name);
+            if dbt_model_relation_type(original_sql) == NodeType::View {
+                self.tracker.record_view_produced(&model_name, index);
+            } else {
+                self.tracker.record_produced(&model_name, index);
+            }
         }
     }
 

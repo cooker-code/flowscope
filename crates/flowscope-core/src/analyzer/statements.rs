@@ -42,18 +42,42 @@ struct JoinNodeInfo {
     join_condition: Option<Arc<str>>,
 }
 
+/// Source-text bookkeeping for a single statement passed to the analyzer.
+///
+/// Bundles both the templated and (when applicable) the untemplated source
+/// ranges plus raw SQL, so statement-level analysis has a single handle to
+/// the text it's analyzing. dbt materialization detection needs the
+/// untemplated form; `StatementLineage` surfaces the resolved form to
+/// downstream consumers.
+pub(super) struct StatementSource {
+    /// Byte range of this statement in the (possibly templated) source SQL.
+    pub source_range: Range<usize>,
+    /// Byte range of this statement in the untemplated source, when templating
+    /// was applied. Used so spans computed for dbt producers point at the
+    /// user's original file rather than the rendered output.
+    pub original_source_range: Option<Range<usize>>,
+    /// Untemplated SQL text for this statement, when templating was applied.
+    pub original_sql: Option<String>,
+    /// Resolved SQL text when templating was applied. Preserved on the
+    /// statement lineage for downstream consumers.
+    pub resolved_sql: Option<String>,
+}
+
 impl<'a> Analyzer<'a> {
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, statement), fields(index, source = source_name.as_deref())))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, statement, source), fields(index, name = source_name.as_deref())))]
     pub(super) fn analyze_statement(
         &mut self,
         index: usize,
         statement: &Statement,
         source_name: Option<String>,
-        source_range: Range<usize>,
-        original_source_range: Option<Range<usize>>,
-        original_sql: Option<String>,
-        resolved_sql: Option<String>,
+        source: StatementSource,
     ) -> Result<StatementLineage, ParseError> {
+        let StatementSource {
+            source_range,
+            original_source_range,
+            original_sql,
+            resolved_sql,
+        } = source;
         let mut ctx = StatementContext::new(index);
 
         let statement_type = match statement {
@@ -71,7 +95,8 @@ impl<'a> Analyzer<'a> {
                 let normalized_model_name = model_name.map(|n| self.normalize_table_name(n));
                 let model_node_type = dbt_model_relation_type(original_sql.as_deref());
 
-                let sink_target_id = if let Some(ref name) = normalized_model_name {
+                let sink_target_id: Option<Arc<str>> = if let Some(ref name) = normalized_model_name
+                {
                     // Register the model as a produced table so downstream files
                     // that reference it via `ref(...)` see a known relation.
                     if model_node_type == NodeType::View {
@@ -87,13 +112,12 @@ impl<'a> Analyzer<'a> {
                         .as_ref()
                         .map(|range| Span::new(range.start, range.end))
                         .unwrap_or_else(|| Span::new(source_range.start, source_range.end));
-                    let sink_id = ctx.ensure_model_relation_sink(
+                    Some(ctx.ensure_model_relation_sink(
                         name,
                         canonical_id,
                         node_type,
                         Some(producer_span),
-                    );
-                    Some(sink_id.to_string())
+                    ))
                 } else {
                     ctx.ensure_output_node_with_model(None);
                     None
@@ -283,7 +307,7 @@ impl<'a> Analyzer<'a> {
     }
 
     fn add_join_dependency_edges(&self, ctx: &mut StatementContext) {
-        let output_node_id = match ctx.output_node_id.as_ref() {
+        let sink_node_id = match ctx.sink_node_id.as_ref() {
             Some(node_id) => node_id.clone(),
             None => return,
         };
@@ -291,7 +315,7 @@ impl<'a> Analyzer<'a> {
         let output_column_ids: HashSet<_> = if self.column_lineage_enabled {
             ctx.edges
                 .iter()
-                .filter(|edge| edge.edge_type == EdgeType::Ownership && edge.from == output_node_id)
+                .filter(|edge| edge.edge_type == EdgeType::Ownership && edge.from == sink_node_id)
                 .map(|edge| edge.to.clone())
                 .collect()
         } else {
@@ -300,7 +324,7 @@ impl<'a> Analyzer<'a> {
         if self.column_lineage_enabled {
             let has_direct_output_lineage = ctx.edges.iter().any(|edge| {
                 matches!(edge.edge_type, EdgeType::DataFlow | EdgeType::Derivation)
-                    && edge.to == output_node_id
+                    && edge.to == sink_node_id
             });
             if output_column_ids.is_empty() && !has_direct_output_lineage {
                 return;
@@ -347,7 +371,7 @@ impl<'a> Analyzer<'a> {
                     matches!(edge.edge_type, EdgeType::DataFlow | EdgeType::Derivation)
                         && (edge.from == node_id
                             || owned_columns.iter().any(|col| col == &edge.from))
-                        && (edge.to == output_node_id || output_column_ids.contains(&edge.to))
+                        && (edge.to == sink_node_id || output_column_ids.contains(&edge.to))
                 })
             } else {
                 false
@@ -361,7 +385,7 @@ impl<'a> Analyzer<'a> {
                 "join_dependency:{node_id}:{join_type:?}:{}",
                 join_condition.as_deref().unwrap_or("")
             );
-            let edge_id = generate_edge_id(&edge_key, output_node_id.as_ref());
+            let edge_id = generate_edge_id(&edge_key, sink_node_id.as_ref());
             if ctx.edge_ids.contains(&edge_id) {
                 continue;
             }
@@ -369,7 +393,7 @@ impl<'a> Analyzer<'a> {
             ctx.add_edge(Edge {
                 id: edge_id,
                 from: node_id,
-                to: output_node_id.clone(),
+                to: sink_node_id.clone(),
                 edge_type: EdgeType::JoinDependency,
                 expression: None,
                 operation: None,
@@ -1021,14 +1045,26 @@ static MATERIALIZED_KWARG: LazyLock<Regex> = LazyLock::new(|| {
 
 /// Parses the dbt materialization from the raw (untemplated) model SQL.
 ///
-/// Scoped to the body of the first `config(...)` call so that the word
+/// Scoped to the bodies of `config(...)` calls so that the word
 /// `materialized` appearing elsewhere (column names, comments, string
-/// literals outside `config`) cannot produce false positives.
+/// literals outside `config`) cannot produce false positives. When multiple
+/// `config(...)` calls set `materialized`, the last one wins to match dbt's
+/// config override behavior.
 fn parse_dbt_model_materialization(sql: &str) -> Option<DbtMaterialization> {
-    let body = find_config_call_body(sql)?;
-    let captures = MATERIALIZED_KWARG.captures(body)?;
-    let value = captures.get(1).or_else(|| captures.get(2))?.as_str();
-    match value.to_ascii_lowercase().as_str() {
+    let mut search_from = 0;
+    let mut last_value = None;
+
+    while let Some((body, next_search_from)) = find_next_config_call_body(sql, search_from) {
+        if let Some(captures) = MATERIALIZED_KWARG.captures(body) {
+            last_value = captures
+                .get(1)
+                .or_else(|| captures.get(2))
+                .map(|m| m.as_str());
+        }
+        search_from = next_search_from;
+    }
+
+    match last_value?.to_ascii_lowercase().as_str() {
         "table" => Some(DbtMaterialization::Table),
         "view" => Some(DbtMaterialization::View),
         "incremental" => Some(DbtMaterialization::Incremental),
@@ -1045,21 +1081,22 @@ pub(super) fn dbt_model_relation_type(sql: Option<&str>) -> NodeType {
         .unwrap_or(NodeType::Table)
 }
 
-/// Returns the substring between the opening `(` of the first `config(...)`
-/// call in `sql` and its matching `)`.
+/// Returns the substring between the opening `(` of the next `config(...)`
+/// call in `sql[search_from..]` and its matching `)`, plus the byte index to
+/// continue searching from.
 ///
 /// Tracks paren depth while skipping over string literals (single and double
 /// quoted, with `\` escapes), so nested calls like
 /// `config(materialized='view', partition_by=date_trunc('day', x))` resolve
 /// correctly. Requires `config` to be a standalone identifier (not a suffix
-/// of another word). Returns `None` if no `config(` is found or the call is
-/// unterminated.
-fn find_config_call_body(sql: &str) -> Option<&str> {
+/// of another word). Returns `None` if no `config(` is found after
+/// `search_from` or the call is unterminated.
+fn find_next_config_call_body(sql: &str, search_from: usize) -> Option<(&str, usize)> {
     // `config` is ASCII, so byte-indexing the lowercased copy matches `sql`
     // byte-for-byte.
     let lower = sql.to_ascii_lowercase();
     let bytes = sql.as_bytes();
-    let mut search_from = 0;
+    let mut search_from = search_from;
 
     while let Some(rel) = lower[search_from..].find("config") {
         let start = search_from + rel;
@@ -1105,7 +1142,7 @@ fn find_config_call_body(sql: &str) -> Option<&str> {
                     b')' => {
                         depth -= 1;
                         if depth == 0 {
-                            return Some(&sql[body_start..i]);
+                            return Some((&sql[body_start..i], i + 1));
                         }
                     }
                     _ => {}
@@ -1240,6 +1277,50 @@ mod dbt_materialization_tests {
     fn returns_none_when_materialized_kwarg_missing() {
         let sql = "{{ config(tags=['daily']) }} SELECT 1";
         assert_eq!(parse_dbt_model_materialization(sql), None);
+    }
+
+    #[test]
+    fn finds_materialized_in_later_config_call() {
+        let sql = "{{ config(tags=['daily']) }} {{ config(materialized='view') }} SELECT 1";
+        assert_eq!(
+            parse_dbt_model_materialization(sql),
+            Some(DbtMaterialization::View)
+        );
+    }
+
+    #[test]
+    fn later_config_call_overrides_earlier_materialized_value() {
+        let sql = "{{ config(materialized='table') }} {{ config(materialized='view') }} SELECT 1";
+        assert_eq!(
+            parse_dbt_model_materialization(sql),
+            Some(DbtMaterialization::View)
+        );
+    }
+
+    #[test]
+    fn unknown_adapter_materialization_defaults_to_table() {
+        use super::dbt_model_relation_type;
+        use crate::types::NodeType;
+        // Custom adapter materializations (e.g., Databricks delta live tables,
+        // Snowflake dynamic tables) are not in our known set. Parsing returns
+        // `None` so the caller falls back to `NodeType::Table`.
+        let sql = "{{ config(materialized='dynamic_table') }} SELECT 1";
+        assert_eq!(parse_dbt_model_materialization(sql), None);
+        assert_eq!(dbt_model_relation_type(Some(sql)), NodeType::Table);
+    }
+
+    #[test]
+    fn dynamic_jinja_materialization_falls_back_to_table() {
+        use super::dbt_model_relation_type;
+        use crate::types::NodeType;
+        // A Jinja expression as the materialized value is not a bare identifier
+        // in quotes, so the kwarg regex does not match and we fall back to the
+        // default table materialization. Pinning this behavior explicitly so a
+        // future regex widening is a conscious choice rather than an accident.
+        let sql =
+            "{{ config(materialized=('view' if target.name == 'dev' else 'table')) }} SELECT 1";
+        assert_eq!(parse_dbt_model_materialization(sql), None);
+        assert_eq!(dbt_model_relation_type(Some(sql)), NodeType::Table);
     }
 }
 
