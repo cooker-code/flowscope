@@ -34,6 +34,18 @@ function isRelationNode(node: Node): node is RelationNode {
  *
  * "Non-ownership" means edges whose type is not `ownership`, i.e. data_flow,
  * derivation, join_dependency, or cross_statement.
+ *
+ * @example
+ * // `CREATE TABLE sink AS SELECT src.id FROM src` —
+ * // sink.id has one incoming data_flow from src.id (incoming=1, outgoing=0),
+ * // src.id has one outgoing data_flow and nothing incoming (incoming=0, outgoing=1).
+ * isCreatedProjectionColumn('col:sink.id', …)  // → true  (projection)
+ * isCreatedProjectionColumn('col:src.id',  …)  // → false (source column)
+ *
+ * @example
+ * // Bare dbt SELECT: `SELECT 1 AS id` with no lineage edges.
+ * // sink.id has neither incoming nor outgoing non-ownership edges.
+ * isCreatedProjectionColumn('col:sink.id', …)  // → true  (constant projection)
  */
 function isCreatedProjectionColumn(
   columnId: string,

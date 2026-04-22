@@ -56,6 +56,45 @@ use super::helpers::generate_node_id;
 /// - Cross-statement edges are only created when consumer index > producer index
 /// - `all_relations` contains the union of all produced and consumed tables
 ///
+/// ## Declaration vs production
+///
+/// "Declaration" and "production" are distinct concepts, populated by
+/// different passes:
+///
+/// - *Declaration* (`declared_views` / `declared_tables` /
+///   `declared_ephemerals`) fixes a relation's **identity** — i.e. whether it
+///   resolves as a `view_*` / `table_*` / `cte_*` node id via
+///   [`CrossStatementTracker::relation_identity`]. It is populated up-front by
+///   pre-collection passes (e.g. dbt models) so forward `ref(...)` consumers
+///   resolve to the same canonical node as the later producer.
+/// - *Production* (`produced_tables` / `produced_views`) assigns a **producer
+///   statement index** used for cross-statement edge generation. It is
+///   populated during the main analysis pass as each producing statement is
+///   visited.
+///
+/// A relation can be declared without ever being produced (e.g. the producer
+/// statement is skipped) and a relation can be produced without prior
+/// declaration (standard CREATE TABLE flow). Both state spaces coexist and
+/// must stay consistent.
+///
+/// ## Declared-set disjointness
+///
+/// The three declared sets are mutually exclusive for any single canonical
+/// name, because a relation has exactly one materialization kind:
+///
+/// - View declarations take precedence over table declarations: calling
+///   [`CrossStatementTracker::declare_view`] removes the name from
+///   `declared_tables`, and [`CrossStatementTracker::declare_table`] is a
+///   no-op when the name is already in `declared_views` (view is strictly
+///   more specific).
+/// - `declared_ephemerals` is treated independently (dbt ephemeral models
+///   never materialize as tables or views), and relation identity is resolved
+///   in the order ephemeral → view → table in
+///   [`CrossStatementTracker::relation_identity`].
+///
+/// Keep these rules in mind when adding new declaration paths; violating them
+/// would make [`CrossStatementTracker::relation_identity`] non-deterministic.
+///
 /// # Example
 ///
 /// ```ignore

@@ -456,10 +456,10 @@ impl StatementContext {
     /// Creates or returns the sink node for a dbt model's bare SELECT.
     ///
     /// Unlike `ensure_output_node_with_model`, which synthesizes a
-    /// statement-scoped `Output` node, this materializes the sink as a
-    /// relation node (`Table`/`View`) whose id is the canonical relation id
-    /// shared with consumers. When another dbt model references this one via
-    /// `FROM {{ ref(...) }}`, its `Table` node resolves to the same canonical
+    /// statement-scoped `Output` node, this materializes the sink as the
+    /// canonical shared model node (`Table`, `View`, or `Cte` for ephemeral
+    /// dbt models). When another dbt model references this one via
+    /// `FROM {{ ref(...) }}`, its source node resolves to the same canonical
     /// id, so the flattener merges producer and consumer into a single graph
     /// node and multi-hop `A -> B -> C` chains render as one connected
     /// lineage rather than disconnected per-file fragments.
@@ -475,12 +475,15 @@ impl StatementContext {
         }
 
         let label: Arc<str> = Arc::from(model_name);
+        let mut metadata = HashMap::new();
+        metadata.insert("definitionOccurrence".to_string(), serde_json::json!(true));
         let sink_node = Node {
             id: canonical_id.clone(),
             node_type,
             label: label.clone(),
             qualified_name: Some(label),
             span,
+            metadata: Some(metadata),
             ..Default::default()
         };
 
@@ -489,6 +492,15 @@ impl StatementContext {
         canonical_id
     }
 
+    /// Returns the id of this statement's sink, if one has been materialized.
+    ///
+    /// The sink represents "where this statement writes". Callers must not
+    /// assume it is always a statement-scoped `Output` node — for dbt models
+    /// it is the canonical relation node (`Table` / `View` / `Cte`) created
+    /// by [`Self::ensure_model_relation_sink`], which is the same node that
+    /// downstream `ref(...)` consumers resolve to. Treat the returned id as
+    /// opaque and look up the node's `node_type` if behavior needs to branch
+    /// on the sink's kind.
     pub(crate) fn sink_node_id(&self) -> Option<&Arc<str>> {
         self.sink_node_id.as_ref()
     }

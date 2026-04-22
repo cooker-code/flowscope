@@ -495,8 +495,12 @@ impl<'a> Analyzer<'a> {
     /// `produced_views`.
     ///
     /// Two other responsibilities handled here:
-    /// - Detecting duplicate model names across files (silent last-writer-wins
-    ///   would otherwise mask real project configuration errors).
+    /// - Detecting duplicate model names across files and surfacing a warning
+    ///   so real project configuration errors aren't silently masked. The
+    ///   first definition's materialization wins for node identity; later
+    ///   producer statements still overwrite the producer index via the
+    ///   normal `record_produced` path, so cross-statement edges point at the
+    ///   most recently seen producer.
     /// - Surfacing a warning when `materialized=` is present but can't be
     ///   resolved (dynamic Jinja or adapter-specific value), so users know
     ///   we fell back to the default node type.
@@ -528,7 +532,7 @@ impl<'a> Analyzer<'a> {
                     Issue::warning(
                         issue_codes::SCHEMA_CONFLICT,
                         format!(
-                            "Duplicate dbt model '{model_name}' defined in multiple files ('{existing}' and '{source_name}'); later definition wins"
+                            "Duplicate dbt model '{model_name}' defined in multiple files: first in '{existing}', then in '{source_name}'. Keeping the materialization from '{existing}'; the later file's producer statement will still claim the producer index."
                         ),
                     )
                     .with_statement(index),
