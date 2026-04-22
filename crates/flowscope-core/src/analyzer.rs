@@ -39,7 +39,10 @@ use helpers::{
 };
 use input::{collect_statements, StatementInput};
 use schema_registry::SchemaRegistry;
-use statements::{dbt_model_relation_type, extract_model_name, StatementSource};
+use statements::{
+    detect_dbt_model_materialization, extract_model_name, DbtMaterializationDetection,
+    StatementSource,
+};
 use std::collections::HashMap;
 
 // Re-export for use in other analyzer modules
@@ -481,7 +484,25 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    /// Pre-registers dbt model relations so forward `ref(...)` consumers and
+    /// later producers share one canonical node identity.
+    ///
+    /// This pass only **declares type** — it does not record a producer
+    /// statement index. Producer indices are set later by the main analysis
+    /// pass via `record_view_produced` / `record_produced`. Keeping that
+    /// single source of truth for production avoids duplicating producer
+    /// state and prevents `declared_views` from drifting out of sync with
+    /// `produced_views`.
+    ///
+    /// Two other responsibilities handled here:
+    /// - Detecting duplicate model names across files (silent last-writer-wins
+    ///   would otherwise mask real project configuration errors).
+    /// - Surfacing a warning when `materialized=` is present but can't be
+    ///   resolved (dynamic Jinja or adapter-specific value), so users know
+    ///   we fell back to the default node type.
     fn precollect_dbt_models(&mut self, statements: &[StatementInput]) {
+        let mut first_source: HashMap<String, String> = HashMap::new();
+
         for (index, stmt_input) in statements.iter().enumerate() {
             let Statement::Query(_) = &stmt_input.statement else {
                 continue;
@@ -501,10 +522,49 @@ impl<'a> Analyzer<'a> {
                         .and_then(|range| sql.get(range.clone()))
                 });
             let model_name = self.normalize_table_name(extract_model_name(source_name));
-            if dbt_model_relation_type(original_sql) == NodeType::View {
-                self.tracker.record_view_produced(&model_name, index);
-            } else {
-                self.tracker.record_produced(&model_name, index);
+
+            if let Some(existing) = first_source.get(&model_name) {
+                self.issues.push(
+                    Issue::warning(
+                        issue_codes::SCHEMA_CONFLICT,
+                        format!(
+                            "Duplicate dbt model '{model_name}' defined in multiple files ('{existing}' and '{source_name}'); later definition wins"
+                        ),
+                    )
+                    .with_statement(index),
+                );
+                continue;
+            }
+            first_source.insert(model_name.clone(), source_name.to_string());
+
+            let detection = original_sql
+                .map(detect_dbt_model_materialization)
+                .unwrap_or(DbtMaterializationDetection::NotConfigured);
+
+            match detection.node_type() {
+                Some(NodeType::View) => self.tracker.declare_view(&model_name),
+                Some(NodeType::Cte) => self.tracker.declare_ephemeral(&model_name),
+                // Table is the default in `relation_identity`, but we still
+                // need to declare it so forward `ref(...)` consumers resolve
+                // to a known relation instead of emitting
+                // `UNRESOLVED_REFERENCE` before the producer statement runs.
+                // `None` (NotConfigured / Unresolved) also defaults to table.
+                Some(NodeType::Table) | None => self.tracker.declare_table(&model_name),
+                Some(NodeType::Output | NodeType::Column) => {
+                    unreachable!("dbt materializations must map to relation-like node types")
+                }
+            }
+
+            if matches!(detection, DbtMaterializationDetection::Unresolved) {
+                self.issues.push(
+                    Issue::warning(
+                        issue_codes::APPROXIMATE_LINEAGE,
+                        format!(
+                            "dbt model '{model_name}' has a dynamic or unsupported `materialized` value; defaulting to table"
+                        ),
+                    )
+                    .with_statement(index),
+                );
             }
         }
     }

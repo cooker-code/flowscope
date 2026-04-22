@@ -922,9 +922,7 @@ fn dbt_snapshot_block_content_preserved() {
 //   - marts: customers, orders, daily_revenue
 
 #[cfg(feature = "templating")]
-use flowscope_core::{
-    ColumnSchema, EdgeType, FileSource, ResolutionSource, SchemaMetadata, SchemaTable,
-};
+use flowscope_core::{ColumnSchema, EdgeType, FileSource, SchemaMetadata, SchemaTable};
 
 /// Helper to run multi-file dbt analysis.
 #[cfg(feature = "templating")]
@@ -1829,6 +1827,66 @@ SELECT 1 AS id
 
 #[test]
 #[cfg(feature = "templating")]
+fn dbt_ephemeral_models_surface_as_cte_nodes_instead_of_persistent_relations() {
+    let consumer = "SELECT * FROM {{ ref('ephemeral_orders') }}";
+    let producer = r#"
+{{ config(materialized='ephemeral') }}
+SELECT 1 AS id
+"#;
+
+    let result = analyze_dbt_files(vec![
+        FileSource {
+            name: "models/consumer.sql".to_string(),
+            content: consumer.to_string(),
+        },
+        FileSource {
+            name: "models/ephemeral_orders.sql".to_string(),
+            content: producer.to_string(),
+        },
+    ]);
+
+    let ephemeral_nodes: Vec<_> = result
+        .nodes
+        .iter()
+        .filter(|node| {
+            node.canonical_name
+                .as_ref()
+                .map(|canonical| canonical.name.as_str() == "ephemeral_orders")
+                .unwrap_or(false)
+        })
+        .collect();
+
+    assert_eq!(
+        ephemeral_nodes.len(),
+        1,
+        "ephemeral dbt models should collapse producer and consumer refs onto one node"
+    );
+
+    let ephemeral_node = ephemeral_nodes[0];
+    assert_eq!(
+        ephemeral_node.node_type,
+        NodeType::Cte,
+        "ephemeral dbt models should be represented as CTE-like nodes, not persisted relations"
+    );
+    assert!(
+        ephemeral_node.statement_ids.contains(&0) && ephemeral_node.statement_ids.contains(&1),
+        "the shared ephemeral node should be referenced by both the consumer and producer"
+    );
+    assert!(
+        result.nodes.iter().all(|node| {
+            !(matches!(node.node_type, NodeType::Table | NodeType::View)
+                && node
+                    .canonical_name
+                    .as_ref()
+                    .map(|canonical| canonical.name.as_str() == "ephemeral_orders")
+                    .unwrap_or(false))
+        }),
+        "ephemeral dbt models must not surface as persisted table/view nodes"
+    );
+}
+
+#[test]
+#[cfg(feature = "templating")]
 fn dbt_view_model_unifies_with_consumer_even_when_consumer_is_analyzed_first() {
     let consumer = "SELECT * FROM {{ ref('orders_view') }}";
     let producer = r#"
@@ -1947,7 +2005,6 @@ fn dbt_forward_ref_to_model_does_not_remain_unresolved() {
         .unwrap_or(false);
 
     assert_eq!(producer.resolution_source, None);
-    assert_ne!(producer.resolution_source, Some(ResolutionSource::Unknown));
     assert!(
         !has_placeholder,
         "producer node should not retain unresolved placeholder metadata once its model file is known"
@@ -2005,6 +2062,61 @@ fn dbt_merged_model_node_keeps_producer_occurrence_metadata() {
             .iter()
             .any(|value| value.as_str() == Some("models/fct_constants.sql")),
         "consumer ref occurrences should still be retained on the merged node"
+    );
+}
+
+#[test]
+#[cfg(feature = "templating")]
+fn dbt_consumer_first_node_marks_producer_definition_occurrence() {
+    let consumer = "SELECT * FROM {{ ref('stg_constants') }}";
+    let producer = "SELECT 1 AS id";
+
+    let result = analyze_dbt_files(vec![
+        FileSource {
+            name: "models/fct_constants.sql".to_string(),
+            content: consumer.to_string(),
+        },
+        FileSource {
+            name: "models/stg_constants.sql".to_string(),
+            content: producer.to_string(),
+        },
+    ]);
+
+    let node = result
+        .nodes
+        .iter()
+        .find(|node| {
+            node.node_type.is_table_like()
+                && node
+                    .canonical_name
+                    .as_ref()
+                    .map(|canonical| canonical.name.as_str() == "stg_constants")
+                    .unwrap_or(false)
+        })
+        .expect("merged stg_constants node should exist");
+
+    let occurrence_source_names = node
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("occurrenceSourceNames"))
+        .and_then(serde_json::Value::as_array)
+        .expect("merged node should record occurrence source names");
+    let definition_source_names = node
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("definitionOccurrenceSourceNames"))
+        .and_then(serde_json::Value::as_array)
+        .expect("merged node should record producer-definition occurrences");
+
+    assert_eq!(
+        occurrence_source_names.first().and_then(serde_json::Value::as_str),
+        Some("models/fct_constants.sql"),
+        "raw occurrence order should still reflect analysis/file order when the consumer appears first"
+    );
+    assert_eq!(
+        definition_source_names.first().and_then(serde_json::Value::as_str),
+        Some("models/stg_constants.sql"),
+        "producer-definition metadata should identify the model file even when a consumer was analyzed first"
     );
 }
 

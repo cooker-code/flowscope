@@ -87,6 +87,21 @@ pub(crate) struct CrossStatementTracker {
     /// references resolved earlier in the workload still get the canonical
     /// `view_*` identity and merge with the later producer sink.
     pub(crate) declared_views: HashSet<String>,
+    /// Canonical names that are known to materialize as physical tables even
+    /// before the producing statement is analyzed.
+    ///
+    /// Populated alongside [`declared_views`] during pre-collection so that
+    /// forward `ref(...)` consumers resolve to a known relation instead of
+    /// emitting a false `UNRESOLVED_REFERENCE` warning. The producer's
+    /// statement index is still assigned later by the main analysis pass via
+    /// [`record_produced`].
+    pub(crate) declared_tables: HashSet<String>,
+    /// Canonical names that are known to materialize as dbt ephemeral models.
+    ///
+    /// Ephemeral models behave like cross-file CTEs rather than persisted
+    /// relations, so references to them should reuse a canonical `cte_*`
+    /// identity instead of fabricating a table/view node.
+    pub(crate) declared_ephemerals: HashSet<String>,
     /// Maps table canonical name -> list of statement indices that consume it.
     ///
     /// A single table can be consumed by multiple statements.
@@ -108,6 +123,8 @@ impl CrossStatementTracker {
             produced_tables: HashMap::new(),
             produced_views: HashSet::new(),
             declared_views: HashSet::new(),
+            declared_tables: HashSet::new(),
+            declared_ephemerals: HashSet::new(),
             consumed_tables: HashMap::new(),
             all_relations: HashSet::new(),
             all_ctes: HashSet::new(),
@@ -134,11 +151,44 @@ impl CrossStatementTracker {
         self.record_produced(canonical, statement_index);
     }
 
+    /// Records that a dbt model is known to materialize as `ephemeral`.
+    ///
+    /// Ephemeral models are inlined into downstream SQL rather than persisted
+    /// as relations, so we model them with a canonical CTE identity instead of
+    /// registering them as produced tables/views.
+    pub(crate) fn declare_ephemeral(&mut self, canonical: &str) {
+        self.declared_ephemerals.insert(canonical.to_string());
+        self.all_ctes.insert(canonical.to_string());
+    }
+
     /// Records that a relation is known to materialize as a view before the
     /// producer statement is analyzed.
-    #[cfg(test)]
+    ///
+    /// Used by precollection passes (e.g. dbt models) to fix a relation's
+    /// identity up front so earlier consumer references resolve to the same
+    /// canonical `view_*` id as the later producer. This intentionally does
+    /// **not** record a producer statement index — that still happens in the
+    /// main analysis pass via `record_view_produced` / `record_produced`.
     pub(crate) fn declare_view(&mut self, canonical: &str) {
         self.declared_views.insert(canonical.to_string());
+        self.declared_tables.remove(canonical);
+        self.all_relations.insert(canonical.to_string());
+    }
+
+    /// Records that a relation is known to materialize as a physical table
+    /// before the producer statement is analyzed.
+    ///
+    /// Mirrors [`declare_view`] for the table case: consumer references can
+    /// resolve to a known relation even when their statement runs before the
+    /// producer's. The producer's statement index is still set later by the
+    /// main analysis pass via [`record_produced`].
+    pub(crate) fn declare_table(&mut self, canonical: &str) {
+        // If the caller previously declared this name as a view, leave the
+        // view declaration in place — view is strictly more specific and the
+        // identity (`view_*` id) must win.
+        if !self.declared_views.contains(canonical) {
+            self.declared_tables.insert(canonical.to_string());
+        }
         self.all_relations.insert(canonical.to_string());
     }
 
@@ -171,12 +221,29 @@ impl CrossStatementTracker {
         self.produced_views.contains(canonical) || self.declared_views.contains(canonical)
     }
 
+    fn is_ephemeral_relation(&self, canonical: &str) -> bool {
+        self.declared_ephemerals.contains(canonical)
+    }
+
     /// Checks if a table was produced by an earlier statement.
     ///
     /// Used to determine if a table reference is to a locally-created table
     /// (as opposed to an external table from imported schema).
     pub(crate) fn was_produced(&self, canonical: &str) -> bool {
         self.produced_tables.contains_key(canonical)
+    }
+
+    /// Checks if a canonical name has been pre-declared (by a pass like
+    /// precollection) but not yet formally produced by its statement.
+    ///
+    /// This is the resolver's signal that "forward references to this
+    /// relation are expected — the producer will run later." Separate from
+    /// [`was_produced`] so callers that actually need a producer statement
+    /// index (e.g. cross-statement edge generation) stay strict.
+    pub(crate) fn is_declared(&self, canonical: &str) -> bool {
+        self.declared_views.contains(canonical)
+            || self.declared_tables.contains(canonical)
+            || self.declared_ephemerals.contains(canonical)
     }
 
     /// Gets the statement index that produced a table, if any.
@@ -193,14 +260,20 @@ impl CrossStatementTracker {
         self.produced_tables.remove(canonical);
         self.produced_views.remove(canonical);
         self.declared_views.remove(canonical);
+        self.declared_tables.remove(canonical);
+        self.declared_ephemerals.remove(canonical);
     }
 
-    /// Returns the correct node ID and type for a relation (view vs table).
+    /// Returns the correct node ID and type for a relation-like model sink.
     ///
-    /// Views get IDs prefixed with "view_", tables get "table_".
-    /// This ensures consistent node identification across the lineage graph.
+    /// Views get IDs prefixed with `view_`, tables with `table_`, and dbt
+    /// ephemeral models with `cte_`. This ensures consistent node
+    /// identification across the lineage graph without inventing persisted
+    /// relations for ephemeral models.
     pub(crate) fn relation_identity(&self, canonical: &str) -> (Arc<str>, NodeType) {
-        if self.is_view_relation(canonical) {
+        if self.is_ephemeral_relation(canonical) {
+            (generate_node_id("cte", canonical), NodeType::Cte)
+        } else if self.is_view_relation(canonical) {
             (generate_node_id("view", canonical), NodeType::View)
         } else {
             (generate_node_id("table", canonical), NodeType::Table)
@@ -236,7 +309,9 @@ impl CrossStatementTracker {
         }
 
         let instance_key = format!("{canonical}::{alias}::scope_{scope_id}");
-        if self.is_view_relation(canonical) {
+        if self.is_ephemeral_relation(canonical) {
+            (generate_node_id("cte", &instance_key), NodeType::Cte)
+        } else if self.is_view_relation(canonical) {
             (generate_node_id("view", &instance_key), NodeType::View)
         } else {
             (generate_node_id("table", &instance_key), NodeType::Table)
@@ -360,6 +435,17 @@ mod tests {
     }
 
     #[test]
+    fn test_declared_ephemeral_uses_cte_identity_before_producer_runs() {
+        let mut tracker = CrossStatementTracker::new();
+
+        tracker.declare_ephemeral("models.future_ephemeral");
+
+        let (node_id, node_type) = tracker.relation_identity("models.future_ephemeral");
+        assert!(node_id.starts_with("cte_"));
+        assert_eq!(node_type, NodeType::Cte);
+    }
+
+    #[test]
     fn test_cross_statement_edges() {
         let mut tracker = CrossStatementTracker::new();
 
@@ -475,6 +561,7 @@ mod tests {
         assert!(tracker.consumed_tables.is_empty());
         assert!(tracker.produced_views.is_empty());
         assert!(tracker.declared_views.is_empty());
+        assert!(tracker.declared_ephemerals.is_empty());
     }
 
     #[test]

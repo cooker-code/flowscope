@@ -13,11 +13,27 @@ function isRelationNode(node: Node): node is RelationNode {
 }
 
 /**
- * A column owned by a relation node is a statement-local projection when it
- * either has at least one non-ownership incoming edge (fed by intra-statement
- * flows) or has no non-ownership edges at all (e.g., `SELECT 1 AS id`).
- * Source-table columns are excluded because they only carry outgoing flow
- * edges — they feed the projection rather than being produced by it.
+ * True when a relation-owned column looks like a statement-local projection
+ * (a "written" column of this statement) rather than a source-table column
+ * that merely feeds one.
+ *
+ * Decision rule, applied to a single column id:
+ *
+ *   - `incoming > 0`                       → projection. At least one
+ *     non-ownership edge lands on it, which only happens for columns that
+ *     receive data within this statement (e.g., `sink.col` being filled from
+ *     a source column).
+ *   - `incoming === 0 && outgoing === 0`   → projection. No flow touches it
+ *     in either direction, which matches constant projections like
+ *     `SELECT 1 AS id` and dbt bare-SELECT model outputs whose column
+ *     lineage hasn't produced non-ownership edges.
+ *   - `incoming === 0 && outgoing > 0`     → NOT a projection. A column with
+ *     only outgoing flow edges is a source-table column feeding a downstream
+ *     projection; marking it as "created" would falsely attribute the source
+ *     table as the statement's written relation.
+ *
+ * "Non-ownership" means edges whose type is not `ownership`, i.e. data_flow,
+ * derivation, join_dependency, or cross_statement.
  */
 function isCreatedProjectionColumn(
   columnId: string,
@@ -63,18 +79,31 @@ const DEFAULT_STATEMENT_SCOPE = 'statement:0';
 const STATEMENT_SCOPE_METADATA_KEY = 'statementScope';
 
 /**
- * Returns the node ids for relations created by a statement (e.g. CREATE TABLE/VIEW).
- * For CREATE statements we prefer nodes that receive data_flow edges; when lineage
- * does not include explicit flows (simple CREATE TABLE), we fall back to the sole
- * relation node or one that matches the statement type. dbt bare-SELECT model sinks
- * are also treated as created relations when a table/view owns statement-local
- * projection columns. We identify those columns from the statement's edge shape
- * instead of `qualifiedName` because flattened column nodes may inherit a
- * qualified name from another statement after producer/consumer merging.
+ * Returns the node ids of relations written by a statement.
  *
- * Operates on a per-statement view of the flat `AnalyzeResult`: pass the statement
- * type together with the nodes and edges that participate in that statement
- * (see `nodesInStatement` / `edgesInStatement`).
+ * "Written" here is broader than `CREATE TABLE` / `CREATE VIEW`: the function
+ * also flags dbt bare-SELECT model sinks (whose lineage shape is a relation
+ * owning statement-local projection columns, with no `CREATE_*` statement
+ * type) and any DML that surfaces as a relation receiving projection columns.
+ * If a consumer only cares about strict CREATE semantics, it must additionally
+ * check `statementType`.
+ *
+ * Algorithm:
+ *   1. Scan ownership edges. Any relation that owns a column classified by
+ *      {@link isCreatedProjectionColumn} is treated as written by this
+ *      statement. This picks up dbt model sinks and CREATE TABLE AS SELECT
+ *      alike, and is robust to column-node merging: projection columns are
+ *      identified by edge shape rather than by `qualifiedName`, which may be
+ *      inherited from another statement after flattening.
+ *   2. Scan data_flow edges into relation nodes. This captures the legacy
+ *      CREATE path where the sink is identified only by an incoming data flow.
+ *   3. If neither path produced a result and the statement is `CREATE_*`,
+ *      fall back to a sole relation node or one matching the statement's
+ *      target type (`table` for CREATE_TABLE*, `view` for CREATE_VIEW).
+ *
+ * Operates on a per-statement view of the flat `AnalyzeResult`: pass the
+ * statement type together with the nodes and edges that participate in that
+ * statement (see `nodesInStatement` / `edgesInStatement`).
  */
 export function getCreatedRelationNodeIds(
   statementType: string,
