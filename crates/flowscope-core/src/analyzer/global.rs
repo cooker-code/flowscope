@@ -16,9 +16,13 @@ use tracing::debug;
 const OCCURRENCE_SPANS_METADATA_KEY: &str = "occurrenceSpans";
 const OCCURRENCE_STATEMENT_IDS_METADATA_KEY: &str = "occurrenceStatementIds";
 const OCCURRENCE_SOURCE_NAMES_METADATA_KEY: &str = "occurrenceSourceNames";
+const DEFINITION_OCCURRENCE_SPANS_METADATA_KEY: &str = "definitionOccurrenceSpans";
+const DEFINITION_OCCURRENCE_STATEMENT_IDS_METADATA_KEY: &str = "definitionOccurrenceStatementIds";
+const DEFINITION_OCCURRENCE_SOURCE_NAMES_METADATA_KEY: &str = "definitionOccurrenceSourceNames";
 const BODY_SPANS_METADATA_KEY: &str = "bodySpans";
 const BODY_STATEMENT_IDS_METADATA_KEY: &str = "bodyStatementIds";
 const BODY_SOURCE_NAMES_METADATA_KEY: &str = "bodySourceNames";
+const DEFINITION_OCCURRENCE_FLAG_METADATA_KEY: &str = "definitionOccurrence";
 
 impl<'a> Analyzer<'a> {
     pub(super) fn build_result(&self) -> crate::AnalyzeResult {
@@ -197,7 +201,8 @@ impl<'a> Analyzer<'a> {
         statement_index: usize,
         source_name: Option<&str>,
     ) {
-        for node in lineage_nodes {
+        for mut node in lineage_nodes {
+            let has_definition_occurrence = strip_definition_occurrence_flag(&mut node);
             let canonical = node
                 .qualified_name
                 .clone()
@@ -211,7 +216,13 @@ impl<'a> Analyzer<'a> {
 
             match state.flat_nodes.entry(global_id.clone()) {
                 std::collections::hash_map::Entry::Occupied(mut e) => {
-                    merge_node_into(e.get_mut(), node, statement_index, source_name);
+                    merge_node_into(
+                        e.get_mut(),
+                        node,
+                        statement_index,
+                        source_name,
+                        has_definition_occurrence,
+                    );
                 }
                 std::collections::hash_map::Entry::Vacant(slot) => {
                     let mut initial = Node {
@@ -224,6 +235,9 @@ impl<'a> Analyzer<'a> {
                     record_statement_aggregation(&mut initial, statement_index);
                     record_occurrences(&mut initial, statement_index, source_name);
                     record_body_span(&mut initial, statement_index, source_name);
+                    if has_definition_occurrence {
+                        record_definition_occurrences(&mut initial, statement_index, source_name);
+                    }
                     // name_spans / filters / resolution_source / aggregation
                     // all travel from the source node via the spread above.
                     normalize_name_spans(&mut initial);
@@ -553,12 +567,16 @@ fn merge_node_into(
     incoming: Node,
     statement_index: usize,
     source_name: Option<&str>,
+    has_definition_occurrence: bool,
 ) {
     let incoming_aggregation = incoming.aggregation.clone();
     record_statement_filters_from_slice(existing, statement_index, &incoming.filters);
     record_statement_aggregation_from_option(existing, statement_index, incoming_aggregation);
     record_occurrences_from_node(existing, &incoming, statement_index, source_name);
     record_body_span_from_node(existing, &incoming, statement_index, source_name);
+    if has_definition_occurrence {
+        record_definition_occurrences_from_node(existing, &incoming, statement_index, source_name);
+    }
 
     if !existing.statement_ids.contains(&statement_index) {
         existing.statement_ids.push(statement_index);
@@ -625,6 +643,15 @@ fn record_occurrences(node: &mut Node, statement_index: usize, source_name: Opti
     record_occurrences_from_node(node, &occurrence_source, statement_index, source_name);
 }
 
+fn record_definition_occurrences(
+    node: &mut Node,
+    statement_index: usize,
+    source_name: Option<&str>,
+) {
+    let occurrence_source = node.clone();
+    record_definition_occurrences_from_node(node, &occurrence_source, statement_index, source_name);
+}
+
 fn record_occurrences_from_node(
     node: &mut Node,
     occurrence_source: &Node,
@@ -639,41 +666,95 @@ fn record_occurrences_from_node(
     );
 }
 
+fn record_definition_occurrences_from_node(
+    node: &mut Node,
+    occurrence_source: &Node,
+    statement_index: usize,
+    source_name: Option<&str>,
+) {
+    append_occurrence_records_with_keys(
+        node,
+        &occurrence_source.all_name_spans(),
+        statement_index,
+        source_name,
+        DEFINITION_OCCURRENCE_SPANS_METADATA_KEY,
+        DEFINITION_OCCURRENCE_STATEMENT_IDS_METADATA_KEY,
+        DEFINITION_OCCURRENCE_SOURCE_NAMES_METADATA_KEY,
+    );
+}
+
 fn append_occurrence_records(
     node: &mut Node,
     spans: &[Span],
     statement_index: usize,
     source_name: Option<&str>,
 ) {
+    append_occurrence_records_with_keys(
+        node,
+        spans,
+        statement_index,
+        source_name,
+        OCCURRENCE_SPANS_METADATA_KEY,
+        OCCURRENCE_STATEMENT_IDS_METADATA_KEY,
+        OCCURRENCE_SOURCE_NAMES_METADATA_KEY,
+    );
+}
+
+fn append_occurrence_records_with_keys(
+    node: &mut Node,
+    spans: &[Span],
+    statement_index: usize,
+    source_name: Option<&str>,
+    spans_key: &str,
+    statement_ids_key: &str,
+    source_names_key: &str,
+) {
     if spans.is_empty() {
         return;
     }
 
     let metadata = node.metadata.get_or_insert_with(HashMap::new);
-    ensure_array(metadata, OCCURRENCE_SPANS_METADATA_KEY);
-    ensure_array(metadata, OCCURRENCE_STATEMENT_IDS_METADATA_KEY);
-    ensure_array(metadata, OCCURRENCE_SOURCE_NAMES_METADATA_KEY);
+    ensure_array(metadata, spans_key);
+    ensure_array(metadata, statement_ids_key);
+    ensure_array(metadata, source_names_key);
 
     for span in spans {
         append_to_array(
             metadata,
-            OCCURRENCE_SPANS_METADATA_KEY,
+            spans_key,
             serde_json::to_value(span).unwrap_or(Value::Null),
         );
         append_to_array(
             metadata,
-            OCCURRENCE_STATEMENT_IDS_METADATA_KEY,
+            statement_ids_key,
             Value::from(statement_index as u64),
         );
         append_to_array(
             metadata,
-            OCCURRENCE_SOURCE_NAMES_METADATA_KEY,
+            source_names_key,
             match source_name {
                 Some(value) => Value::String(value.to_string()),
                 None => Value::Null,
             },
         );
     }
+}
+
+fn strip_definition_occurrence_flag(node: &mut Node) -> bool {
+    let Some(metadata) = node.metadata.as_mut() else {
+        return false;
+    };
+
+    let is_definition = metadata
+        .remove(DEFINITION_OCCURRENCE_FLAG_METADATA_KEY)
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+
+    if metadata.is_empty() {
+        node.metadata = None;
+    }
+
+    is_definition
 }
 
 fn record_body_span(node: &mut Node, statement_index: usize, source_name: Option<&str>) {

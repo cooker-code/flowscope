@@ -3,6 +3,8 @@ use crate::types::{Edge, FilterClauseType, FilterPredicate, JoinType, Node, Node
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+pub(crate) const DBT_MODEL_SINK_METADATA_KEY: &str = "dbtModelSink";
+
 /// Tracks a SELECT * that couldn't be expanded due to missing schema.
 ///
 /// When a wildcard is encountered without schema metadata to resolve it,
@@ -477,6 +479,10 @@ impl StatementContext {
         let label: Arc<str> = Arc::from(model_name);
         let mut metadata = HashMap::new();
         metadata.insert("definitionOccurrence".to_string(), serde_json::json!(true));
+        metadata.insert(
+            DBT_MODEL_SINK_METADATA_KEY.to_string(),
+            serde_json::json!(true),
+        );
         let sink_node = Node {
             id: canonical_id.clone(),
             node_type,

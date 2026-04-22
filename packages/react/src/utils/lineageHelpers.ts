@@ -2,14 +2,19 @@ import type { Node, Edge, AggregationInfo } from '@pondpilot/flowscope-core';
 import { JOIN_TYPE_LABELS } from '../constants';
 
 const CREATE_STATEMENT_TYPES = new Set(['CREATE_TABLE', 'CREATE_TABLE_AS', 'CREATE_VIEW']);
+const DBT_MODEL_SINK_METADATA_KEY = 'dbtModelSink';
 
 /** Node type constant for output nodes. */
 export const OUTPUT_NODE_TYPE = 'output' as Node['type'];
 
-type RelationNode = Node & { type: 'table' | 'view' };
+type ScriptRelationNode = Node & { type: 'table' | 'view' | 'cte' };
 
-function isRelationNode(node: Node): node is RelationNode {
-  return node.type === 'table' || node.type === 'view';
+function isDbtEphemeralModelSink(node: Node): node is Node & { type: 'cte' } {
+  return node.type === 'cte' && node.metadata?.[DBT_MODEL_SINK_METADATA_KEY] === true;
+}
+
+export function isScriptRelationNode(node: Node): node is ScriptRelationNode {
+  return node.type === 'table' || node.type === 'view' || isDbtEphemeralModelSink(node);
 }
 
 /**
@@ -96,7 +101,9 @@ const STATEMENT_SCOPE_METADATA_KEY = 'statementScope';
  * "Written" here is broader than `CREATE TABLE` / `CREATE VIEW`: the function
  * also flags dbt bare-SELECT model sinks (whose lineage shape is a relation
  * owning statement-local projection columns, with no `CREATE_*` statement
- * type) and any DML that surfaces as a relation receiving projection columns.
+ * type), including dbt `materialized='ephemeral'` sinks that surface as
+ * metadata-marked `cte` nodes, and any DML that surfaces as a relation
+ * receiving projection columns.
  * If a consumer only cares about strict CREATE semantics, it must additionally
  * check `statementType`.
  *
@@ -122,7 +129,7 @@ export function getCreatedRelationNodeIds(
   nodes: Node[],
   edges: Edge[]
 ): Set<string> {
-  const relationNodes = nodes.filter(isRelationNode);
+  const relationNodes = nodes.filter(isScriptRelationNode);
   const relationNodeIds = new Set(relationNodes.map((n) => n.id));
   const columnNodeIds = new Set(nodes.filter((n) => n.type === 'column').map((node) => node.id));
   const incomingNonOwnershipCounts = new Map<string, number>();

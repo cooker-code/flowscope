@@ -3,6 +3,7 @@
 //! This module provides functions to transform lineage graphs after analysis,
 //! such as filtering out certain node types while preserving connectivity.
 
+use super::context::DBT_MODEL_SINK_METADATA_KEY;
 use crate::types::{Edge, EdgeType, NodeType, StatementLineage};
 use std::collections::{HashMap, HashSet};
 
@@ -22,7 +23,14 @@ pub fn filter_cte_nodes(lineage: &mut StatementLineage) {
     let mut removable_ids: HashSet<String> = lineage
         .nodes
         .iter()
-        .filter(|n| n.node_type == NodeType::Cte)
+        .filter(|n| {
+            n.node_type == NodeType::Cte
+                && n.metadata
+                    .as_ref()
+                    .and_then(|metadata| metadata.get(DBT_MODEL_SINK_METADATA_KEY))
+                    .and_then(serde_json::Value::as_bool)
+                    != Some(true)
+        })
         .map(|n| n.id.as_ref().to_string())
         .collect();
 

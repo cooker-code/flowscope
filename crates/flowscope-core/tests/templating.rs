@@ -922,7 +922,9 @@ fn dbt_snapshot_block_content_preserved() {
 //   - marts: customers, orders, daily_revenue
 
 #[cfg(feature = "templating")]
-use flowscope_core::{ColumnSchema, EdgeType, FileSource, SchemaMetadata, SchemaTable};
+use flowscope_core::{
+    AnalysisOptions, ColumnSchema, EdgeType, FileSource, SchemaMetadata, SchemaTable,
+};
 
 /// Helper to run multi-file dbt analysis.
 #[cfg(feature = "templating")]
@@ -1882,6 +1884,56 @@ SELECT 1 AS id
                     .unwrap_or(false))
         }),
         "ephemeral dbt models must not surface as persisted table/view nodes"
+    );
+}
+
+#[test]
+#[cfg(feature = "templating")]
+fn hide_ctes_keeps_dbt_ephemeral_model_sinks() {
+    let request = AnalyzeRequest {
+        sql: String::new(),
+        files: Some(vec![
+            FileSource {
+                name: "models/consumer.sql".to_string(),
+                content: "WITH local_cte AS (SELECT 1 AS id) SELECT * FROM local_cte CROSS JOIN {{ ref('ephemeral_orders') }}".to_string(),
+            },
+            FileSource {
+                name: "models/ephemeral_orders.sql".to_string(),
+                content: "{{ config(materialized='ephemeral') }} SELECT 1 AS id".to_string(),
+            },
+        ]),
+        dialect: Dialect::Postgres,
+        source_name: None,
+        options: Some(AnalysisOptions {
+            hide_ctes: Some(true),
+            ..AnalysisOptions::default()
+        }),
+        schema: None,
+        template_config: Some(TemplateConfig {
+            mode: TemplateMode::Dbt,
+            context: HashMap::new(),
+        }),
+    };
+
+    let result = analyze(&request);
+
+    assert!(
+        result.nodes.iter().any(|node| {
+            node.node_type == NodeType::Cte
+                && node
+                    .canonical_name
+                    .as_ref()
+                    .map(|canonical| canonical.name.as_str() == "ephemeral_orders")
+                    .unwrap_or(false)
+        }),
+        "hide_ctes should preserve dbt ephemeral model sinks in the global graph"
+    );
+    assert!(
+        result
+            .nodes
+            .iter()
+            .all(|node| node.label.as_ref() != "local_cte"),
+        "hide_ctes should still remove statement-local CTEs"
     );
 }
 

@@ -1438,4 +1438,57 @@ describe('graphBuilders DML handling', () => {
       )
     ).toBeUndefined();
   });
+
+  it('includes dbt ephemeral model sinks as written relations in script graph mode', () => {
+    const statements: TestStatement[] = [
+      {
+        statementIndex: 0,
+        statementType: 'SELECT',
+        sourceName: 'models/ephemeral_constants.sql',
+        joinCount: 0,
+        complexityScore: 1,
+        nodes: [
+          {
+            id: 'cte:ephemeral_constants',
+            type: 'cte',
+            label: 'ephemeral_constants',
+            qualifiedName: 'analytics.ephemeral_constants',
+            metadata: { dbtModelSink: true },
+          },
+          {
+            id: 'column:ephemeral_constants.id',
+            type: 'column',
+            label: 'id',
+            qualifiedName: 'analytics.ephemeral_constants.id',
+          },
+        ],
+        edges: [
+          {
+            id: 'own:ephemeral_constants.id',
+            from: 'cte:ephemeral_constants',
+            to: 'column:ephemeral_constants.id',
+            type: 'ownership',
+          },
+        ],
+      },
+    ];
+
+    const { nodes, edges } = buildScriptLevelGraph(toResult(statements), null, '', true);
+
+    expect(nodes.find((node) => node.id === 'table:analytics.ephemeral_constants')).toBeDefined();
+    expect(
+      edges.find(
+        (edge) =>
+          edge.source === 'script:models/ephemeral_constants.sql' &&
+          edge.target === 'table:analytics.ephemeral_constants'
+      )
+    ).toBeDefined();
+    expect(
+      edges.find(
+        (edge) =>
+          edge.source === 'table:analytics.ephemeral_constants' &&
+          edge.target === 'script:models/ephemeral_constants.sql'
+      )
+    ).toBeUndefined();
+  });
 });

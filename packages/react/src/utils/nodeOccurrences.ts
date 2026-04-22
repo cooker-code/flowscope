@@ -3,10 +3,20 @@ import type { AnalyzeResult, Node, Span, StatementMeta } from '@pondpilot/flowsc
 const OCCURRENCE_SPANS_METADATA_KEY = 'occurrenceSpans';
 const OCCURRENCE_STATEMENT_IDS_METADATA_KEY = 'occurrenceStatementIds';
 const OCCURRENCE_SOURCE_NAMES_METADATA_KEY = 'occurrenceSourceNames';
+const DEFINITION_OCCURRENCE_SPANS_METADATA_KEY = 'definitionOccurrenceSpans';
+const DEFINITION_OCCURRENCE_STATEMENT_IDS_METADATA_KEY = 'definitionOccurrenceStatementIds';
+const DEFINITION_OCCURRENCE_SOURCE_NAMES_METADATA_KEY = 'definitionOccurrenceSourceNames';
 const BODY_SPANS_METADATA_KEY = 'bodySpans';
 const BODY_STATEMENT_IDS_METADATA_KEY = 'bodyStatementIds';
 const BODY_SOURCE_NAMES_METADATA_KEY = 'bodySourceNames';
 const STATEMENT_AGGREGATIONS_METADATA_KEY = 'statementAggregations';
+
+interface OccurrenceEntry {
+  span: Span;
+  statementId: number | null;
+  sourceName: string | null;
+  isDefinition: boolean;
+}
 
 function isSpan(value: unknown): value is Span {
   return (
@@ -57,7 +67,7 @@ function getFallbackSourceName(node: Node, sourceName?: string): string | null {
   return sourceName ?? null;
 }
 
-function buildOccurrenceSpans(node: Node): Span[] {
+function getBaseOccurrenceSpans(node: Node): Span[] {
   const explicit = readSpanArray(node.metadata?.[OCCURRENCE_SPANS_METADATA_KEY]);
   if (explicit.length > 0) {
     return explicit;
@@ -68,13 +78,13 @@ function buildOccurrenceSpans(node: Node): Span[] {
   return node.span ? [node.span] : [];
 }
 
-function buildOccurrenceStatementIds(node: Node): number[] {
+function getBaseOccurrenceStatementIds(node: Node): number[] {
   const explicit = readNumberArray(node.metadata?.[OCCURRENCE_STATEMENT_IDS_METADATA_KEY]);
   if (explicit.length > 0) {
     return explicit;
   }
 
-  const occurrenceCount = buildOccurrenceSpans(node).length;
+  const occurrenceCount = getBaseOccurrenceSpans(node).length;
   if (occurrenceCount === 0) {
     return [];
   }
@@ -87,8 +97,8 @@ function buildOccurrenceStatementIds(node: Node): number[] {
   return [];
 }
 
-function buildOccurrenceSourceNames(node: Node, sourceName?: string): Array<string | null> {
-  const spanCount = buildOccurrenceSpans(node).length;
+function getBaseOccurrenceSourceNames(node: Node, sourceName?: string): Array<string | null> {
+  const spanCount = getBaseOccurrenceSpans(node).length;
   if (spanCount === 0) {
     return [];
   }
@@ -96,6 +106,68 @@ function buildOccurrenceSourceNames(node: Node, sourceName?: string): Array<stri
   const explicit = readSourceNameArray(node.metadata?.[OCCURRENCE_SOURCE_NAMES_METADATA_KEY]);
   const fallback = getFallbackSourceName(node, sourceName);
   return Array.from({ length: spanCount }, (_, index) => explicit[index] ?? fallback);
+}
+
+function buildOccurrenceEntries(node: Node, sourceName?: string): OccurrenceEntry[] {
+  const spans = getBaseOccurrenceSpans(node);
+  const statementIds = getBaseOccurrenceStatementIds(node);
+  const sourceNames = getBaseOccurrenceSourceNames(node, sourceName);
+
+  const definitionSpans = readSpanArray(node.metadata?.[DEFINITION_OCCURRENCE_SPANS_METADATA_KEY]);
+  const definitionStatementIds = readNumberArray(
+    node.metadata?.[DEFINITION_OCCURRENCE_STATEMENT_IDS_METADATA_KEY]
+  );
+  const definitionSourceNames = readSourceNameArray(
+    node.metadata?.[DEFINITION_OCCURRENCE_SOURCE_NAMES_METADATA_KEY]
+  );
+
+  const definitionKeys = new Set(
+    definitionSpans.map((span, index) =>
+      JSON.stringify({
+        start: span.start,
+        end: span.end,
+        statementId: definitionStatementIds[index] ?? null,
+        sourceName: definitionSourceNames[index] ?? null,
+      })
+    )
+  );
+
+  const entries = spans.map((span, index) => {
+    const statementId = statementIds[index] ?? null;
+    const resolvedSourceName = sourceNames[index] ?? null;
+    const key = JSON.stringify({
+      start: span.start,
+      end: span.end,
+      statementId,
+      sourceName: resolvedSourceName,
+    });
+
+    return {
+      span,
+      statementId,
+      sourceName: resolvedSourceName,
+      isDefinition: definitionKeys.has(key),
+    } satisfies OccurrenceEntry;
+  });
+
+  return entries.sort((left, right) => {
+    if (left.isDefinition !== right.isDefinition) {
+      return left.isDefinition ? -1 : 1;
+    }
+    return 0;
+  });
+}
+
+function buildOccurrenceSpans(node: Node, sourceName?: string): Span[] {
+  return buildOccurrenceEntries(node, sourceName).map((entry) => entry.span);
+}
+
+function buildOccurrenceStatementIds(node: Node, sourceName?: string): number[] {
+  return buildOccurrenceEntries(node, sourceName).map((entry) => entry.statementId ?? Number.NaN);
+}
+
+function buildOccurrenceSourceNames(node: Node, sourceName?: string): Array<string | null> {
+  return buildOccurrenceEntries(node, sourceName).map((entry) => entry.sourceName);
 }
 
 function buildBodySpans(node: Node): Span[] {
