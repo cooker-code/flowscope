@@ -532,7 +532,7 @@ impl<'a> Analyzer<'a> {
                     Issue::warning(
                         issue_codes::SCHEMA_CONFLICT,
                         format!(
-                            "Duplicate dbt model '{model_name}' defined in multiple files: first in '{existing}', then in '{source_name}'. Keeping the materialization from '{existing}'; the later file's producer statement will still claim the producer index."
+                            "Duplicate dbt model '{model_name}' defined in both '{existing}' and '{source_name}'. Node identity (table/view/ephemeral) is taken from the first definition ('{existing}'); cross-statement lineage edges still point to the last statement that produces the model."
                         ),
                     )
                     .with_statement(index),

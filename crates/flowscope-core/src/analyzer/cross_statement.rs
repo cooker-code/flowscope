@@ -184,9 +184,15 @@ impl CrossStatementTracker {
     ///
     /// Views are tracked separately to ensure correct node type in lineage graphs.
     /// This also calls `record_produced` internally.
+    ///
+    /// Upholds the declared-set disjointness invariant: if the canonical name
+    /// had been pre-declared as a table (e.g. via [`declare_table`] before an
+    /// override), the table declaration is removed so `is_declared` /
+    /// `relation_identity` don't observe the name in both sets at once.
     pub(crate) fn record_view_produced(&mut self, canonical: &str, statement_index: usize) {
         self.produced_views.insert(canonical.to_string());
         self.declared_views.insert(canonical.to_string());
+        self.declared_tables.remove(canonical);
         self.record_produced(canonical, statement_index);
     }
 
