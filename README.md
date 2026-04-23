@@ -39,7 +39,11 @@ Features:
 For scripting and CI/CD integration, install the CLI:
 
 ```bash
+# Core CLI (analysis, linting, fixing, exports)
 cargo install flowscope-cli
+
+# With the bundled local web server (see "Serve Mode" below)
+cargo install flowscope-cli --features serve
 ```
 
 Basic usage:

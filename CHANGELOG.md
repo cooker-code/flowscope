@@ -49,6 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Graph builders share output-node and edge helpers, reducing duplication between the script-level and statement-level paths
 - Span helpers are hardened against UTF-8 panics and relation span lookup is unified
 
+#### CLI (flowscope-cli)
+- **`serve` is no longer a default feature.** `cargo install flowscope-cli` now installs the core CLI (analysis, linting, fixing, exports) without the bundled local web server. Install with `cargo install flowscope-cli --features serve` for serve mode. This matches the behavior already documented in the README.
+
 ### Tests
 - Alias-shadowing coverage added for nested completion scopes
 
