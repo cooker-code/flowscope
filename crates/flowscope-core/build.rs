@@ -328,19 +328,59 @@ fn validate_dialect_coverage(
 // ============================================================================
 
 fn write_if_changed(path: &Path, content: &str) -> Result<(), Box<dyn Error>> {
+    // Run rustfmt on generated .rs files so `cargo fmt --check` doesn't
+    // fight the codegen output after every build. The generator emits
+    // single-line `match` arms that rustfmt would otherwise reformat,
+    // producing an unavoidable diff. If rustfmt isn't available or fails,
+    // fall through with the unformatted content — better than failing the
+    // build.
+    let owned_content;
+    let final_content: &str = if path.extension().and_then(|s| s.to_str()) == Some("rs") {
+        match rustfmt_source(content) {
+            Some(formatted) => {
+                owned_content = formatted;
+                &owned_content
+            }
+            None => content,
+        }
+    } else {
+        content
+    };
+
     let write_needed = match fs::read_to_string(path) {
-        Ok(existing) => existing != content,
+        Ok(existing) => existing != final_content,
         Err(err) if err.kind() == io::ErrorKind::NotFound => true,
         Err(err) => return Err(format!("Failed to read {path:?}: {err}").into()),
     };
 
     if write_needed {
-        if let Err(err) = fs::write(path, content) {
+        if let Err(err) = fs::write(path, final_content) {
             return Err(format!("Failed to write {path:?}: {err}").into());
         }
     }
 
     Ok(())
+}
+
+fn rustfmt_source(content: &str) -> Option<String> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new("rustfmt")
+        .arg("--emit=stdout")
+        .arg("--edition=2021")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+
+    child.stdin.as_mut()?.write_all(content.as_bytes()).ok()?;
+    let output = child.wait_with_output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8(output.stdout).ok()
 }
 
 fn generate_mod_rs(dir: &Path) -> Result<(), Box<dyn Error>> {
