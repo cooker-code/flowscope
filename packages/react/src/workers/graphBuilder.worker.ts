@@ -27,6 +27,7 @@ import {
   syntheticEdgeId,
   isNodeHighlighted,
   createStatementScope,
+  isScriptRelationNode,
   withStatementScope,
 } from '../utils/lineageHelpers';
 import { mergeNodesForNavigation, scopeNodeToStatement } from '../utils/nodeOccurrences';
@@ -954,7 +955,7 @@ function getScriptIO(slices: StatementSlice[]) {
         return;
       }
 
-      if (node.type === 'table' || node.type === 'view') {
+      if (isScriptRelationNode(node)) {
         const isWritten =
           slice.edges.some((e) => e.to === node.id && e.type === 'data_flow') ||
           createdRelationIds.has(node.id);
@@ -1044,7 +1045,7 @@ function buildHybridGraph(
           return;
         }
 
-        if (node.type === 'table' || node.type === 'view') {
+        if (isScriptRelationNode(node)) {
           const qName = node.qualifiedName || node.label;
           const isWritten =
             slice.edges.some((e) => e.to === node.id && e.type === 'data_flow') ||

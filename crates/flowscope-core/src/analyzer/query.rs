@@ -303,7 +303,8 @@ impl<'a> Analyzer<'a> {
             self.relation_identity(&canonical)
         };
 
-        let is_known = self.is_table_known(&canonical, resolution.matched_schema);
+        let is_known = node_type == NodeType::Cte
+            || self.is_table_known(&canonical, resolution.matched_schema);
         let resolution_source = self.determine_resolution_source(&canonical, is_known);
 
         // Create node if not already present
@@ -336,11 +337,15 @@ impl<'a> Analyzer<'a> {
     /// A table is known if any of:
     /// - `matched_schema`: Found in imported or implied schema
     /// - `produced`: Created by an earlier statement in the workload (CREATE TABLE, etc.)
+    /// - `declared`: Pre-registered by a precollection pass (e.g., a dbt model
+    ///   whose producer statement has not yet been analyzed). Forward `ref(...)`
+    ///   consumers need this so they don't misfire `UNRESOLVED_REFERENCE`.
     /// - No tables known at all: When we have zero knowledge, be permissive to avoid false warnings
     fn is_table_known(&self, canonical: &str, matched_schema: bool) -> bool {
         let produced = self.tracker.was_produced(canonical);
+        let declared = self.tracker.is_declared(canonical);
         let no_tables_known = self.schema.has_no_known_tables();
-        matched_schema || produced || no_tables_known
+        matched_schema || produced || declared || no_tables_known
     }
 
     /// Determines the resolution source for a table.

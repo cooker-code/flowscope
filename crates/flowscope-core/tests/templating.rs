@@ -26,11 +26,11 @@ fn analyze_with_template(
     analyze(&request)
 }
 
-/// Helper to check if a table with the given name exists in the result.
+/// Helper to check if a persistent relation with the given name exists in the result.
 /// Checks both the label and qualified_name fields.
 fn has_table(result: &flowscope_core::AnalyzeResult, table_name: &str) -> bool {
     result.nodes.iter().any(|node| {
-        if node.node_type != NodeType::Table {
+        if !matches!(node.node_type, NodeType::Table | NodeType::View) {
             return false;
         }
         // Check label first
@@ -922,7 +922,9 @@ fn dbt_snapshot_block_content_preserved() {
 //   - marts: customers, orders, daily_revenue
 
 #[cfg(feature = "templating")]
-use flowscope_core::{EdgeType, FileSource};
+use flowscope_core::{
+    AnalysisOptions, ColumnSchema, EdgeType, FileSource, SchemaMetadata, SchemaTable,
+};
 
 /// Helper to run multi-file dbt analysis.
 #[cfg(feature = "templating")]
@@ -1525,30 +1527,32 @@ GROUP BY customer_id
         "Should have cross-statement edges linking stg_orders to orders_summary"
     );
 
-    // The first statement's output should be labeled with the model name
+    // The first statement's sink should be materialized as the model's
+    // canonical relation node (issue #32) so it unifies with consumer
+    // references while preserving the configured relation type.
     let first_stmt = result
         .statements
         .first()
         .expect("Should have first statement");
-    let output_node = result
+    let sink_node = result
         .nodes_in_statement(first_stmt.statement_index)
-        .find(|n| n.node_type == NodeType::Output);
+        .find(|n| n.node_type.is_table_like() && n.label.as_ref() == "stg_orders");
 
     assert!(
-        output_node.is_some(),
-        "First statement should have an output node"
+        sink_node.is_some(),
+        "First statement should have a table sink for the dbt model"
     );
 
-    let output = output_node.unwrap();
+    let sink = sink_node.unwrap();
     assert_eq!(
-        output.label.as_ref(),
-        "stg_orders",
-        "Output node label should be the model name"
+        sink.node_type,
+        NodeType::View,
+        "dbt model sink should preserve the dbt materialized='view' relation type"
     );
     assert_eq!(
-        output.qualified_name.as_ref().map(|s| s.as_ref()),
+        sink.qualified_name.as_ref().map(|s| s.as_ref()),
         Some("stg_orders"),
-        "Output node qualified_name should be the model name"
+        "Model sink qualified_name should be the model name"
     );
 }
 
@@ -1611,19 +1615,28 @@ FROM scoped_data
         "dbt model-local CTEs should remain statement-local"
     );
 
-    let output_labels: Vec<_> = result
+    // Each dbt model's sink is materialized as a Table node labeled with the
+    // model name (see issue #32).
+    let sink_labels: Vec<_> = result
         .statements
         .iter()
         .filter_map(|statement| {
             result
                 .nodes_in_statement(statement.statement_index)
-                .find(|node| node.node_type == NodeType::Output)
+                .find(|node| {
+                    node.node_type.is_table_like()
+                        && node
+                            .qualified_name
+                            .as_ref()
+                            .map(|q| q.as_ref() == node.label.as_ref())
+                            .unwrap_or(false)
+                })
                 .map(|node| node.label.to_string())
         })
         .collect();
 
     assert_eq!(
-        output_labels,
+        sink_labels,
         vec!["customers".to_string(), "orders".to_string()]
     );
 }
@@ -1737,16 +1750,567 @@ fn dbt_model_name_extraction_from_path() {
         content: model.to_string(),
     }]);
 
-    let output_node = result.statements.first().and_then(|s| {
+    // The model sink is now a Table node keyed by the extracted model name
+    // (issue #32).
+    let sink_node = result.statements.first().and_then(|s| {
         result
             .nodes_in_statement(s.statement_index)
-            .find(|n| n.node_type == NodeType::Output)
+            .find(|n| n.node_type.is_table_like() && n.label.as_ref() == "stg_customers")
     });
 
-    assert!(output_node.is_some(), "Should have output node");
+    assert!(sink_node.is_some(), "Should have model sink node");
     assert_eq!(
-        output_node.unwrap().label.as_ref(),
+        sink_node.unwrap().label.as_ref(),
         "stg_customers",
         "Should extract 'stg_customers' from 'models/staging/stg_customers.sql'"
+    );
+}
+
+#[test]
+#[cfg(feature = "templating")]
+fn dbt_view_models_materialize_as_view_nodes() {
+    let model = r#"
+{{ config(materialized='view') }}
+SELECT 1 AS id
+"#;
+
+    let result = analyze_dbt_files(vec![FileSource {
+        name: "models/marts/orders_view.sql".to_string(),
+        content: model.to_string(),
+    }]);
+
+    let sink_node = result.statements.first().and_then(|statement| {
+        result
+            .nodes_in_statement(statement.statement_index)
+            .find(|node| {
+                node.label.as_ref() == "orders_view"
+                    && matches!(node.node_type, NodeType::Table | NodeType::View)
+            })
+    });
+
+    let sink_node = sink_node.expect("dbt view model should produce a sink node");
+    assert_eq!(
+        sink_node.node_type,
+        NodeType::View,
+        "dbt models configured as materialized='view' should surface as View nodes"
+    );
+}
+
+#[test]
+#[cfg(feature = "templating")]
+fn dbt_later_config_call_controls_materialization() {
+    let model = r#"
+{{ config(tags=['daily']) }}
+{{ config(materialized='view') }}
+SELECT 1 AS id
+"#;
+
+    let result = analyze_dbt_files(vec![FileSource {
+        name: "models/orders_view.sql".to_string(),
+        content: model.to_string(),
+    }]);
+
+    let sink_node = result.statements.first().and_then(|statement| {
+        result
+            .nodes_in_statement(statement.statement_index)
+            .find(|node| {
+                node.label.as_ref() == "orders_view"
+                    && matches!(node.node_type, NodeType::Table | NodeType::View)
+            })
+    });
+
+    let sink_node = sink_node.expect("dbt model should produce a sink node");
+    assert_eq!(
+        sink_node.node_type,
+        NodeType::View,
+        "a later config(materialized=...) call should control the dbt sink relation type"
+    );
+}
+
+#[test]
+#[cfg(feature = "templating")]
+fn dbt_ephemeral_models_surface_as_cte_nodes_instead_of_persistent_relations() {
+    let consumer = "SELECT * FROM {{ ref('ephemeral_orders') }}";
+    let producer = r#"
+{{ config(materialized='ephemeral') }}
+SELECT 1 AS id
+"#;
+
+    let result = analyze_dbt_files(vec![
+        FileSource {
+            name: "models/consumer.sql".to_string(),
+            content: consumer.to_string(),
+        },
+        FileSource {
+            name: "models/ephemeral_orders.sql".to_string(),
+            content: producer.to_string(),
+        },
+    ]);
+
+    let ephemeral_nodes: Vec<_> = result
+        .nodes
+        .iter()
+        .filter(|node| {
+            node.canonical_name
+                .as_ref()
+                .map(|canonical| canonical.name.as_str() == "ephemeral_orders")
+                .unwrap_or(false)
+        })
+        .collect();
+
+    assert_eq!(
+        ephemeral_nodes.len(),
+        1,
+        "ephemeral dbt models should collapse producer and consumer refs onto one node"
+    );
+
+    let ephemeral_node = ephemeral_nodes[0];
+    assert_eq!(
+        ephemeral_node.node_type,
+        NodeType::Cte,
+        "ephemeral dbt models should be represented as CTE-like nodes, not persisted relations"
+    );
+    assert!(
+        ephemeral_node.statement_ids.contains(&0) && ephemeral_node.statement_ids.contains(&1),
+        "the shared ephemeral node should be referenced by both the consumer and producer"
+    );
+    assert!(
+        result.nodes.iter().all(|node| {
+            !(matches!(node.node_type, NodeType::Table | NodeType::View)
+                && node
+                    .canonical_name
+                    .as_ref()
+                    .map(|canonical| canonical.name.as_str() == "ephemeral_orders")
+                    .unwrap_or(false))
+        }),
+        "ephemeral dbt models must not surface as persisted table/view nodes"
+    );
+}
+
+#[test]
+#[cfg(feature = "templating")]
+fn hide_ctes_keeps_dbt_ephemeral_model_sinks() {
+    let request = AnalyzeRequest {
+        sql: String::new(),
+        files: Some(vec![
+            FileSource {
+                name: "models/consumer.sql".to_string(),
+                content: "WITH local_cte AS (SELECT 1 AS id) SELECT * FROM local_cte CROSS JOIN {{ ref('ephemeral_orders') }}".to_string(),
+            },
+            FileSource {
+                name: "models/ephemeral_orders.sql".to_string(),
+                content: "{{ config(materialized='ephemeral') }} SELECT 1 AS id".to_string(),
+            },
+        ]),
+        dialect: Dialect::Postgres,
+        source_name: None,
+        options: Some(AnalysisOptions {
+            hide_ctes: Some(true),
+            ..AnalysisOptions::default()
+        }),
+        schema: None,
+        template_config: Some(TemplateConfig {
+            mode: TemplateMode::Dbt,
+            context: HashMap::new(),
+        }),
+    };
+
+    let result = analyze(&request);
+
+    assert!(
+        result.nodes.iter().any(|node| {
+            node.node_type == NodeType::Cte
+                && node
+                    .canonical_name
+                    .as_ref()
+                    .map(|canonical| canonical.name.as_str() == "ephemeral_orders")
+                    .unwrap_or(false)
+        }),
+        "hide_ctes should preserve dbt ephemeral model sinks in the global graph"
+    );
+    assert!(
+        result
+            .nodes
+            .iter()
+            .all(|node| node.label.as_ref() != "local_cte"),
+        "hide_ctes should still remove statement-local CTEs"
+    );
+}
+
+#[test]
+#[cfg(feature = "templating")]
+fn dbt_view_model_unifies_with_consumer_even_when_consumer_is_analyzed_first() {
+    let consumer = "SELECT * FROM {{ ref('orders_view') }}";
+    let producer = r#"
+{{ config(materialized='view') }}
+SELECT 1 AS id
+"#;
+
+    let result = analyze_dbt_files(vec![
+        FileSource {
+            name: "models/fct_orders.sql".to_string(),
+            content: consumer.to_string(),
+        },
+        FileSource {
+            name: "models/orders_view.sql".to_string(),
+            content: producer.to_string(),
+        },
+    ]);
+
+    let orders_view_nodes: Vec<_> = result
+        .nodes
+        .iter()
+        .filter(|node| {
+            node.node_type.is_table_like()
+                && node
+                    .canonical_name
+                    .as_ref()
+                    .map(|canonical| canonical.name.as_str() == "orders_view")
+                    .unwrap_or(false)
+        })
+        .collect();
+
+    assert_eq!(
+        orders_view_nodes.len(),
+        1,
+        "consumer and producer should collapse into one canonical orders_view node"
+    );
+    let orders_view = orders_view_nodes[0];
+    assert_eq!(
+        orders_view.node_type,
+        NodeType::View,
+        "future dbt view producers should predeclare a view identity for earlier consumers"
+    );
+    assert!(
+        orders_view.statement_ids.contains(&0) && orders_view.statement_ids.contains(&1),
+        "unified orders_view node should be referenced by both the consumer and producer"
+    );
+}
+
+#[test]
+#[cfg(feature = "templating")]
+fn dbt_forward_ref_to_model_does_not_remain_unresolved() {
+    let request = AnalyzeRequest {
+        sql: String::new(),
+        files: Some(vec![
+            FileSource {
+                name: "models/consumer.sql".to_string(),
+                content: "SELECT * FROM {{ ref('producer') }}".to_string(),
+            },
+            FileSource {
+                name: "models/producer.sql".to_string(),
+                content: "SELECT id FROM {{ source('raw', 'events') }}".to_string(),
+            },
+        ]),
+        dialect: Dialect::Postgres,
+        source_name: None,
+        options: None,
+        schema: Some(SchemaMetadata {
+            tables: vec![SchemaTable {
+                catalog: None,
+                schema: Some("raw".to_string()),
+                name: "events".to_string(),
+                columns: vec![ColumnSchema {
+                    name: "id".to_string(),
+                    data_type: Some("int".to_string()),
+                    is_primary_key: None,
+                    foreign_key: None,
+                }],
+            }],
+            ..SchemaMetadata::default()
+        }),
+        template_config: Some(TemplateConfig {
+            mode: TemplateMode::Dbt,
+            context: HashMap::new(),
+        }),
+    };
+
+    let result = analyze(&request);
+
+    assert!(
+        !result.issues.iter().any(|issue| {
+            issue.code == flowscope_core::issue_codes::UNRESOLVED_REFERENCE
+                && issue.message.contains("producer")
+        }),
+        "dbt model refs should be predeclared so forward references do not stay unresolved: {:?}",
+        result.issues
+    );
+
+    let producer = result
+        .nodes
+        .iter()
+        .find(|node| {
+            node.node_type.is_table_like()
+                && node
+                    .canonical_name
+                    .as_ref()
+                    .map(|canonical| canonical.name.as_str() == "producer")
+                    .unwrap_or(false)
+        })
+        .expect("producer node should exist");
+
+    let has_placeholder = producer
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("placeholder"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+
+    assert_eq!(producer.resolution_source, None);
+    assert!(
+        !has_placeholder,
+        "producer node should not retain unresolved placeholder metadata once its model file is known"
+    );
+}
+
+#[test]
+#[cfg(feature = "templating")]
+fn dbt_merged_model_node_keeps_producer_occurrence_metadata() {
+    let producer = "SELECT 1 AS id";
+    let consumer = "SELECT * FROM {{ ref('stg_constants') }}";
+
+    let result = analyze_dbt_files(vec![
+        FileSource {
+            name: "models/stg_constants.sql".to_string(),
+            content: producer.to_string(),
+        },
+        FileSource {
+            name: "models/fct_constants.sql".to_string(),
+            content: consumer.to_string(),
+        },
+    ]);
+
+    let node = result
+        .nodes
+        .iter()
+        .find(|node| {
+            node.node_type.is_table_like()
+                && node
+                    .canonical_name
+                    .as_ref()
+                    .map(|canonical| canonical.name.as_str() == "stg_constants")
+                    .unwrap_or(false)
+        })
+        .expect("merged stg_constants node should exist");
+
+    let occurrence_source_names = node
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("occurrenceSourceNames"))
+        .and_then(serde_json::Value::as_array)
+        .expect("merged node should record occurrence source names");
+
+    assert!(
+        node.all_name_spans().len() >= 2,
+        "merged node should keep both the producer definition span and consumer ref span"
+    );
+    assert_eq!(
+        occurrence_source_names.first().and_then(serde_json::Value::as_str),
+        Some("models/stg_constants.sql"),
+        "producer file should be the first occurrence so graph reveal navigates to the model definition"
+    );
+    assert!(
+        occurrence_source_names
+            .iter()
+            .any(|value| value.as_str() == Some("models/fct_constants.sql")),
+        "consumer ref occurrences should still be retained on the merged node"
+    );
+}
+
+#[test]
+#[cfg(feature = "templating")]
+fn dbt_consumer_first_node_marks_producer_definition_occurrence() {
+    let consumer = "SELECT * FROM {{ ref('stg_constants') }}";
+    let producer = "SELECT 1 AS id";
+
+    let result = analyze_dbt_files(vec![
+        FileSource {
+            name: "models/fct_constants.sql".to_string(),
+            content: consumer.to_string(),
+        },
+        FileSource {
+            name: "models/stg_constants.sql".to_string(),
+            content: producer.to_string(),
+        },
+    ]);
+
+    let node = result
+        .nodes
+        .iter()
+        .find(|node| {
+            node.node_type.is_table_like()
+                && node
+                    .canonical_name
+                    .as_ref()
+                    .map(|canonical| canonical.name.as_str() == "stg_constants")
+                    .unwrap_or(false)
+        })
+        .expect("merged stg_constants node should exist");
+
+    let occurrence_source_names = node
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("occurrenceSourceNames"))
+        .and_then(serde_json::Value::as_array)
+        .expect("merged node should record occurrence source names");
+    let definition_source_names = node
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("definitionOccurrenceSourceNames"))
+        .and_then(serde_json::Value::as_array)
+        .expect("merged node should record producer-definition occurrences");
+
+    assert_eq!(
+        occurrence_source_names.first().and_then(serde_json::Value::as_str),
+        Some("models/fct_constants.sql"),
+        "raw occurrence order should still reflect analysis/file order when the consumer appears first"
+    );
+    assert_eq!(
+        definition_source_names.first().and_then(serde_json::Value::as_str),
+        Some("models/stg_constants.sql"),
+        "producer-definition metadata should identify the model file even when a consumer was analyzed first"
+    );
+}
+
+#[test]
+#[cfg(feature = "templating")]
+fn dbt_chained_models_unify_producer_and_consumer_nodes() {
+    // Regression test for https://github.com/pondpilot/flowscope/issues/32.
+    //
+    // Each dbt .sql file is a model that materializes a table with the same name as
+    // the file. A downstream file references that table via `{{ ref(...) }}`. In the
+    // lineage graph the producing model and every `ref()` consumer must collapse
+    // into a single node for that table, so multi-hop chains (A -> B -> C) render
+    // as a single connected lineage rather than three disconnected fragments.
+    let stg_supplies = "select id, name, price from {{ source('raw', 'supplies') }}";
+    let int_supplies = "select id, upper(name) as name, price from {{ ref('stg_supplies') }}";
+    let fct_supplies =
+        "select id, name, price * 1.1 as price_with_tax from {{ ref('int_supplies') }}";
+
+    let result = analyze_dbt_files(vec![
+        FileSource {
+            name: "models/stg_supplies.sql".to_string(),
+            content: stg_supplies.to_string(),
+        },
+        FileSource {
+            name: "models/int_supplies.sql".to_string(),
+            content: int_supplies.to_string(),
+        },
+        FileSource {
+            name: "models/fct_supplies.sql".to_string(),
+            content: fct_supplies.to_string(),
+        },
+    ]);
+
+    assert!(
+        !result.summary.has_errors,
+        "dbt chain analysis should succeed: {:?}",
+        result.issues
+    );
+
+    // Each model name must appear as exactly one table-like node in the merged
+    // graph. Before the fix, the producer emitted an `Output` node and the
+    // consumer emitted a separate `Table` node with the same canonical name,
+    // so each model name collided into two distinct nodes.
+    for model in ["stg_supplies", "int_supplies", "fct_supplies"] {
+        let table_like_nodes: Vec<_> = result
+            .nodes
+            .iter()
+            .filter(|n| {
+                n.node_type.is_table_like()
+                    && n.canonical_name
+                        .as_ref()
+                        .map(|c| c.name.as_str() == model)
+                        .unwrap_or(false)
+            })
+            .collect();
+        assert_eq!(
+            table_like_nodes.len(),
+            1,
+            "model '{model}' should have exactly one unified table node, found {}: {:?}",
+            table_like_nodes.len(),
+            table_like_nodes
+        );
+
+        // The unified node should also not coexist with a dangling Output node
+        // labeled with the same model name.
+        let stray_output = result
+            .nodes
+            .iter()
+            .find(|n| n.node_type == NodeType::Output && n.label.as_ref() == model);
+        assert!(
+            stray_output.is_none(),
+            "model '{model}' should not have a leftover Output-typed node: {:?}",
+            stray_output
+        );
+    }
+
+    // The producer statement and the consumer statement must both reference the
+    // unified node — that's how downstream tools (mermaid export, column
+    // lineage, etc.) know A feeds B.
+    let stg_node = result
+        .nodes
+        .iter()
+        .find(|n| {
+            n.node_type.is_table_like()
+                && n.canonical_name
+                    .as_ref()
+                    .map(|c| c.name.as_str() == "stg_supplies")
+                    .unwrap_or(false)
+        })
+        .expect("stg_supplies unified node should exist");
+    assert!(
+        stg_node.statement_ids.contains(&0) && stg_node.statement_ids.contains(&1),
+        "unified stg_supplies node should be referenced by both producer (stmt 0) and \
+         consumer (stmt 1): statement_ids = {:?}",
+        stg_node.statement_ids
+    );
+
+    // A multi-hop cross-statement edge chain must exist: a cross-statement edge
+    // linking the producer of each model to its consumer.
+    let cross_edges: Vec<_> = result
+        .edges
+        .iter()
+        .filter(|e| e.edge_type == EdgeType::CrossStatement)
+        .collect();
+    // stg produced by 0 -> consumed by 1; int produced by 1 -> consumed by 2.
+    let has_stg_edge = cross_edges
+        .iter()
+        .any(|e| e.statement_ids == vec![0usize, 1usize]);
+    let has_int_edge = cross_edges
+        .iter()
+        .any(|e| e.statement_ids == vec![1usize, 2usize]);
+    assert!(
+        has_stg_edge && has_int_edge,
+        "should have cross-statement edges for stg (0->1) and int (1->2), got {:?}",
+        cross_edges
+            .iter()
+            .map(|e| &e.statement_ids)
+            .collect::<Vec<_>>()
+    );
+
+    // Table-level DataFlow edges should connect the models, matching the
+    // arrows produced by CTAS (`CREATE TABLE x AS SELECT ... FROM y`). Without
+    // these, the mermaid table view would show disconnected boxes even though
+    // the nodes unify correctly.
+    let int_node_id = result
+        .nodes
+        .iter()
+        .find(|n| {
+            n.node_type.is_table_like()
+                && n.canonical_name
+                    .as_ref()
+                    .map(|c| c.name.as_str() == "int_supplies")
+                    .unwrap_or(false)
+        })
+        .map(|n| n.id.clone())
+        .expect("int_supplies unified node should exist");
+    let has_stg_to_int = result
+        .edges
+        .iter()
+        .any(|e| e.edge_type == EdgeType::DataFlow && e.from == stg_node.id && e.to == int_node_id);
+    assert!(
+        has_stg_to_int,
+        "should have a DataFlow edge stg_supplies -> int_supplies at the table level"
     );
 }

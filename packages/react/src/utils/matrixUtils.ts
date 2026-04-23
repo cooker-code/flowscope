@@ -10,6 +10,7 @@ import {
   OUTPUT_NODE_TYPE,
   JOIN_DEPENDENCY_EDGE_TYPE,
   buildColumnOwnershipMap,
+  isScriptRelationNode,
 } from './lineageHelpers';
 import { getOccurrenceForStatement } from './nodeOccurrences';
 
@@ -181,7 +182,7 @@ export function extractScriptDependencies(result: AnalyzeResult): ScriptDependen
 
     const stmtNodes = nodesInStatement(result, stmt.statementIndex);
     const stmtEdges = edgesInStatement(result, stmt.statementIndex);
-    const tableNodes = stmtNodes.filter((n) => n.type === 'table' || n.type === 'view');
+    const tableNodes = stmtNodes.filter(isScriptRelationNode);
     const outputNodes = stmtNodes.filter((n) => n.type === OUTPUT_NODE_TYPE);
     const createdRelationIds = getCreatedRelationNodeIds(stmt.statementType, stmtNodes, stmtEdges);
 

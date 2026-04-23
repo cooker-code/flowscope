@@ -1,7 +1,9 @@
 use super::helpers::generate_output_node_id;
-use crate::types::{Edge, FilterClauseType, FilterPredicate, JoinType, Node, NodeType};
+use crate::types::{Edge, FilterClauseType, FilterPredicate, JoinType, Node, NodeType, Span};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+pub(crate) const DBT_MODEL_SINK_METADATA_KEY: &str = "dbtModelSink";
 
 /// Tracks a SELECT * that couldn't be expanded due to missing schema.
 ///
@@ -148,8 +150,16 @@ pub(crate) struct StatementContext {
     pub(crate) table_node_ids: HashMap<String, Arc<str>>,
     /// Output columns for this statement (for column lineage)
     pub(crate) output_columns: Vec<OutputColumn>,
-    /// Output node ID for SELECT statements
-    pub(crate) output_node_id: Option<Arc<str>>,
+    /// Id of this statement's sink node. Holds one of two shapes:
+    ///
+    /// - A statement-scoped `Output` node id, produced by
+    ///   [`Self::ensure_output_node_with_model`] for standalone SELECTs.
+    /// - A canonical relation id (Table/View), produced by
+    ///   [`Self::ensure_model_relation_sink`] for dbt models. Using the
+    ///   canonical id here is what lets downstream `ref(...)` consumers
+    ///   merge onto the same node, so multi-hop dbt chains render as one
+    ///   connected graph instead of per-file fragments.
+    pub(crate) sink_node_id: Option<Arc<str>>,
     /// Statement-global output columns for named CTE definitions.
     /// Scope-local alias materialization lives on [`Scope::subquery_columns`] so reused
     /// aliases do not leak across sibling branches or nested scopes.
@@ -226,7 +236,7 @@ impl StatementContext {
             current_join_info: JoinInfo::default(),
             table_node_ids: HashMap::new(),
             output_columns: Vec::new(),
-            output_node_id: None,
+            sink_node_id: None,
             aliased_subquery_columns: HashMap::new(),
             scope_stack: Vec::new(),
             next_scope_id: 0,
@@ -420,7 +430,7 @@ impl StatementContext {
     /// will use the model name as both its label and qualified_name. This
     /// enables proper cross-statement linking for dbt model references.
     pub(crate) fn ensure_output_node_with_model(&mut self, model_name: Option<&str>) -> Arc<str> {
-        if let Some(existing) = self.output_node_id.as_ref() {
+        if let Some(existing) = self.sink_node_id.as_ref() {
             return existing.clone();
         }
 
@@ -441,12 +451,64 @@ impl StatementContext {
         };
 
         self.add_node(output_node);
-        self.output_node_id = Some(node_id.clone());
+        self.sink_node_id = Some(node_id.clone());
         node_id
     }
 
-    pub(crate) fn output_node_id(&self) -> Option<&Arc<str>> {
-        self.output_node_id.as_ref()
+    /// Creates or returns the sink node for a dbt model's bare SELECT.
+    ///
+    /// Unlike `ensure_output_node_with_model`, which synthesizes a
+    /// statement-scoped `Output` node, this materializes the sink as the
+    /// canonical shared model node (`Table`, `View`, or `Cte` for ephemeral
+    /// dbt models). When another dbt model references this one via
+    /// `FROM {{ ref(...) }}`, its source node resolves to the same canonical
+    /// id, so the flattener merges producer and consumer into a single graph
+    /// node and multi-hop `A -> B -> C` chains render as one connected
+    /// lineage rather than disconnected per-file fragments.
+    pub(crate) fn ensure_model_relation_sink(
+        &mut self,
+        model_name: &str,
+        canonical_id: Arc<str>,
+        node_type: NodeType,
+        span: Option<Span>,
+    ) -> Arc<str> {
+        if let Some(existing) = self.sink_node_id.as_ref() {
+            return existing.clone();
+        }
+
+        let label: Arc<str> = Arc::from(model_name);
+        let mut metadata = HashMap::new();
+        metadata.insert("definitionOccurrence".to_string(), serde_json::json!(true));
+        metadata.insert(
+            DBT_MODEL_SINK_METADATA_KEY.to_string(),
+            serde_json::json!(true),
+        );
+        let sink_node = Node {
+            id: canonical_id.clone(),
+            node_type,
+            label: label.clone(),
+            qualified_name: Some(label),
+            span,
+            metadata: Some(metadata),
+            ..Default::default()
+        };
+
+        self.add_node(sink_node);
+        self.sink_node_id = Some(canonical_id.clone());
+        canonical_id
+    }
+
+    /// Returns the id of this statement's sink, if one has been materialized.
+    ///
+    /// The sink represents "where this statement writes". Callers must not
+    /// assume it is always a statement-scoped `Output` node — for dbt models
+    /// it is the canonical relation node (`Table` / `View` / `Cte`) created
+    /// by [`Self::ensure_model_relation_sink`], which is the same node that
+    /// downstream `ref(...)` consumers resolve to. Treat the returned id as
+    /// opaque and look up the node's `node_type` if behavior needs to branch
+    /// on the sink's kind.
+    pub(crate) fn sink_node_id(&self) -> Option<&Arc<str>> {
+        self.sink_node_id.as_ref()
     }
 
     /// Push a new scope onto the stack (entering a SELECT/subquery)

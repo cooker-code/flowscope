@@ -625,8 +625,8 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
             self.visit_table_with_joins(table_with_joins);
         }
         if self.analyzer.column_lineage_enabled {
-            let output_node = self.ctx.output_node_id().map(|node_id| node_id.to_string());
-            let target_node = self.target_node.clone().or(output_node);
+            let sink_node = self.ctx.sink_node_id().map(|node_id| node_id.to_string());
+            let target_node = self.target_node.clone().or(sink_node);
             let mut select_analyzer = SelectAnalyzer::new(self.analyzer, self.ctx, target_node);
             select_analyzer.analyze(select);
         }

@@ -39,6 +39,10 @@ use helpers::{
 };
 use input::{collect_statements, StatementInput};
 use schema_registry::SchemaRegistry;
+use statements::{
+    detect_dbt_model_materialization, extract_model_name, DbtMaterializationDetection,
+    StatementSource,
+};
 use std::collections::HashMap;
 
 // Re-export for use in other analyzer modules
@@ -314,6 +318,8 @@ impl<'a> Analyzer<'a> {
                 source_name,
                 source_sql,
                 source_range,
+                source_sql_untemplated,
+                source_range_untemplated,
                 templating_applied,
                 ..
             },
@@ -334,6 +340,11 @@ impl<'a> Analyzer<'a> {
             } else {
                 None
             };
+            let original_sql = source_sql_untemplated.as_deref().and_then(|sql| {
+                source_range_untemplated
+                    .as_ref()
+                    .and_then(|range| sql.get(range.clone()).map(str::to_string))
+            });
             self.current_statement_source = Some(StatementSourceSlice {
                 sql: source_sql,
                 range: source_range.clone(),
@@ -344,8 +355,12 @@ impl<'a> Analyzer<'a> {
                 index,
                 &statement,
                 source_name_owned,
-                source_range,
-                resolved_sql,
+                StatementSource {
+                    source_range,
+                    original_source_range: source_range_untemplated,
+                    original_sql,
+                    resolved_sql,
+                },
             );
             self.current_statement_source = None;
 
@@ -452,6 +467,10 @@ impl<'a> Analyzer<'a> {
     fn precollect_ddl(&mut self, statements: &[StatementInput]) {
         self.descriptions = self.collect_description_map(statements);
 
+        if self.is_dbt_mode() {
+            self.precollect_dbt_models(statements);
+        }
+
         for (index, stmt_input) in statements.iter().enumerate() {
             match &stmt_input.statement {
                 Statement::CreateTable(create) => {
@@ -461,6 +480,95 @@ impl<'a> Analyzer<'a> {
                     self.precollect_create_view(name);
                 }
                 _ => {}
+            }
+        }
+    }
+
+    /// Pre-registers dbt model relations so forward `ref(...)` consumers and
+    /// later producers share one canonical node identity.
+    ///
+    /// This pass only **declares type** — it does not record a producer
+    /// statement index. Producer indices are set later by the main analysis
+    /// pass via `record_view_produced` / `record_produced`. Keeping that
+    /// single source of truth for production avoids duplicating producer
+    /// state and prevents `declared_views` from drifting out of sync with
+    /// `produced_views`.
+    ///
+    /// Two other responsibilities handled here:
+    /// - Detecting duplicate model names across files and surfacing a warning
+    ///   so real project configuration errors aren't silently masked. The
+    ///   first definition's materialization wins for node identity; later
+    ///   producer statements still overwrite the producer index via the
+    ///   normal `record_produced` path, so cross-statement edges point at the
+    ///   most recently seen producer.
+    /// - Surfacing a warning when `materialized=` is present but can't be
+    ///   resolved (dynamic Jinja or adapter-specific value), so users know
+    ///   we fell back to the default node type.
+    fn precollect_dbt_models(&mut self, statements: &[StatementInput]) {
+        let mut first_source: HashMap<String, String> = HashMap::new();
+
+        for (index, stmt_input) in statements.iter().enumerate() {
+            let Statement::Query(_) = &stmt_input.statement else {
+                continue;
+            };
+
+            let Some(source_name) = stmt_input.source_name.as_deref() else {
+                continue;
+            };
+
+            let original_sql = stmt_input
+                .source_sql_untemplated
+                .as_deref()
+                .and_then(|sql| {
+                    stmt_input
+                        .source_range_untemplated
+                        .as_ref()
+                        .and_then(|range| sql.get(range.clone()))
+                });
+            let model_name = self.normalize_table_name(extract_model_name(source_name));
+
+            if let Some(existing) = first_source.get(&model_name) {
+                self.issues.push(
+                    Issue::warning(
+                        issue_codes::SCHEMA_CONFLICT,
+                        format!(
+                            "Duplicate dbt model '{model_name}' defined in both '{existing}' and '{source_name}'. Node identity (table/view/ephemeral) is taken from the first definition ('{existing}'); cross-statement lineage edges still point to the last statement that produces the model."
+                        ),
+                    )
+                    .with_statement(index),
+                );
+                continue;
+            }
+            first_source.insert(model_name.clone(), source_name.to_string());
+
+            let detection = original_sql
+                .map(detect_dbt_model_materialization)
+                .unwrap_or(DbtMaterializationDetection::NotConfigured);
+
+            match detection.node_type() {
+                Some(NodeType::View) => self.tracker.declare_view(&model_name),
+                Some(NodeType::Cte) => self.tracker.declare_ephemeral(&model_name),
+                // Table is the default in `relation_identity`, but we still
+                // need to declare it so forward `ref(...)` consumers resolve
+                // to a known relation instead of emitting
+                // `UNRESOLVED_REFERENCE` before the producer statement runs.
+                // `None` (NotConfigured / Unresolved) also defaults to table.
+                Some(NodeType::Table) | None => self.tracker.declare_table(&model_name),
+                Some(NodeType::Output | NodeType::Column) => {
+                    unreachable!("dbt materializations must map to relation-like node types")
+                }
+            }
+
+            if matches!(detection, DbtMaterializationDetection::Unresolved) {
+                self.issues.push(
+                    Issue::warning(
+                        issue_codes::APPROXIMATE_LINEAGE,
+                        format!(
+                            "dbt model '{model_name}' has a dynamic or unsupported `materialized` value; defaulting to table"
+                        ),
+                    )
+                    .with_statement(index),
+                );
             }
         }
     }

@@ -2,9 +2,65 @@ import type { Node, Edge, AggregationInfo } from '@pondpilot/flowscope-core';
 import { JOIN_TYPE_LABELS } from '../constants';
 
 const CREATE_STATEMENT_TYPES = new Set(['CREATE_TABLE', 'CREATE_TABLE_AS', 'CREATE_VIEW']);
+const DBT_MODEL_SINK_METADATA_KEY = 'dbtModelSink';
 
 /** Node type constant for output nodes. */
 export const OUTPUT_NODE_TYPE = 'output' as Node['type'];
+
+type ScriptRelationNode = Node & { type: 'table' | 'view' | 'cte' };
+
+function isDbtEphemeralModelSink(node: Node): node is Node & { type: 'cte' } {
+  return node.type === 'cte' && node.metadata?.[DBT_MODEL_SINK_METADATA_KEY] === true;
+}
+
+export function isScriptRelationNode(node: Node): node is ScriptRelationNode {
+  return node.type === 'table' || node.type === 'view' || isDbtEphemeralModelSink(node);
+}
+
+/**
+ * True when a relation-owned column looks like a statement-local projection
+ * (a "written" column of this statement) rather than a source-table column
+ * that merely feeds one.
+ *
+ * Decision rule, applied to a single column id:
+ *
+ *   - `incoming > 0`                       → projection. At least one
+ *     non-ownership edge lands on it, which only happens for columns that
+ *     receive data within this statement (e.g., `sink.col` being filled from
+ *     a source column).
+ *   - `incoming === 0 && outgoing === 0`   → projection. No flow touches it
+ *     in either direction, which matches constant projections like
+ *     `SELECT 1 AS id` and dbt bare-SELECT model outputs whose column
+ *     lineage hasn't produced non-ownership edges.
+ *   - `incoming === 0 && outgoing > 0`     → NOT a projection. A column with
+ *     only outgoing flow edges is a source-table column feeding a downstream
+ *     projection; marking it as "created" would falsely attribute the source
+ *     table as the statement's written relation.
+ *
+ * "Non-ownership" means edges whose type is not `ownership`, i.e. data_flow,
+ * derivation, join_dependency, or cross_statement.
+ *
+ * @example
+ * // `CREATE TABLE sink AS SELECT src.id FROM src` —
+ * // sink.id has one incoming data_flow from src.id (incoming=1, outgoing=0),
+ * // src.id has one outgoing data_flow and nothing incoming (incoming=0, outgoing=1).
+ * isCreatedProjectionColumn('col:sink.id', …)  // → true  (projection)
+ * isCreatedProjectionColumn('col:src.id',  …)  // → false (source column)
+ *
+ * @example
+ * // Bare dbt SELECT: `SELECT 1 AS id` with no lineage edges.
+ * // sink.id has neither incoming nor outgoing non-ownership edges.
+ * isCreatedProjectionColumn('col:sink.id', …)  // → true  (constant projection)
+ */
+function isCreatedProjectionColumn(
+  columnId: string,
+  incomingNonOwnershipCounts: Map<string, number>,
+  outgoingNonOwnershipCounts: Map<string, number>
+): boolean {
+  const incoming = incomingNonOwnershipCounts.get(columnId) ?? 0;
+  const outgoing = outgoingNonOwnershipCounts.get(columnId) ?? 0;
+  return incoming > 0 || (incoming === 0 && outgoing === 0);
+}
 
 /**
  * React Flow node id used for table/view/output relations in the hybrid
@@ -40,35 +96,76 @@ const DEFAULT_STATEMENT_SCOPE = 'statement:0';
 const STATEMENT_SCOPE_METADATA_KEY = 'statementScope';
 
 /**
- * Returns the node ids for relations created by a statement (e.g. CREATE TABLE/VIEW).
- * For CREATE statements we prefer nodes that receive data_flow edges; when lineage
- * does not include explicit flows (simple CREATE TABLE), we fall back to the sole
- * relation node or one that matches the statement type.
+ * Returns the node ids of relations written by a statement.
  *
- * Operates on a per-statement view of the flat `AnalyzeResult`: pass the statement
- * type together with the nodes and edges that participate in that statement
- * (see `nodesInStatement` / `edgesInStatement`).
+ * "Written" here is broader than `CREATE TABLE` / `CREATE VIEW`: the function
+ * also flags dbt bare-SELECT model sinks (whose lineage shape is a relation
+ * owning statement-local projection columns, with no `CREATE_*` statement
+ * type), including dbt `materialized='ephemeral'` sinks that surface as
+ * metadata-marked `cte` nodes, and any DML that surfaces as a relation
+ * receiving projection columns.
+ * If a consumer only cares about strict CREATE semantics, it must additionally
+ * check `statementType`.
+ *
+ * Algorithm:
+ *   1. Scan ownership edges. Any relation that owns a column classified by
+ *      {@link isCreatedProjectionColumn} is treated as written by this
+ *      statement. This picks up dbt model sinks and CREATE TABLE AS SELECT
+ *      alike, and is robust to column-node merging: projection columns are
+ *      identified by edge shape rather than by `qualifiedName`, which may be
+ *      inherited from another statement after flattening.
+ *   2. Scan data_flow edges into relation nodes. This captures the legacy
+ *      CREATE path where the sink is identified only by an incoming data flow.
+ *   3. If neither path produced a result and the statement is `CREATE_*`,
+ *      fall back to a sole relation node or one matching the statement's
+ *      target type (`table` for CREATE_TABLE*, `view` for CREATE_VIEW).
+ *
+ * Operates on a per-statement view of the flat `AnalyzeResult`: pass the
+ * statement type together with the nodes and edges that participate in that
+ * statement (see `nodesInStatement` / `edgesInStatement`).
  */
 export function getCreatedRelationNodeIds(
   statementType: string,
   nodes: Node[],
   edges: Edge[]
 ): Set<string> {
-  if (!CREATE_STATEMENT_TYPES.has(statementType)) {
-    return new Set();
-  }
-
-  const relationNodes = nodes.filter((n) => n.type === 'table' || n.type === 'view');
+  const relationNodes = nodes.filter(isScriptRelationNode);
   const relationNodeIds = new Set(relationNodes.map((n) => n.id));
+  const columnNodeIds = new Set(nodes.filter((n) => n.type === 'column').map((node) => node.id));
+  const incomingNonOwnershipCounts = new Map<string, number>();
+  const outgoingNonOwnershipCounts = new Map<string, number>();
+
+  for (const edge of edges) {
+    if (edge.type === 'ownership') {
+      continue;
+    }
+
+    outgoingNonOwnershipCounts.set(edge.from, (outgoingNonOwnershipCounts.get(edge.from) ?? 0) + 1);
+    incomingNonOwnershipCounts.set(edge.to, (incomingNonOwnershipCounts.get(edge.to) ?? 0) + 1);
+  }
 
   const createdNodeIds = new Set<string>();
   for (const edge of edges) {
+    if (
+      edge.type === 'ownership' &&
+      relationNodeIds.has(edge.from) &&
+      columnNodeIds.has(edge.to) &&
+      isCreatedProjectionColumn(edge.to, incomingNonOwnershipCounts, outgoingNonOwnershipCounts)
+    ) {
+      createdNodeIds.add(edge.from);
+      continue;
+    }
+
     if (edge.type === 'data_flow' && relationNodeIds.has(edge.to)) {
       createdNodeIds.add(edge.to);
     }
   }
 
   if (createdNodeIds.size > 0) {
+    return createdNodeIds;
+  }
+
+  if (!CREATE_STATEMENT_TYPES.has(statementType)) {
     return createdNodeIds;
   }
 
