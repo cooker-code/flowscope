@@ -630,15 +630,14 @@ fn find_top_level_as(inner: &str) -> Option<usize> {
                     i += 1;
                 }
             }
-            _ if depth == 0 => {
-                if is_whitespace_byte(bytes[i])
-                    && i + 3 < bytes.len()
-                    && bytes[i + 1].eq_ignore_ascii_case(&b'A')
-                    && bytes[i + 2].eq_ignore_ascii_case(&b'S')
-                    && is_whitespace_byte(bytes[i + 3])
-                {
-                    return Some(i);
-                }
+            _ if depth == 0
+                && is_whitespace_byte(bytes[i])
+                && i + 3 < bytes.len()
+                && bytes[i + 1].eq_ignore_ascii_case(&b'A')
+                && bytes[i + 2].eq_ignore_ascii_case(&b'S')
+                && is_whitespace_byte(bytes[i + 3]) =>
+            {
+                return Some(i);
             }
             _ => {}
         }

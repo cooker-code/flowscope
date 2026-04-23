@@ -208,14 +208,13 @@ fn check_binary_op_types(
         | ast::BinaryOperator::Lt
         | ast::BinaryOperator::LtEq
         | ast::BinaryOperator::Gt
-        | ast::BinaryOperator::GtEq => {
-            if !are_types_comparable(l_type, r_type, dialect) {
-                let message = format!("Type mismatch in comparison: {} {} {}", l_type, op, r_type);
-                issues.push(
-                    Issue::warning(issue_codes::TYPE_MISMATCH, message)
-                        .with_statement(statement_index),
-                );
-            }
+        | ast::BinaryOperator::GtEq
+            if !are_types_comparable(l_type, r_type, dialect) =>
+        {
+            let message = format!("Type mismatch in comparison: {} {} {}", l_type, op, r_type);
+            issues.push(
+                Issue::warning(issue_codes::TYPE_MISMATCH, message).with_statement(statement_index),
+            );
         }
         // Arithmetic operators: both operands must be numeric
         ast::BinaryOperator::Plus

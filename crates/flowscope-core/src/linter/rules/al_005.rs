@@ -534,17 +534,15 @@ fn collect_aliases(
             subquery,
             alias: Some(alias),
             ..
-        } => {
-            if derived_values_alias_can_be_unused(dialect, subquery) {
-                aliases.insert(
-                    alias.name.value.clone(),
-                    AliasRef {
-                        name: alias.name.value.clone(),
-                        quoted: alias.name.quote_style.is_some(),
-                        relation_key: None,
-                    },
-                );
-            }
+        } if derived_values_alias_can_be_unused(dialect, subquery) => {
+            aliases.insert(
+                alias.name.value.clone(),
+                AliasRef {
+                    name: alias.name.value.clone(),
+                    quoted: alias.name.quote_style.is_some(),
+                    relation_key: None,
+                },
+            );
         }
         TableFactor::Function {
             lateral: true,
@@ -607,13 +605,11 @@ fn collect_identifier_prefixes(
     prefixes: &mut HashSet<QualifierRef>,
 ) {
     match expr {
-        Expr::CompoundIdentifier(parts) => {
-            if parts.len() >= 2 {
-                prefixes.insert(QualifierRef {
-                    name: parts[0].value.clone(),
-                    quoted: parts[0].quote_style.is_some(),
-                });
-            }
+        Expr::CompoundIdentifier(parts) if parts.len() >= 2 => {
+            prefixes.insert(QualifierRef {
+                name: parts[0].value.clone(),
+                quoted: parts[0].quote_style.is_some(),
+            });
         }
         Expr::BinaryOp { left, right, .. } => {
             collect_identifier_prefixes(left, dialect, prefixes);
@@ -1214,10 +1210,7 @@ fn legacy_collect_simple_table_alias_declarations(
         index = legacy_try_parse_table_item(&tokens, next, dialect, &mut out);
 
         // Handle comma-separated table items (FROM t1, t2, LATERAL f(...) AS x).
-        loop {
-            let Some(comma_index) = legacy_next_non_trivia_token(&tokens, index) else {
-                break;
-            };
+        while let Some(comma_index) = legacy_next_non_trivia_token(&tokens, index) {
             if !matches!(tokens[comma_index].token, Token::Comma) {
                 break;
             }
@@ -1326,10 +1319,7 @@ fn legacy_try_parse_table_item(
     let mut table_end = tokens[start].end;
     let mut cursor = start + 1;
 
-    loop {
-        let Some(dot_index) = legacy_next_non_trivia_token(tokens, cursor) else {
-            break;
-        };
+    while let Some(dot_index) = legacy_next_non_trivia_token(tokens, cursor) {
         if !matches!(tokens[dot_index].token, Token::Period) {
             break;
         }

@@ -462,10 +462,8 @@ fn cv012_collect_extractable_eqs(
             left,
             op: BinaryOperator::Eq,
             right,
-        } => {
-            if cv012_is_extractable_eq(left, right, current_source, seen_sources) {
-                out.push(expr.clone());
-            }
+        } if cv012_is_extractable_eq(left, right, current_source, seen_sources) => {
+            out.push(expr.clone());
         }
         Expr::Nested(inner) => {
             if let Expr::BinaryOp {

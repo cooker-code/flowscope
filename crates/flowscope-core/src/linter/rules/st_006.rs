@@ -196,12 +196,10 @@ fn visit_order_safe_selects<F: FnMut(&Select)>(statement: &Statement, visitor: &
         // MERGE: column order matters — skip entirely.
         Statement::Merge(..) => {}
         // CREATE TABLE AS SELECT: column order matters — skip entirely.
-        Statement::CreateTable(create) => {
-            if create.query.is_some() {
-                // CREATE TABLE AS SELECT — skip.
-            }
-            // Regular CREATE TABLE without AS SELECT — nothing relevant to visit.
+        Statement::CreateTable(create) if create.query.is_some() => {
+            // CREATE TABLE AS SELECT — skip.
         }
+        // Regular CREATE TABLE without AS SELECT — nothing relevant to visit.
         Statement::CreateView(CreateView { query, .. }) => {
             visit_query_selects(query, visitor, false);
         }

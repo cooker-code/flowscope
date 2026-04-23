@@ -1703,18 +1703,14 @@ fn type_angle_token_indices(tokens: &[TokenWithSpan], non_trivia: &[usize]) -> H
                     stack.push(token_idx);
                 }
             }
-            Token::Gt => {
-                if !stack.is_empty() {
-                    out.insert(token_idx);
-                    stack.pop();
-                }
+            Token::Gt if !stack.is_empty() => {
+                out.insert(token_idx);
+                stack.pop();
             }
-            Token::ShiftRight => {
-                if stack.len() >= 2 {
-                    out.insert(token_idx);
-                    stack.pop();
-                    stack.pop();
-                }
+            Token::ShiftRight if stack.len() >= 2 => {
+                out.insert(token_idx);
+                stack.pop();
+                stack.pop();
             }
             _ => {}
         }

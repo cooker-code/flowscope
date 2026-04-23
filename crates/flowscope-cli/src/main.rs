@@ -724,11 +724,9 @@ impl LintProgressBar {
             .current
             .load(Ordering::Relaxed)
             .min(self.inner.total);
-        let filled = if self.inner.total == 0 {
-            0
-        } else {
-            current * Self::WIDTH / self.inner.total
-        };
+        let filled = (current * Self::WIDTH)
+            .checked_div(self.inner.total)
+            .unwrap_or(0);
         let empty = Self::WIDTH - filled;
 
         eprint!(

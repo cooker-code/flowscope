@@ -198,10 +198,7 @@ fn collect_simple_table_alias_declarations(
         let mut table_end = tokens[cursor].end;
         cursor += 1;
 
-        loop {
-            let Some(dot_index) = next_non_trivia_token(&tokens, cursor) else {
-                break;
-            };
+        while let Some(dot_index) = next_non_trivia_token(&tokens, cursor) {
             if !matches!(tokens[dot_index].token, Token::Period) {
                 break;
             }

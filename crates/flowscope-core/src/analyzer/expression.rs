@@ -218,19 +218,17 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
                     });
                 }
             }
-            Expr::CompoundIdentifier(parts) => {
-                if parts.len() >= 2 {
-                    let table = parts[..parts.len() - 1]
-                        .iter()
-                        .map(|i| i.value.as_str())
-                        .collect::<Vec<_>>()
-                        .join(".");
-                    let column = parts.last().unwrap().value.clone();
-                    refs.push(ColumnRef {
-                        table: Some(table),
-                        column,
-                    });
-                }
+            Expr::CompoundIdentifier(parts) if parts.len() >= 2 => {
+                let table = parts[..parts.len() - 1]
+                    .iter()
+                    .map(|i| i.value.as_str())
+                    .collect::<Vec<_>>()
+                    .join(".");
+                let column = parts.last().unwrap().value.clone();
+                refs.push(ColumnRef {
+                    table: Some(table),
+                    column,
+                });
             }
             Expr::BinaryOp { left, right, .. } => {
                 depth_limited |= Self::collect_column_refs(left, refs, dialect, next_depth);

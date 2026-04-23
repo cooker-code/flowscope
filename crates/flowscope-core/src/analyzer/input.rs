@@ -334,11 +334,7 @@ fn parse_full_sql_buffer<'a>(
     });
 
     let mut statements = Vec::with_capacity(parsed.len());
-    for (index, (stmt, range)) in parsed
-        .into_iter()
-        .zip(aligned_ranges.into_iter())
-        .enumerate()
-    {
+    for (index, (stmt, range)) in parsed.into_iter().zip(aligned_ranges).enumerate() {
         statements.push(StatementInput {
             statement: stmt,
             source_name: ctx.source_name.clone(),
@@ -798,24 +794,20 @@ fn compute_statement_ranges(sql: &str) -> Vec<Range<usize>> {
                 i += advance;
                 continue;
             }
-            '-' => {
-                if starts_with_at(sql, i + advance, "-") {
-                    in_line_comment = true;
-                    i += advance + 1;
-                    continue;
-                }
+            '-' if starts_with_at(sql, i + advance, "-") => {
+                in_line_comment = true;
+                i += advance + 1;
+                continue;
             }
             '#' => {
                 in_line_comment = true;
                 i += advance;
                 continue;
             }
-            '/' => {
-                if starts_with_at(sql, i + advance, "*") {
-                    in_block_comment = true;
-                    i += advance + 1;
-                    continue;
-                }
+            '/' if starts_with_at(sql, i + advance, "*") => {
+                in_block_comment = true;
+                i += advance + 1;
+                continue;
             }
             '$' => {
                 if let Some((delim, end_idx)) = detect_dollar_quote(sql, i) {

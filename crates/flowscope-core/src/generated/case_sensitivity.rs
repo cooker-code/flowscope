@@ -101,21 +101,8 @@ impl Dialect {
     /// Get pseudocolumns for this dialect (implicit columns like _PARTITIONTIME).
     pub fn pseudocolumns(&self) -> &'static [&'static str] {
         match self {
-            Dialect::Bigquery => &[
-                "_FILE_NAME",
-                "_PARTITIONDATE",
-                "_PARTITIONTIME",
-                "_TABLE_SUFFIX",
-            ],
-            Dialect::Oracle => &[
-                "LEVEL",
-                "OBJECT_ID",
-                "OBJECT_VALUE",
-                "ROWID",
-                "ROWNUM",
-                "SYSDATE",
-                "SYSTIMESTAMP",
-            ],
+            Dialect::Bigquery => &["_FILE_NAME", "_PARTITIONDATE", "_PARTITIONTIME", "_TABLE_SUFFIX"],
+            Dialect::Oracle => &["LEVEL", "OBJECT_ID", "OBJECT_VALUE", "ROWID", "ROWNUM", "SYSDATE", "SYSTIMESTAMP"],
             Dialect::Snowflake => &["LEVEL"],
             _ => &[],
         }

@@ -141,10 +141,7 @@ fn fallback_single_from_alias_candidate(
         }
 
         let mut table_end_idx = table_start_idx;
-        loop {
-            let Some(dot_idx) = next_non_trivia_index(tokens, table_end_idx + 1) else {
-                break;
-            };
+        while let Some(dot_idx) = next_non_trivia_index(tokens, table_end_idx + 1) {
             if !matches!(tokens[dot_idx].token, Token::Period) {
                 break;
             }
