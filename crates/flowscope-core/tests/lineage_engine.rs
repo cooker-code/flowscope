@@ -11300,7 +11300,7 @@ fn oracle_insert_with_cte_sum_case_recognises_cte() {
     );
 
     // Should have derivation edge for SUM(CASE...) expression
-    let derivations = edges_by_type(&stmt,EdgeType::Derivation);
+    let derivations = edges_by_type(&stmt, EdgeType::Derivation);
     assert!(
         !derivations.is_empty(),
         "SUM(CASE...) should produce a derivation edge"
@@ -11363,7 +11363,7 @@ fn oracle_insert_simple_column_lineage() {
     let stmt = first_statement(&result);
 
     // Should have column-level dataflow edges
-    let dataflow = edges_by_type(&stmt,EdgeType::DataFlow);
+    let dataflow = edges_by_type(&stmt, EdgeType::DataFlow);
     let col_flows: Vec<_> = dataflow
         .iter()
         .filter(|e| {
@@ -11386,7 +11386,7 @@ fn oracle_insert_case_expr_has_derivation() {
     let stmt = first_statement(&result);
 
     // The CASE expression should create a derivation edge
-    let derivations = edges_by_type(&stmt,EdgeType::Derivation);
+    let derivations = edges_by_type(&stmt, EdgeType::Derivation);
     assert!(
         derivations.iter().any(|e| e
             .expression
@@ -11410,7 +11410,7 @@ fn oracle_view_group_by_has_count_derivation() {
     let result = run_analysis(&sql, Dialect::Oracle, None);
     let stmt = first_statement(&result);
 
-    let derivations = edges_by_type(&stmt,EdgeType::Derivation);
+    let derivations = edges_by_type(&stmt, EdgeType::Derivation);
     assert!(
         derivations.iter().any(|e| e
             .expression
@@ -11433,7 +11433,7 @@ fn oracle_view_row_number_has_window_derivation() {
     let result = run_analysis(&sql, Dialect::Oracle, None);
     let stmt = first_statement(&result);
 
-    let derivations = edges_by_type(&stmt,EdgeType::Derivation);
+    let derivations = edges_by_type(&stmt, EdgeType::Derivation);
     assert!(
         derivations.iter().any(|e| e
             .expression
@@ -11450,7 +11450,7 @@ fn oracle_view_expr_has_function_derivations() {
     let result = run_analysis(&sql, Dialect::Oracle, None);
     let stmt = first_statement(&result);
 
-    let derivations = edges_by_type(&stmt,EdgeType::Derivation);
+    let derivations = edges_by_type(&stmt, EdgeType::Derivation);
     assert!(
         derivations.iter().any(|e| e
             .expression
@@ -11517,7 +11517,7 @@ fn oracle_select_complex_cte_lineage() {
     assert!(ctes.contains("b"), "CTE 'b' should be present");
 
     let stmt = first_statement(&result);
-    let derivations = edges_by_type(&stmt,EdgeType::Derivation);
+    let derivations = edges_by_type(&stmt, EdgeType::Derivation);
     assert!(
         derivations.len() >= 2,
         "should have derivations for COUNT(*), CASE, ROW_NUMBER: found {}",
@@ -11631,7 +11631,7 @@ fn oracle_merge_direct_table_has_column_nodes() {
         "MERGE INSERT target column should appear: {cols:?}"
     );
 
-    let ownership = edges_by_type(&stmt,EdgeType::Ownership);
+    let ownership = edges_by_type(&stmt, EdgeType::Ownership);
     assert!(
         ownership.len() >= 2,
         "should have ownership edges for target columns: found {}",
@@ -11652,7 +11652,7 @@ fn oracle_merge_matched_only_has_set_column_nodes() {
         "MERGE matched-only should have column nodes from SET targets: {cols:?}"
     );
 
-    let ownership = edges_by_type(&stmt,EdgeType::Ownership);
+    let ownership = edges_by_type(&stmt, EdgeType::Ownership);
     assert!(
         !ownership.is_empty(),
         "should have ownership edges for SET target columns"
@@ -11672,7 +11672,7 @@ fn oracle_merge_not_matched_only_has_insert_column_nodes() {
         "MERGE not-matched-only should have column nodes from INSERT targets: {cols:?}"
     );
 
-    let ownership = edges_by_type(&stmt,EdgeType::Ownership);
+    let ownership = edges_by_type(&stmt, EdgeType::Ownership);
     assert!(
         !ownership.is_empty(),
         "should have ownership edges for INSERT target columns"

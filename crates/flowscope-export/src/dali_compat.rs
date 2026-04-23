@@ -207,9 +207,7 @@ fn tables_with_cross_owner_column_dataflow(
 ) -> BTreeSet<String> {
     let mut col_owner: HashMap<&str, &str> = HashMap::new();
     for edge in &stmt.edges {
-        if edge.edge_type == EdgeType::Ownership
-            && table_nodes.iter().any(|t| t.id == edge.from)
-        {
+        if edge.edge_type == EdgeType::Ownership && table_nodes.iter().any(|t| t.id == edge.from) {
             col_owner.insert(edge.to.as_ref(), edge.from.as_ref());
         }
     }
@@ -249,10 +247,7 @@ fn tables_with_cross_owner_column_dataflow(
 /// table may only have Ownership edges — columns exist but no DataFlow edges
 /// connect them (e.g., `DELETE FROM t WHERE id IN (...)` with no column
 /// transformation). Pick the first such table as the write target.
-fn dml_ownership_only_target(
-    stmt: &StatementView<'_>,
-    table_nodes: &[&Node],
-) -> Option<String> {
+fn dml_ownership_only_target(stmt: &StatementView<'_>, table_nodes: &[&Node]) -> Option<String> {
     let stmt_upper = stmt.statement_type.to_uppercase();
     if !matches!(stmt_upper.as_str(), "MERGE" | "UPDATE" | "DELETE") {
         return None;
@@ -262,9 +257,10 @@ fn dml_ownership_only_target(
             .edges
             .iter()
             .any(|e| e.from == node.id && e.edge_type == EdgeType::Ownership);
-        let has_dataflow = stmt.edges.iter().any(|e| {
-            (e.from == node.id || e.to == node.id) && e.edge_type == EdgeType::DataFlow
-        });
+        let has_dataflow = stmt
+            .edges
+            .iter()
+            .any(|e| (e.from == node.id || e.to == node.id) && e.edge_type == EdgeType::DataFlow);
         if has_ownership && !has_dataflow {
             return Some(relation_display_name(node));
         }
@@ -385,10 +381,10 @@ fn build_refs(stmt: &StatementView<'_>) -> Vec<DaliRef> {
             let from_is_col = column_nodes.iter().any(|c| c.id == edge.from);
             let to_is_col = column_nodes.iter().any(|c| c.id == edge.to);
             if from_is_col && to_is_col {
-                incoming.entry(edge.to.as_ref()).or_default().push((
-                    edge.from.as_ref(),
-                    edge.expression.as_deref(),
-                ));
+                incoming
+                    .entry(edge.to.as_ref())
+                    .or_default()
+                    .push((edge.from.as_ref(), edge.expression.as_deref()));
             }
         }
     }

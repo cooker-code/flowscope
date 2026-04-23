@@ -706,8 +706,7 @@ impl<'a> Analyzer<'a> {
                 }
                 MergeAction::Insert(insert_expr) => {
                     for col in &insert_expr.columns {
-                        if let Some(ident) = col.0.iter().filter_map(|p| p.as_ident()).next_back()
-                        {
+                        if let Some(ident) = col.0.iter().filter_map(|p| p.as_ident()).next_back() {
                             let col_name = self.normalize_identifier(&ident.value);
                             Self::add_target_column_node(ctx, target_id.as_deref(), &col_name);
                         }
