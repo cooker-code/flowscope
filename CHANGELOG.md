@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Web App (app/) — Librarian (2026-05-04)
+
+AI chat panel for asking questions about your data using SQL lineage and uploaded PDF documentation. Supports OpenAI, Anthropic, and custom OpenAI-compatible endpoints; multilingual embeddings (`Xenova/multilingual-e5-small`, 100+ languages); per-project state isolation (RAM-only) so chat, PDFs, and embedded chunks don't leak between projects.
+
+Answers follow a structured **Summary / Data Lineage / Documentation** format. Schema identifiers are highlighted inline in assistant responses (case-insensitive, normalized to canonical schema casing). Clicking an assistant message reads the answer's Summary, highlights every referenced table and column in the Lineage view via the existing search pipeline (auto-enabling "show column edges" when a column is referenced), and gently pans + pulses on the source table containing the column.
+
+Schema view gains a search control (table-name or column-name substring, Prev/Next cycling). Librarian toggle lives in the analysis toolbar next to Schema (⌘L / Ctrl+L); a help popover in the panel header describes the assistant and usage.
+
 ## [0.7.0] - 2026-04-23
 
 ### Added

@@ -19,15 +19,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { usePersistedLineageState } from '@/hooks/usePersistedLineageState';
 import { usePersistedMatrixState } from '@/hooks/usePersistedMatrixState';
 import { usePersistedSchemaState } from '@/hooks/usePersistedSchemaState';
+import { applyLineageNavigation } from '@/lib/lineage-navigation';
 import { isValidTab, useNavigation } from '@/lib/navigation-context';
 import { useViewStateStore, getNamespaceFilterStateWithDefaults } from '@/lib/view-state-store';
 import { useProject } from '@/lib/project-store';
 import { schemaMetadataToSQL } from '@/lib/schema-parser';
 import { HierarchyView, type HierarchyViewRef } from './HierarchyView';
+import { LibrarianToggleButton } from './LibrarianToggleButton';
 import { StatsPopover } from './StatsPopover';
 import { NamespaceFilterBar } from './NamespaceFilterBar';
 import { SchemaAwareIssuesPanel } from './SchemaAwareIssuesPanel';
 import { SchemaEditor } from './SchemaEditor';
+import { SchemaSearchControl } from './SchemaSearchControl';
 
 interface AnalysisViewProps {
   graphContainerRef?: React.RefObject<HTMLDivElement | null>;
@@ -106,14 +109,14 @@ export function AnalysisView({
   // Handle navigation target for GraphView - select and focus node/statement when navigating to lineage tab
   useEffect(() => {
     if (activeTab === 'lineage' && navigationTarget) {
-      if (navigationTarget.tableId) {
-        // Navigate to specific table node
-        actionsRef.current.selectNode(navigationTarget.tableId);
-        setLineageFocusNodeId(navigationTarget.tableId);
-      } else if (navigationTarget.fitView) {
-        // Trigger fitView to show all nodes (e.g., from Issues panel)
-        setFitViewTrigger((prev) => prev + 1);
-      }
+      applyLineageNavigation(navigationTarget, {
+        expandedTableIds: stateRef.current.expandedTableIds,
+        selectNode: actionsRef.current.selectNode,
+        toggleTableExpansion: actionsRef.current.toggleTableExpansion,
+        setFocusNodeId: setLineageFocusNodeId,
+        triggerFitView: () => setFitViewTrigger((prev) => prev + 1),
+        revealNodeInGraph: actionsRef.current.revealNodeInGraph,
+      });
       clearNavigationTarget();
     }
   }, [activeTab, navigationTarget, clearNavigationTarget]);
@@ -336,24 +339,29 @@ export function AnalysisView({
 
   if (!result || !summary) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-muted-foreground bg-muted/5">
-        <div className="p-6 text-center">
-          {isAnalyzing ? (
-            <>
-              <Loader2 className="h-6 w-6 animate-spin mx-auto mb-3 opacity-70" />
-              <h3 className="font-semibold mb-2">Analyzing SQL</h3>
-              <p className="text-sm max-w-xs mx-auto">
-                Building lineage, schema, and issue details for the current analysis run.
-              </p>
-            </>
-          ) : (
-            <>
-              <h3 className="font-semibold mb-2">No Analysis Results</h3>
-              <p className="text-sm max-w-xs mx-auto">
-                Run analysis on your SQL script to see lineage and schema details here.
-              </p>
-            </>
-          )}
+      <div className="flex flex-col h-full bg-background">
+        <div className="px-4 py-2 border-b flex items-center justify-end bg-muted/10 h-[44px] shrink-0">
+          <LibrarianToggleButton />
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground bg-muted/5">
+          <div className="p-6 text-center">
+            {isAnalyzing ? (
+              <>
+                <Loader2 className="h-6 w-6 animate-spin mx-auto mb-3 opacity-70" />
+                <h3 className="font-semibold mb-2">Analyzing SQL</h3>
+                <p className="text-sm max-w-xs mx-auto">
+                  Building lineage, schema, and issue details for the current analysis run.
+                </p>
+              </>
+            ) : (
+              <>
+                <h3 className="font-semibold mb-2">No Analysis Results</h3>
+                <p className="text-sm max-w-xs mx-auto">
+                  Run analysis on your SQL script to see lineage and schema details here.
+                </p>
+              </>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -413,6 +421,7 @@ export function AnalysisView({
                 </Tooltip>
               </TooltipProvider>
             )}
+            <LibrarianToggleButton />
           </div>
         </div>
 
@@ -484,11 +493,20 @@ export function AnalysisView({
             className="h-full mt-0 p-0 absolute inset-0 data-[state=inactive]:hidden"
           >
             {mountedTabs.has('schema') && (
-              <SchemaView
-                schema={schema}
-                selectedTableName={schemaState.selectedTableName}
-                onClearSelection={schemaState.clearSelection}
-              />
+              <div className="relative h-full w-full">
+                <SchemaView
+                  schema={schema}
+                  selectedTableName={schemaState.selectedTableName}
+                  onClearSelection={schemaState.clearSelection}
+                />
+                <div className="absolute top-2 right-2 z-10">
+                  <SchemaSearchControl
+                    tableNames={schema.map((t) => t.name)}
+                    tables={schema}
+                    onSelectTable={schemaState.setSelectedTableName}
+                  />
+                </div>
+              </div>
             )}
           </TabsContent>
 

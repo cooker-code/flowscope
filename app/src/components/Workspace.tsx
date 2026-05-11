@@ -17,7 +17,7 @@ import { KeyboardShortcutsDialog } from './KeyboardShortcutsDialog';
 import { CommandPalette } from './CommandPalette';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { useProject } from '@/lib/project-store';
-import { NavigationProvider } from '@/lib/navigation-context';
+import { NavigationProvider, useNavigation } from '@/lib/navigation-context';
 import { FocusRegistryProvider } from '@/lib/focus-registry';
 import { useGlobalShortcuts, useAnalysis } from '@/hooks';
 import type { GlobalShortcut } from '@/hooks';
@@ -25,6 +25,9 @@ import { useThemeStore, type Theme } from '@/lib/theme-store';
 import { useViewStateStore } from '@/lib/view-state-store';
 import { getShortcutDisplay } from '@/lib/shortcuts';
 import { useBackend } from '@/lib/backend-context';
+import { LibrarianPanel, useSyncActiveProject } from '@/features/librarian';
+import type { ChatReference } from '@/features/librarian/utils/schema-identifiers';
+import { resolveLineageNodeIds } from '@/lib/lineage-node-resolver';
 
 interface WorkspaceProps {
   backendReady: boolean;
@@ -42,6 +45,7 @@ const EDITOR_PANEL_DEFAULT_SIZE = 33;
 
 export function Workspace({ backendReady, error, onRetry, isRetrying }: WorkspaceProps) {
   const { currentProject, selectFile, activeProjectId, isBackendMode } = useProject();
+  useSyncActiveProject();
   const { adapter } = useBackend();
   const analysis = useAnalysis(backendReady, { adapter });
   const lineageActions = useLineageActions();
@@ -70,6 +74,11 @@ export function Workspace({ backendReady, error, onRetry, isRetrying }: Workspac
     setTheme(nextTheme);
     toast.success(`Theme: ${nextTheme.charAt(0).toUpperCase() + nextTheme.slice(1)}`);
   }, [theme, setTheme]);
+
+  // Librarian panel state
+  const librarianOpen = useViewStateStore((s) => s.librarianOpen);
+  const toggleLibrarian = useViewStateStore((s) => s.toggleLibrarian);
+  const setLibrarianOpen = useViewStateStore((s) => s.setLibrarianOpen);
 
   const editorPanelRef = useRef<ImperativePanelHandle>(null);
   const graphContainerRef = useRef<HTMLDivElement>(null);
@@ -206,8 +215,14 @@ export function Workspace({ backendReady, error, onRetry, isRetrying }: Workspac
         cmdOrCtrl: true,
         handler: () => setCommandPaletteOpen(true),
       },
+      // Toggle Librarian panel
+      {
+        key: 'l',
+        cmdOrCtrl: true,
+        handler: toggleLibrarian,
+      },
     ],
-    [toggleEditorPanel, currentProject, cycleTheme, isBackendMode]
+    [toggleEditorPanel, currentProject, cycleTheme, isBackendMode, toggleLibrarian]
   );
 
   useGlobalShortcuts(shortcuts);
@@ -236,6 +251,9 @@ export function Workspace({ backendReady, error, onRetry, isRetrying }: Workspac
           break;
         case 'toggle-editor':
           toggleEditorPanel();
+          break;
+        case 'toggle-librarian':
+          toggleLibrarian();
           break;
 
         // Tab switching
@@ -295,6 +313,7 @@ export function Workspace({ backendReady, error, onRetry, isRetrying }: Workspac
     },
     [
       toggleEditorPanel,
+      toggleLibrarian,
       activeProjectId,
       setActiveTab,
       currentProject,
@@ -468,10 +487,68 @@ export function Workspace({ backendReady, error, onRetry, isRetrying }: Workspac
                   isAnalyzing={analysis.isAnalyzing}
                 />
               </ResizablePanel>
+
+              {/* Right: Librarian Panel */}
+              {librarianOpen && (
+                <>
+                  <ResizableHandle withHandle />
+                  <ResizablePanel
+                    defaultSize={25}
+                    minSize={20}
+                    maxSize={40}
+                    data-testid="librarian-panel"
+                  >
+                    <LibrarianPanelWithNavigation onClose={() => setLibrarianOpen(false)} />
+                  </ResizablePanel>
+                </>
+              )}
             </ResizablePanelGroup>
           </div>
         </FocusRegistryProvider>
       </NavigationProvider>
     </div>
   );
+}
+
+function LibrarianPanelWithNavigation({ onClose }: { onClose: () => void }) {
+  const { navigateTo } = useNavigation();
+  const { result, showColumnEdges } = useLineageState();
+  const { toggleColumnEdges } = useLineageActions();
+  const { activeProjectId } = useProject();
+  const updateViewState = useViewStateStore((s) => s.updateViewState);
+  const handleNavigateToReferences = useCallback(
+    (refs: ChatReference[]) => {
+      if (refs.length === 0) return;
+      // Drive the lineage search pipeline first, regardless of whether the
+      // resolver can produce concrete node ids. If the answer references any
+      // column, prefer searching by the first column name (and force
+      // "show column edges" on so columns are actually matchable); otherwise
+      // fall back to the first table name. Writing the term to the persisted
+      // per-project view state propagates to GraphView's controlled
+      // searchTerm prop, so table cards highlight via `isNodeHighlighted`
+      // even when navigation is a no-op (e.g. column nodes absent from the
+      // current statement's lineage).
+      const firstColumn = refs.find((r) => r.columnName)?.columnName;
+      const firstTable = refs.find((r) => r.tableName)?.tableName;
+      const searchTerm = firstColumn ?? firstTable;
+      if (firstColumn && !showColumnEdges) {
+        toggleColumnEdges();
+      }
+      if (searchTerm && activeProjectId) {
+        updateViewState(activeProjectId, 'lineage', { searchTerm });
+      }
+      const { nodeIds, tablesToExpand, primaryFocusId } = resolveLineageNodeIds(
+        result ?? null,
+        refs
+      );
+      if (nodeIds.length === 0) return;
+      navigateTo('lineage', {
+        highlightNodeIds: nodeIds,
+        tablesToExpand,
+        ...(primaryFocusId ? { primaryFocusId } : {}),
+      });
+    },
+    [navigateTo, result, showColumnEdges, toggleColumnEdges, activeProjectId, updateViewState]
+  );
+  return <LibrarianPanel onClose={onClose} onNavigateToReferences={handleNavigateToReferences} />;
 }

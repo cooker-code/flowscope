@@ -31,6 +31,16 @@ export interface NavigationTarget {
   span?: { start: number; end: number };
   /** Whether to fit the view to show all nodes */
   fitView?: boolean;
+  /** Set of lineage node IDs to highlight (used for chat-driven multi-highlight in lineage view) */
+  highlightNodeIds?: string[];
+  /** Parent table IDs to auto-expand so column highlights are visible */
+  tablesToExpand?: string[];
+  /**
+   * Top-level node id to recenter the viewport on. Distinct from
+   * `highlightNodeIds[0]` because columns are rendered inside table nodes and
+   * cannot themselves receive viewport focus.
+   */
+  primaryFocusId?: string;
 }
 
 interface NavigationContextValue {
