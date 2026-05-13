@@ -54,6 +54,48 @@ Follow this loop for every bug, no matter how small:
 
 ---
 
+## 语言规则（MANDATORY）
+
+**所有回复必须使用中文。** 代码、命令、技术术语保持原文，其余全部中文。
+禁止混入日文（あ、い）或韩文（안녕）。违反即为严重错误。
+
+---
+
+## 前端改动规则（MANDATORY）
+
+凡是前端页面改动，必须在 PRD 中明确以下三点，否则不得开始实现：
+
+**1. 组件文件定位**：精确到文件路径 + 行号（不是"某个地方"）
+**2. API 数据先验证**：血缘图/数据逻辑问题，必须先用 curl 验证 API 返回。
+  - API 返回数据不对 → **先修 Rust 引擎**
+  - API 数据正确但图显示不对 → 才改前端渲染
+
+```bash
+# 标准 API 验证命令（test-sql 目录）
+curl -s -X POST http://localhost:3099/api/analyze \
+  -H 'Content-Type: application/json' \
+  -d "{\"files\":[{\"name\":\"xxx.sql\",\"content\":$(cat test-sql/xxx.sql | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}],\"sql\":\"\"}" \
+  | python3 -c "import json,sys; r=json.load(sys.stdin); print(json.dumps(r['summary'], indent=2))"
+```
+
+**3. 验证方式**：`agent-browser` 无法可靠点击 Radix UI DropdownMenu 内的 button，需手动 Chrome 验证或 JS 注入。
+
+完整规范见：`.trellis/spec/flowscope-app/frontend/ui-change-protocol.md`
+
+---
+
+## 审计服务关键约定（result_json）
+
+- `GET /api/audit` 列表接口：**不含** `sql_text` 和 `result_json`（避免页面崩溃）
+- `GET /api/audit/:id` 详情接口：含完整 `sql_text` + `result_json`
+- `stmt_count`：过滤 SET/USE/RESET，只计业务语句
+- `table_count`：只计物理表（NodeType::Table | View），不含 CTE 节点
+- `sql_type`：第一个有意义语句的类型（INSERT/SELECT/WITH）
+
+完整约定见：`.trellis/spec/flowscope-cli/backend/audit-api-spec.md`
+
+---
+
 ## Trellis 任务流程速查
 
 | 阶段 | 工具 | 时机 |
@@ -69,7 +111,7 @@ Follow this loop for every bug, no matter how small:
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **flowscope** (16559 symbols, 37880 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **flowscope** (16558 symbols, 37905 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

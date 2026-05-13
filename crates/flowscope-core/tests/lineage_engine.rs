@@ -12511,3 +12511,108 @@ fn same_name_derived_alias_in_nested_cte_scope_does_not_collide() {
         "orders should be tracked as a source"
     );
 }
+
+/// Regression test: the outer JOIN's `current_join_info` must not leak into
+/// a derived subquery in the JOIN's right operand.
+///
+/// SQL shape (mirrors the user-reported case):
+///
+/// ```sql
+/// INSERT INTO target
+/// SELECT a.user_id
+/// FROM   (SELECT user_id, mission_id FROM source_a) a
+/// LEFT JOIN (SELECT mission_id FROM source_b) b
+///        ON a.mission_id = b.mission_id
+/// WHERE  b.mission_id IS NOT NULL;
+/// ```
+///
+/// Two defects existed before the fix:
+///
+/// Defect A — `source_b → b` (the derived-table internal data_flow edge)
+///            was stamped with `join_type = LEFT`, so the frontend rendered
+///            an extra "LEFT JOIN" label on what should be a plain internal
+///            column-flow edge.
+///
+/// Defect B — `source_b` was wrongly registered into `joined_table_info`,
+///            so `add_join_dependency_edges` synthesized a `JoinDependency`
+///            skeleton edge from `source_b` directly to `target`, bypassing
+///            the derived node entirely.
+///
+/// Both defects share the same root cause: in `visit_table_factor`'s
+/// `TableFactor::Derived` branch, `current_join_info` is NOT saved/restored
+/// around the recursive `derived_visitor.visit_query(subquery)`. Commit
+/// `ec99c66` fixed the sibling `last_operation` leak but missed this one.
+#[test]
+fn left_join_derived_subquery_does_not_leak_join_info_to_inner_table() {
+    let sql = r#"
+        INSERT INTO target
+        SELECT a.user_id
+        FROM (SELECT user_id, mission_id FROM source_a) a
+        LEFT JOIN (SELECT mission_id FROM source_b) b
+            ON a.mission_id = b.mission_id
+        WHERE b.mission_id IS NOT NULL
+    "#;
+
+    let result = run_analysis(sql, Dialect::Generic, None);
+    let stmt = first_statement(&result);
+
+    let source_b_node = result
+        .nodes
+        .iter()
+        .find(|n| n.node_type == NodeType::Table && n.label.as_ref() == "source_b")
+        .expect("source_b table node should exist");
+    let target_node = result
+        .nodes
+        .iter()
+        .find(|n| n.node_type == NodeType::Table && n.label.as_ref() == "target")
+        .expect("target table node should exist");
+    let b_node = result
+        .nodes
+        .iter()
+        .find(|n| n.node_type == NodeType::Cte && n.label.as_ref() == "b")
+        .expect("derived subquery `b` node should exist");
+
+    // Defect A: edges originating from source_b (the inner real table)
+    // must NOT carry join_type. The JOIN is on the derived `b` node, not
+    // on source_b.
+    let leaked_join_edges: Vec<&Edge> = stmt
+        .edges
+        .iter()
+        .copied()
+        .filter(|e| e.from == source_b_node.id && e.join_type.is_some())
+        .collect();
+    assert!(
+        leaked_join_edges.is_empty(),
+        "join_type must not leak onto edges from inner table `source_b`; \
+         offending edges: {leaked_join_edges:?}"
+    );
+
+    // Defect B: source_b must NOT have a JoinDependency edge to target.
+    // The lineage chain is source_b → b → target; only `b` is the joined
+    // operand, not source_b itself.
+    let extra_dep = stmt.edges.iter().find(|e| {
+        e.edge_type == EdgeType::JoinDependency
+            && e.from == source_b_node.id
+            && e.to == target_node.id
+    });
+    assert!(
+        extra_dep.is_none(),
+        "inner table of a derived subquery must not produce a JoinDependency \
+         edge directly to the sink; found: {extra_dep:?}"
+    );
+
+    // Positive assertion: the derived `b` → target edge SHOULD carry
+    // join_type = LEFT, because `b` is the actual right operand of the
+    // outer LEFT JOIN. This is the legitimate path the JOIN metadata
+    // should live on.
+    let b_to_target = stmt
+        .edges
+        .iter()
+        .find(|e| e.from == b_node.id && e.to == target_node.id)
+        .expect("b → target data_flow edge should exist");
+    assert_eq!(
+        b_to_target.join_type,
+        Some(JoinType::Left),
+        "b → target edge should retain join_type = LEFT"
+    );
+}

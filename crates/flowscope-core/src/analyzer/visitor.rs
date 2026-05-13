@@ -723,21 +723,35 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
                         .insert(node_id.clone(), name.clone());
                 }
 
-                // Save and clear last_operation before processing the subquery so
-                // that JOINs inside the derived table do not pollute the outer
-                // context's operation state, which would then be read by the
-                // create_source_edge call below and stamp an incorrect operation on
-                // the derived→target edge.
+                // Save and clear last_operation + current_join_info before processing
+                // the subquery so that the outer JOIN's metadata does not pollute the
+                // recursive analysis of the derived table's body.
+                //
+                // Without this save/restore, two defects appear:
+                //
+                // 1. `create_source_edge` reads `current_join_info` and stamps
+                //    `join_type` onto edges inside the subquery (e.g. inner_table → b
+                //    gets a spurious LEFT JOIN label).
+                // 2. `create_table_node` / `resolve_cte_reference` register inner
+                //    tables into `joined_table_info`, which then causes
+                //    `add_join_dependency_edges` to synthesize an unwanted skeleton
+                //    edge from those inner tables directly to the sink.
+                //
+                // The outer `current_join_info` is restored after the subquery is
+                // visited so that the derived table itself (b) is still registered
+                // with the correct JOIN metadata by the surrounding code path —
+                // specifically, `create_source_edge(... node_id ... outer_target)`
+                // below relies on `current_join_info` being intact.
                 let saved_operation = self.ctx.last_operation.take();
+                let saved_join_info = std::mem::take(&mut self.ctx.current_join_info);
                 let mut derived_visitor = LineageVisitor::new(
                     self.analyzer,
                     self.ctx,
                     derived_node_id.as_ref().map(|id| id.to_string()),
                 );
                 derived_visitor.visit_query(subquery);
-                // Restore the outer operation so any subsequent non-derived-table
-                // processing in the same FROM clause can still read the correct value.
                 self.ctx.last_operation = saved_operation;
+                self.ctx.current_join_info = saved_join_info;
                 let columns = self.ctx.take_output_columns_since(projection_checkpoint);
 
                 if let (Some(name), Some(node_id)) = (alias_name, derived_node_id) {
