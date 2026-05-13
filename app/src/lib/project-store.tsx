@@ -278,7 +278,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
 
   // Track backend-specific state separately since it's derived, not persisted.
   const [backendActiveFileId, setBackendActiveFileId] = useState<string | null>(null);
-  const [backendRunMode, setBackendRunMode] = useState<RunMode>('all');
+  const [backendRunMode, setBackendRunMode] = useState<RunMode>('current');
   const [backendSelectedFileIds, setBackendSelectedFileIds] = useState<string[]>([]);
 
   useEffect(() => {
@@ -296,7 +296,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!backendFiles) {
       setBackendSelectedFileIds([]);
-      setBackendRunMode('all');
+      setBackendRunMode('current');
       return;
     }
 

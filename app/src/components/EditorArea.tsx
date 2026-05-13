@@ -17,12 +17,14 @@ import type { SqlViewMode } from './EditorToolbar';
 import { ErrorBoundary } from './ErrorBoundary';
 import { DEFAULT_FILE_NAMES } from '@/lib/constants';
 import type { RunMode } from '@/lib/project-store';
+import type { AnalyzeResult } from '@pondpilot/flowscope-core';
 
 interface EditorAnalysisState {
   isAnalyzing: boolean;
   error: string | null;
   runAnalysis: (activeFileContent?: string, activeFilePath?: string) => Promise<void>;
   setError: (error: string | null) => void;
+  setResultFromCache: (result: AnalyzeResult) => void;
 }
 
 // Fallback component shown when SqlView encounters an error
@@ -77,7 +79,7 @@ export function EditorArea({
     setSqlViewMode('template');
   }, [currentProject?.activeFileId]);
 
-  const { isAnalyzing, error, runAnalysis, setError } = analysis;
+  const { isAnalyzing, error, runAnalysis, setError, setResultFromCache } = analysis;
 
   // Show error toast when error occurs
   useEffect(() => {
@@ -298,6 +300,7 @@ export function EditorArea({
         onSqlViewModeChange={setSqlViewMode}
         showSqlViewToggle={showSqlViewToggle}
         hasResolvedSql={!!resolvedSql}
+        setResultFromCache={setResultFromCache}
       />
 
       {isActiveFileStale && (

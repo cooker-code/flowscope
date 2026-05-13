@@ -9,6 +9,7 @@ import { useViewStateStore, getIssuesStateWithDefaults } from '@/lib/view-state-
 import { FILE_LIMITS, ANALYSIS_SQL_PREVIEW_LIMITS } from '@/lib/constants';
 import { AnalysisErrorCode, isAnalysisError } from '@/types';
 import type { AnalysisState, AnalysisContext, FileValidationResult } from '@/types';
+import type { AnalyzeResult } from '@pondpilot/flowscope-core';
 
 // Maximum retry attempts for file sync errors to prevent infinite loops
 const MAX_FILE_SYNC_RETRIES = 1;
@@ -55,6 +56,9 @@ export function useAnalysis(backendReady: boolean, options?: UseAnalysisOptions)
   });
   const analysisRequestRef = useRef(0);
   const currentProjectRef = useRef<Project | null>(currentProject);
+  // Set to true by setResultFromCache to suppress the next auto-triggered runAnalysis
+  // (EditorArea fires runAnalysis when activeFile changes; we skip it when result is already cached)
+  const suppressNextAutoAnalysisRef = useRef(false);
 
   useEffect(() => {
     currentProjectRef.current = currentProject;
@@ -339,6 +343,12 @@ export function useAnalysis(backendReady: boolean, options?: UseAnalysisOptions)
     async (activeFileContent?: string, activeFilePath?: string) => {
       if (!backendReady || !currentProject) return;
 
+      // If result was just injected from cache (setResultFromCache), skip this auto-triggered run
+      if (suppressNextAutoAnalysisRef.current) {
+        suppressNextAutoAnalysisRef.current = false;
+        return;
+      }
+
       const requestId = analysisRequestRef.current + 1;
       analysisRequestRef.current = requestId;
 
@@ -527,9 +537,24 @@ export function useAnalysis(backendReady: boolean, options?: UseAnalysisOptions)
     ]
   );
 
+  const setResultFromCache = useCallback(
+    (result: AnalyzeResult) => {
+      // Suppress the next auto-triggered runAnalysis (EditorArea fires on activeFile change)
+      suppressNextAutoAnalysisRef.current = true;
+      if (activeProjectId) {
+        storeResult(activeProjectId, result, hideCTEs ?? false);
+      }
+      startTransition(() => {
+        actionsRef.current.setResult(result);
+      });
+    },
+    [storeResult, activeProjectId, hideCTEs]
+  );
+
   return {
     ...state,
     runAnalysis,
     setError,
+    setResultFromCache,
   };
 }

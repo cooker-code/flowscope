@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { ChevronDown, Plus, Upload, FolderUp, Search, History } from 'lucide-react';
 import { useProject } from '@/lib/project-store';
 import { Input } from '@/components/ui/input';
+import type { AnalyzeResult } from '@pondpilot/flowscope-core';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,9 +30,10 @@ function formatAuditTs(ts: string): string {
 interface FileSelectorProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  setResultFromCache?: (result: AnalyzeResult) => void;
 }
 
-export function FileSelector({ open: controlledOpen, onOpenChange }: FileSelectorProps) {
+export function FileSelector({ open: controlledOpen, onOpenChange, setResultFromCache }: FileSelectorProps) {
   const {
     currentProject,
     createFile,
@@ -150,10 +152,14 @@ export function FileSelector({ open: controlledOpen, onOpenChange }: FileSelecto
         console.error(`Failed to fetch audit record ${auditId}: ${res.status}`);
         return;
       }
-      const record = (await res.json()) as { sql_text: string };
+      const record = (await res.json()) as { sql_text: string; result_json?: AnalyzeResult | null };
       // fileId in the backend project equals the file's `name` (path) field
       setBackendFileContent(fileName, record.sql_text);
       selectFile(fileName);
+      // Use cached result_json directly to avoid re-parsing; fall back to auto re-analysis if absent
+      if (record.result_json && setResultFromCache) {
+        setResultFromCache(record.result_json);
+      }
       setOpen(false);
     } catch (err) {
       console.error('Failed to load audit file content:', err);
