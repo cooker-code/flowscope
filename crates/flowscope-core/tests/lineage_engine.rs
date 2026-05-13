@@ -12426,3 +12426,88 @@ fn hive_with_cte_insert_overwrite_source_table_has_edges() {
         .find(|n| n.node_type == NodeType::Table && n.label.as_ref() == "src");
     assert!(src_node.is_some(), "source table 'src' should be present");
 }
+
+/// Regression test: same-name derived-table alias in different lexical scopes must
+/// produce two independent graph nodes, not be merged into one.
+///
+/// Before the fix, `generate_statement_scoped_node_id` used only (statement_index,
+/// alias) to derive the node ID, so a CTE-body `FROM (...) b` and an outer-query
+/// `FROM (...) b` in the same statement produced identical IDs and were silently
+/// merged by `add_node`. The fix adds `scope_id` to the ID so the two `b` nodes
+/// are distinct.
+#[test]
+fn same_name_derived_alias_in_nested_cte_scope_does_not_collide() {
+    // new_device CTE contains a derived table aliased `b` (device_users table).
+    // The outer INSERT SELECT also has a derived table aliased `b` (orders table).
+    // These two `b` nodes must remain independent.
+    let sql = r#"
+        WITH new_device AS (
+            SELECT u.user_id
+            FROM device_events e
+            LEFT JOIN (
+                SELECT user_id FROM device_users
+            ) b ON e.user_id = b.user_id
+        )
+        INSERT INTO target_table
+        SELECT nd.user_id, b.order_id
+        FROM new_device nd
+        LEFT JOIN (
+            SELECT user_id, order_id FROM orders
+        ) b ON nd.user_id = b.user_id
+    "#;
+
+    let result = run_analysis(sql, Dialect::Generic, None);
+
+    // There must be exactly 2 CTE nodes labelled `b` (one per lexical scope).
+    let b_nodes: Vec<_> = result
+        .nodes
+        .iter()
+        .filter(|n| n.node_type == NodeType::Cte && n.label.as_ref() == "b")
+        .collect();
+    assert_eq!(
+        b_nodes.len(),
+        2,
+        "expected 2 independent `b` derived-table nodes (one inside the CTE, one in the outer query), got {}",
+        b_nodes.len()
+    );
+
+    // The two nodes must have distinct IDs.
+    let ids: HashSet<_> = b_nodes.iter().map(|n| n.id.clone()).collect();
+    assert_eq!(ids.len(), 2, "the two `b` nodes must have distinct IDs");
+
+    // The new_device CTE should be present and only reference device_users, not orders.
+    let new_device_node = result
+        .nodes
+        .iter()
+        .find(|n| n.node_type == NodeType::Cte && n.label.as_ref() == "new_device")
+        .expect("new_device CTE should exist");
+
+    // No data_flow edge should connect the orders table to new_device.
+    let orders_node = result
+        .nodes
+        .iter()
+        .find(|n| n.node_type == NodeType::Table && n.label.as_ref() == "orders");
+
+    if let Some(orders) = orders_node {
+        let leaking_edge = result.edges.iter().any(|e| {
+            e.edge_type == EdgeType::DataFlow
+                && e.from == orders.id
+                && e.to == new_device_node.id
+        });
+        assert!(
+            !leaking_edge,
+            "orders table must NOT have a data_flow edge to new_device CTE (scope isolation bug)"
+        );
+    }
+
+    // device_users should be present as a source table.
+    let tables = collect_table_names(&result);
+    assert!(
+        tables.contains("device_users"),
+        "device_users should be tracked as a source"
+    );
+    assert!(
+        tables.contains("orders"),
+        "orders should be tracked as a source"
+    );
+}

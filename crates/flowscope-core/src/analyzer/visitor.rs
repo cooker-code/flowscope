@@ -8,7 +8,7 @@ use super::context::StatementContext;
 use super::expression::ExpressionAnalyzer;
 use super::helpers::{
     alias_visibility_warning, find_cte_body_span, find_cte_definition_span,
-    find_derived_table_alias_span, generate_statement_scoped_node_id,
+    find_derived_table_alias_span, generate_node_id, generate_statement_scoped_node_id,
 };
 use super::select_analyzer::SelectAnalyzer;
 use super::Analyzer;
@@ -689,13 +689,19 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
                 // We model derived tables as CTEs in the graph since they are conceptually
                 // similar: both are ephemeral, named result sets scoped to a single query.
                 // This avoids introducing a separate NodeType for a very similar concept.
+                //
+                // We include the current scope_id in the node ID so that two derived tables
+                // with the same alias in different lexical scopes (e.g., the same name used
+                // inside a CTE body and in the outer INSERT SELECT) produce distinct graph
+                // nodes rather than being silently merged by `add_node`.
+                let derived_scope_id = self.ctx.current_scope_id().unwrap_or(0);
                 let derived_node_id = alias_name.as_ref().map(|name| {
+                    let scoped_name = format!(
+                        "statement_{}::scope_{}::{}",
+                        self.ctx.statement_index, derived_scope_id, name
+                    );
                     self.ctx.add_node(Node {
-                        id: generate_statement_scoped_node_id(
-                            "derived",
-                            self.ctx.statement_index,
-                            name,
-                        ),
+                        id: generate_node_id("derived", &scoped_name),
                         node_type: NodeType::Cte,
                         label: name.clone().into(),
                         qualified_name: Some(name.clone().into()),
