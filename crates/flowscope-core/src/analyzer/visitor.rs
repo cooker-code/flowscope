@@ -602,8 +602,14 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
                 let Statement::Insert(insert) = insert_stmt else {
                     return;
                 };
-                let target_name = insert.table.to_string();
-                self.add_source_table(&target_name);
+                // The INSERT target is already registered as the sink by the caller
+                // (analyze_statement or analyze_insert). Here we only need to visit
+                // the source SELECT so its tables are registered as sources flowing
+                // into that sink. Calling add_source_table on the INSERT target would
+                // incorrectly register it as a source table.
+                if let Some(source_query) = &insert.source {
+                    self.visit_query(source_query);
+                }
             }
             SetExpr::Table(tbl) => {
                 let name = tbl

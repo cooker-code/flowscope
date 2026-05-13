@@ -21,7 +21,7 @@ use regex::Regex;
 use sqlparser::ast::{
     self, AlterTableOperation, Assignment, AssignmentTarget, CopyIntoSnowflakeKind, CopySource,
     CopyTarget, Expr, FromTable, MergeAction, MergeClause, MergeInsertKind, ObjectName,
-    RenameTableNameKind, Statement, TableFactor, TableWithJoins, UpdateTableFromKind,
+    RenameTableNameKind, SetExpr, Statement, TableFactor, TableWithJoins, UpdateTableFromKind,
 };
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
@@ -140,8 +140,27 @@ impl<'a> Analyzer<'a> {
                         producer_span,
                     ))
                 } else {
-                    ctx.ensure_output_node_with_model(None);
-                    None
+                    // sqlparser parses `WITH cte AS (...) INSERT OVERWRITE TABLE t SELECT ...`
+                    // as Statement::Query { body: SetExpr::Insert(...) }. In that case, the
+                    // INSERT target is the real sink — create a Table node for it and use it
+                    // as the sink so data_flow edges are created correctly.
+                    if let SetExpr::Insert(Statement::Insert(insert)) = query.body.as_ref() {
+                        let target_name = insert.table.to_string();
+                        let canonical = self.normalize_table_name(&target_name);
+                        let target_label = extract_simple_name(&target_name);
+                        let target_id = ctx.add_node(Node {
+                            id: generate_node_id("table", &canonical),
+                            node_type: NodeType::Table,
+                            label: target_label.into(),
+                            qualified_name: Some(canonical.clone().into()),
+                            ..Default::default()
+                        });
+                        self.tracker.record_produced(&canonical, ctx.statement_index);
+                        Some(target_id)
+                    } else {
+                        ctx.ensure_output_node_with_model(None);
+                        None
+                    }
                 };
 
                 self.analyze_query(&mut ctx, query, sink_target_id.as_deref());

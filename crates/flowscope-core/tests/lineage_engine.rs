@@ -12269,3 +12269,84 @@ fn oracle_insert_from_view_with_schema() {
 fn oracle_view_from_view_with_schema() {
     assert_oracle_no_unresolved_with_schema("view_from_view.sql");
 }
+
+// ─── Regression tests: Hive WITH ... INSERT OVERWRITE ───────────────────────
+
+/// Regression: sqlparser parses `WITH cte AS (...) INSERT OVERWRITE TABLE t SELECT ...`
+/// as `Statement::Query { body: SetExpr::Insert(...) }`.  Before the fix the INSERT
+/// target was registered as an isolated node with 0 edges.  After the fix it must have
+/// at least one incoming data_flow edge.
+#[test]
+fn hive_with_cte_insert_overwrite_target_table_has_edges() {
+    let sql = r#"
+        with cte as (select id from src)
+        insert overwrite table tgt
+        select id from cte
+    "#;
+    let result = run_analysis(sql, Dialect::Hive, None);
+    assert!(!result.summary.has_errors, "unexpected parse errors");
+
+    let tgt_node = result
+        .nodes
+        .iter()
+        .find(|n| n.node_type == NodeType::Table && n.label.as_ref() == "tgt");
+    assert!(tgt_node.is_some(), "target table 'tgt' should be present");
+    let tgt_id = &tgt_node.unwrap().id;
+
+    let edges_to_tgt = result
+        .edges
+        .iter()
+        .filter(|e| &e.to == tgt_id)
+        .count();
+    assert!(
+        edges_to_tgt > 0,
+        "target table 'tgt' must have at least one incoming edge, got 0"
+    );
+}
+
+/// The INSERT target must not be registered as a source table.
+#[test]
+fn hive_with_cte_insert_overwrite_target_not_registered_as_source() {
+    let sql = r#"
+        with cte as (select id from src)
+        insert overwrite table tgt
+        select id from cte
+    "#;
+    let result = run_analysis(sql, Dialect::Hive, None);
+
+    let tgt_id = result
+        .nodes
+        .iter()
+        .find(|n| n.node_type == NodeType::Table && n.label.as_ref() == "tgt")
+        .map(|n| &n.id)
+        .expect("target table 'tgt' should be present");
+
+    // There must be no outgoing data_flow edge FROM tgt TO anything else
+    // (which would happen if tgt were incorrectly registered as a source).
+    let outgoing_from_tgt = result
+        .edges
+        .iter()
+        .filter(|e| &e.from == tgt_id && e.edge_type == EdgeType::DataFlow)
+        .count();
+    assert_eq!(
+        outgoing_from_tgt, 0,
+        "target table 'tgt' must not have outgoing DataFlow edges (was registered as source)"
+    );
+}
+
+/// Verify that the plain source table also has edges (complete lineage chain).
+#[test]
+fn hive_with_cte_insert_overwrite_source_table_has_edges() {
+    let sql = r#"
+        with cte as (select id from src)
+        insert overwrite table tgt
+        select id from cte
+    "#;
+    let result = run_analysis(sql, Dialect::Hive, None);
+
+    let src_node = result
+        .nodes
+        .iter()
+        .find(|n| n.node_type == NodeType::Table && n.label.as_ref() == "src");
+    assert!(src_node.is_some(), "source table 'src' should be present");
+}
