@@ -34,6 +34,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/export/{format}", post(export))
         .route("/config", get(config))
         .route("/audit", get(audit_records))
+        .route("/audit/{id}", get(audit_record_detail))
 }
 
 // === Request/Response types ===
@@ -647,6 +648,31 @@ async fn audit_records(
         total: result.0,
         records: result.1,
     }))
+}
+
+/// GET /api/audit/:id - Fetch a single audit record with sql_text and result_json
+async fn audit_record_detail(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let audit_path = match state.config.audit_log_path {
+        Some(ref p) => p.clone(),
+        None => {
+            return Err((StatusCode::NOT_FOUND, "Audit logging is not enabled".to_string()));
+        }
+    };
+
+    let result = tokio::task::spawn_blocking(move || {
+        super::audit::AuditWriter::query_one(&audit_path, id)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Query failed: {e}")))?;
+
+    match result {
+        Some(record) => Ok(Json(record).into_response()),
+        None => Err((StatusCode::NOT_FOUND, format!("Audit record {id} not found"))),
+    }
 }
 
 fn normalize_rule_configs(

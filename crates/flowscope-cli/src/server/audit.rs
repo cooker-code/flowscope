@@ -315,10 +315,12 @@ impl AuditWriter {
         let extra_count = extra_params.len();
         let limit_idx = extra_count + 1;
         let offset_idx = extra_count + 2;
+        // List query: omit sql_text and result_json to keep responses small.
+        // Use GET /api/audit/:id for full detail including those fields.
         let select_sql = format!(
-            "SELECT id, ts, client_ip, endpoint, dialect, file_name, sql_text, sql_hash, sql_len, \
+            "SELECT id, ts, client_ip, endpoint, dialect, file_name, sql_hash, sql_len, \
              has_cte, has_union, success, duration_ms, stmt_count, table_count, sql_type, \
-             result_json, result_truncated, error_msg \
+             result_truncated, error_msg \
              FROM audit_log {where_clause} ORDER BY ts DESC LIMIT ?{limit_idx} OFFSET ?{offset_idx}"
         );
 
@@ -338,24 +340,17 @@ impl AuditWriter {
             let endpoint: String = row.get(3)?;
             let dialect: String = row.get(4)?;
             let file_name: Option<String> = row.get(5)?;
-            let sql_text: String = row.get(6)?;
-            let sql_hash: String = row.get(7)?;
-            let sql_len: i64 = row.get(8)?;
-            let has_cte: i32 = row.get(9)?;
-            let has_union: i32 = row.get(10)?;
-            let success: i32 = row.get(11)?;
-            let duration_ms: i64 = row.get(12)?;
-            let stmt_count: Option<i64> = row.get(13)?;
-            let table_count: Option<i64> = row.get(14)?;
-            let sql_type: Option<String> = row.get(15)?;
-            let result_json_raw: Option<String> = row.get(16)?;
-            let result_truncated: i32 = row.get(17)?;
-            let error_msg: Option<String> = row.get(18)?;
-
-            // Parse result_json string back to Value so it embeds as JSON, not escaped string
-            let result_json = result_json_raw
-                .as_deref()
-                .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
+            let sql_hash: String = row.get(6)?;
+            let sql_len: i64 = row.get(7)?;
+            let has_cte: i32 = row.get(8)?;
+            let has_union: i32 = row.get(9)?;
+            let success: i32 = row.get(10)?;
+            let duration_ms: i64 = row.get(11)?;
+            let stmt_count: Option<i64> = row.get(12)?;
+            let table_count: Option<i64> = row.get(13)?;
+            let sql_type: Option<String> = row.get(14)?;
+            let result_truncated: i32 = row.get(15)?;
+            let error_msg: Option<String> = row.get(16)?;
 
             records.push(serde_json::json!({
                 "id": id,
@@ -364,7 +359,6 @@ impl AuditWriter {
                 "endpoint": endpoint,
                 "dialect": dialect,
                 "file_name": file_name,
-                "sql_text": sql_text,
                 "sql_hash": sql_hash,
                 "sql_len": sql_len,
                 "has_cte": has_cte != 0,
@@ -374,12 +368,57 @@ impl AuditWriter {
                 "stmt_count": stmt_count,
                 "table_count": table_count,
                 "sql_type": sql_type,
-                "result_json": result_json,
                 "result_truncated": result_truncated != 0,
                 "error_msg": error_msg,
             }));
         }
 
         Ok((total, records))
+    }
+
+    /// Fetch a single audit record by id, including sql_text and result_json.
+    pub fn query_one(
+        db_path: &std::path::Path,
+        id: i64,
+    ) -> anyhow::Result<Option<serde_json::Value>> {
+        let conn = rusqlite::Connection::open(db_path)?;
+        let mut stmt = conn.prepare(
+            "SELECT id, ts, client_ip, endpoint, dialect, file_name, sql_text, sql_hash, sql_len, \
+             has_cte, has_union, success, duration_ms, stmt_count, table_count, sql_type, \
+             result_json, result_truncated, error_msg \
+             FROM audit_log WHERE id = ?1",
+        )?;
+        stmt.raw_bind_parameter(1, id)?;
+        let mut rows = stmt.raw_query();
+        match rows.next()? {
+            None => Ok(None),
+            Some(row) => {
+                let result_json_raw: Option<String> = row.get(16)?;
+                let result_json = result_json_raw
+                    .as_deref()
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
+                Ok(Some(serde_json::json!({
+                    "id":               row.get::<_, i64>(0)?,
+                    "ts":               row.get::<_, String>(1)?,
+                    "client_ip":        row.get::<_, String>(2)?,
+                    "endpoint":         row.get::<_, String>(3)?,
+                    "dialect":          row.get::<_, String>(4)?,
+                    "file_name":        row.get::<_, Option<String>>(5)?,
+                    "sql_text":         row.get::<_, String>(6)?,
+                    "sql_hash":         row.get::<_, String>(7)?,
+                    "sql_len":          row.get::<_, i64>(8)?,
+                    "has_cte":          row.get::<_, i32>(9)? != 0,
+                    "has_union":        row.get::<_, i32>(10)? != 0,
+                    "success":          row.get::<_, i32>(11)? != 0,
+                    "duration_ms":      row.get::<_, i64>(12)?,
+                    "stmt_count":       row.get::<_, Option<i64>>(13)?,
+                    "table_count":      row.get::<_, Option<i64>>(14)?,
+                    "sql_type":         row.get::<_, Option<String>>(15)?,
+                    "result_json":      result_json,
+                    "result_truncated": row.get::<_, i32>(17)? != 0,
+                    "error_msg":        row.get::<_, Option<String>>(18)?,
+                })))
+            }
+        }
     }
 }
