@@ -59,7 +59,8 @@
 
 - **审计存储**：SQLite（单文件嵌入式，`rusqlite` 或 `sqlx + sqlite`）
 - **审计端点范围**：仅含 SQL 输入的端点：`/api/analyze`、`/api/lint-fix`、`/api/export/:format`、`/api/split`
+- **网络绑定**：可配置，新增 `--host` 参数（默认 `127.0.0.1`，`0.0.0.0` 时同步开放 CORS）
 
 ## Open Questions
 
-1. **服务网络访问范围**：是 localhost-only 还是 `0.0.0.0`（团队共享）？
+1. **审计功能激活方式**：始终开启，还是需要 CLI 参数 `--audit-log <path>` 显式指定？
