@@ -274,9 +274,9 @@ impl AuditWriter {
         let limit_idx = extra_count + 1;
         let offset_idx = extra_count + 2;
         let select_sql = format!(
-            "SELECT id, ts, client_ip, endpoint, dialect, file_name, sql_hash, sql_len, \
+            "SELECT id, ts, client_ip, endpoint, dialect, file_name, sql_text, sql_hash, sql_len, \
              has_cte, has_union, success, duration_ms, stmt_count, table_count, \
-             result_truncated, error_msg \
+             result_json, result_truncated, error_msg \
              FROM audit_log {where_clause} ORDER BY ts DESC LIMIT ?{limit_idx} OFFSET ?{offset_idx}"
         );
 
@@ -296,16 +296,23 @@ impl AuditWriter {
             let endpoint: String = row.get(3)?;
             let dialect: String = row.get(4)?;
             let file_name: Option<String> = row.get(5)?;
-            let sql_hash: String = row.get(6)?;
-            let sql_len: i64 = row.get(7)?;
-            let has_cte: i32 = row.get(8)?;
-            let has_union: i32 = row.get(9)?;
-            let success: i32 = row.get(10)?;
-            let duration_ms: i64 = row.get(11)?;
-            let stmt_count: Option<i64> = row.get(12)?;
-            let table_count: Option<i64> = row.get(13)?;
-            let result_truncated: i32 = row.get(14)?;
-            let error_msg: Option<String> = row.get(15)?;
+            let sql_text: String = row.get(6)?;
+            let sql_hash: String = row.get(7)?;
+            let sql_len: i64 = row.get(8)?;
+            let has_cte: i32 = row.get(9)?;
+            let has_union: i32 = row.get(10)?;
+            let success: i32 = row.get(11)?;
+            let duration_ms: i64 = row.get(12)?;
+            let stmt_count: Option<i64> = row.get(13)?;
+            let table_count: Option<i64> = row.get(14)?;
+            let result_json_raw: Option<String> = row.get(15)?;
+            let result_truncated: i32 = row.get(16)?;
+            let error_msg: Option<String> = row.get(17)?;
+
+            // Parse result_json string back to Value so it embeds as JSON, not escaped string
+            let result_json = result_json_raw
+                .as_deref()
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
 
             records.push(serde_json::json!({
                 "id": id,
@@ -314,6 +321,7 @@ impl AuditWriter {
                 "endpoint": endpoint,
                 "dialect": dialect,
                 "file_name": file_name,
+                "sql_text": sql_text,
                 "sql_hash": sql_hash,
                 "sql_len": sql_len,
                 "has_cte": has_cte != 0,
@@ -322,6 +330,7 @@ impl AuditWriter {
                 "duration_ms": duration_ms,
                 "stmt_count": stmt_count,
                 "table_count": table_count,
+                "result_json": result_json,
                 "result_truncated": result_truncated != 0,
                 "error_msg": error_msg,
             }));
