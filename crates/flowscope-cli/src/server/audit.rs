@@ -26,8 +26,12 @@ pub struct AuditEntry {
     pub has_union: bool,
     pub success: bool,
     pub duration_ms: u64,
+    /// Number of meaningful statements (SET/config lines excluded).
     pub stmt_count: Option<usize>,
+    /// Number of physical tables only (CTE nodes excluded).
     pub table_count: Option<usize>,
+    /// Primary statement type of the SQL: INSERT / SELECT / WITH / etc.
+    pub sql_type: Option<String>,
     pub result_json: Option<String>,
     pub result_truncated: bool,
     pub error_msg: Option<String>,
@@ -35,34 +39,58 @@ pub struct AuditEntry {
 
 const RESULT_JSON_MAX_BYTES: usize = 1_048_576; // 1 MiB
 
-/// Returns (has_cte, has_union, stmt_count, table_count) extracted from an AnalyzeResult.
+/// Statement types that carry no lineage value (engine config directives).
+const CONFIG_STMT_TYPES: &[&str] = &["SET", "USE", "RESET"];
+
+/// Returns (has_cte, has_union, stmt_count, table_count, sql_type) from an AnalyzeResult.
 ///
-/// `has_union` is detected via two complementary methods:
-/// 1. Edge operation labels (works when actual tables are present in the UNION)
-/// 2. SQL text scan (catches literal-only UNIONs like `SELECT 1 UNION SELECT 2`)
-pub fn extract_audit_flags(result: &AnalyzeResult, sql_text: &str) -> (bool, bool, usize, usize) {
+/// - `stmt_count`:  meaningful statements only — SET/USE/RESET are excluded.
+/// - `table_count`: physical tables and views only — CTE nodes are excluded.
+/// - `sql_type`:    primary statement type of the first meaningful statement
+///                  (INSERT / SELECT / WITH / CREATE / …).
+/// - `has_union`:   detected via edge operation labels AND SQL text scan.
+pub fn extract_audit_flags(
+    result: &AnalyzeResult,
+    sql_text: &str,
+) -> (bool, bool, usize, usize, Option<String>) {
     let has_cte = result.nodes.iter().any(|n| n.node_type == NodeType::Cte);
 
-    // Check edges for UNION operation labels (covers table lineage graphs)
     let has_union_edge = result.edges.iter().any(|e| {
         e.operation
             .as_deref()
             .map(|s| s.to_ascii_uppercase().contains("UNION"))
             .unwrap_or(false)
     });
-
-    // Also scan SQL text tokens for UNION/INTERSECT/EXCEPT keywords as a fallback
-    // (covers literal-only queries where no edges are created)
     let has_union_text = {
         let upper = sql_text.to_ascii_uppercase();
         upper.contains("UNION") || upper.contains("INTERSECT") || upper.contains("EXCEPT")
     };
-
     let has_union = has_union_edge || has_union_text;
 
-    let stmt_count = result.summary.statement_count;
-    let table_count = result.summary.table_count;
-    (has_cte, has_union, stmt_count, table_count)
+    // Count only meaningful statements (skip SET / USE / RESET config lines)
+    let meaningful: Vec<&flowscope_core::StatementMeta> = result
+        .statements
+        .iter()
+        .filter(|s| {
+            !CONFIG_STMT_TYPES
+                .iter()
+                .any(|t| s.statement_type.eq_ignore_ascii_case(t))
+        })
+        .collect();
+
+    let stmt_count = meaningful.len();
+
+    // Primary sql_type = first meaningful statement type
+    let sql_type = meaningful.first().map(|s| s.statement_type.clone());
+
+    // Physical tables and views only — CTE nodes are excluded
+    let table_count = result
+        .nodes
+        .iter()
+        .filter(|n| matches!(n.node_type, NodeType::Table | NodeType::View))
+        .count();
+
+    (has_cte, has_union, stmt_count, table_count, sql_type)
 }
 
 /// Serialize AnalyzeResult to JSON, truncating at 1 MiB if necessary.
@@ -108,27 +136,33 @@ CREATE TABLE IF NOT EXISTS audit_log (
     duration_ms      INTEGER NOT NULL,
     stmt_count       INTEGER,
     table_count      INTEGER,
+    sql_type         TEXT,
     result_json      TEXT,
     result_truncated INTEGER NOT NULL DEFAULT 0,
     error_msg        TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_audit_ts       ON audit_log(ts);
-CREATE INDEX IF NOT EXISTS idx_audit_endpoint ON audit_log(endpoint);
-CREATE INDEX IF NOT EXISTS idx_audit_sql_hash ON audit_log(sql_hash);
-CREATE INDEX IF NOT EXISTS idx_audit_has_cte  ON audit_log(has_cte);
+CREATE INDEX IF NOT EXISTS idx_audit_ts        ON audit_log(ts);
+CREATE INDEX IF NOT EXISTS idx_audit_endpoint  ON audit_log(endpoint);
+CREATE INDEX IF NOT EXISTS idx_audit_sql_hash  ON audit_log(sql_hash);
+CREATE INDEX IF NOT EXISTS idx_audit_has_cte   ON audit_log(has_cte);
+CREATE INDEX IF NOT EXISTS idx_audit_sql_type  ON audit_log(sql_type);
 "#;
+
+/// Migration: add sql_type column to existing databases that pre-date this field.
+const MIGRATE_SQL_TYPE: &str =
+    "ALTER TABLE audit_log ADD COLUMN sql_type TEXT";
 
 const INSERT_SQL: &str = r#"
 INSERT INTO audit_log (
     ts, client_ip, endpoint, dialect, file_name,
     sql_text, sql_hash, sql_len,
     has_cte, has_union, success, duration_ms,
-    stmt_count, table_count, result_json, result_truncated, error_msg
+    stmt_count, table_count, sql_type, result_json, result_truncated, error_msg
 ) VALUES (
     ?1, ?2, ?3, ?4, ?5,
     ?6, ?7, ?8,
     ?9, ?10, ?11, ?12,
-    ?13, ?14, ?15, ?16, ?17
+    ?13, ?14, ?15, ?16, ?17, ?18
 )
 "#;
 
@@ -159,6 +193,13 @@ impl AuditWriter {
             conn.execute_batch(CREATE_TABLE_SQL).map_err(|e| {
                 anyhow::anyhow!("Failed to initialise audit schema: {}", e)
             })?;
+            // Migrate existing databases: ignore "duplicate column" error
+            if let Err(e) = conn.execute_batch(MIGRATE_SQL_TYPE) {
+                let msg = e.to_string();
+                if !msg.contains("duplicate column") {
+                    return Err(anyhow::anyhow!("Failed to migrate audit schema: {}", e));
+                }
+            }
             conn
         };
 
@@ -190,6 +231,7 @@ impl AuditWriter {
                             entry.duration_ms as i64,
                             entry.stmt_count.map(|v| v as i64),
                             entry.table_count.map(|v| v as i64),
+                            entry.sql_type,
                             entry.result_json,
                             entry.result_truncated as i32,
                             entry.error_msg,
@@ -275,7 +317,7 @@ impl AuditWriter {
         let offset_idx = extra_count + 2;
         let select_sql = format!(
             "SELECT id, ts, client_ip, endpoint, dialect, file_name, sql_text, sql_hash, sql_len, \
-             has_cte, has_union, success, duration_ms, stmt_count, table_count, \
+             has_cte, has_union, success, duration_ms, stmt_count, table_count, sql_type, \
              result_json, result_truncated, error_msg \
              FROM audit_log {where_clause} ORDER BY ts DESC LIMIT ?{limit_idx} OFFSET ?{offset_idx}"
         );
@@ -305,9 +347,10 @@ impl AuditWriter {
             let duration_ms: i64 = row.get(12)?;
             let stmt_count: Option<i64> = row.get(13)?;
             let table_count: Option<i64> = row.get(14)?;
-            let result_json_raw: Option<String> = row.get(15)?;
-            let result_truncated: i32 = row.get(16)?;
-            let error_msg: Option<String> = row.get(17)?;
+            let sql_type: Option<String> = row.get(15)?;
+            let result_json_raw: Option<String> = row.get(16)?;
+            let result_truncated: i32 = row.get(17)?;
+            let error_msg: Option<String> = row.get(18)?;
 
             // Parse result_json string back to Value so it embeds as JSON, not escaped string
             let result_json = result_json_raw
@@ -330,6 +373,7 @@ impl AuditWriter {
                 "duration_ms": duration_ms,
                 "stmt_count": stmt_count,
                 "table_count": table_count,
+                "sql_type": sql_type,
                 "result_json": result_json,
                 "result_truncated": result_truncated != 0,
                 "error_msg": error_msg,

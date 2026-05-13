@@ -202,7 +202,8 @@ async fn analyze(
         } else {
             payload.sql.clone()
         };
-        let (has_cte, has_union, stmt_count, table_count) = extract_audit_flags(&result, &combined_sql);
+        let (has_cte, has_union, stmt_count, table_count, sql_type) =
+            extract_audit_flags(&result, &combined_sql);
         let (result_json, result_truncated) = truncate_result_json(&result);
         let success = !result.summary.has_errors;
 
@@ -226,6 +227,7 @@ async fn analyze(
                     duration_ms,
                     stmt_count: Some(stmt_count),
                     table_count: Some(table_count),
+                    sql_type: sql_type.clone(),
                     result_json: result_json.clone(),
                     result_truncated,
                     error_msg: None,
@@ -250,6 +252,7 @@ async fn analyze(
                 duration_ms,
                 stmt_count: Some(stmt_count),
                 table_count: Some(table_count),
+                sql_type,
                 result_json,
                 result_truncated,
                 error_msg: None,
@@ -315,6 +318,7 @@ async fn split(
             duration_ms,
             stmt_count: Some(stmt_count),
             table_count: None,
+            sql_type: None,
             result_json: None,
             result_truncated: false,
             error_msg,
@@ -376,6 +380,7 @@ async fn lint_fix(
             duration_ms,
             stmt_count: None,
             table_count: None,
+            sql_type: None,
             result_json: None,
             result_truncated: false,
             error_msg,
@@ -458,7 +463,8 @@ async fn export(
         } else {
             payload.sql.clone()
         };
-        let (has_cte, has_union, stmt_count, table_count) = extract_audit_flags(&result, &export_combined_sql);
+        let (has_cte, has_union, stmt_count, table_count, sql_type) =
+            extract_audit_flags(&result, &export_combined_sql);
         let success = !result.summary.has_errors;
         let endpoint = format!("/api/export/{format}");
 
@@ -481,6 +487,7 @@ async fn export(
                     duration_ms,
                     stmt_count: Some(stmt_count),
                     table_count: Some(table_count),
+                    sql_type: sql_type.clone(),
                     result_json: None,
                     result_truncated: false,
                     error_msg: None,
@@ -504,6 +511,7 @@ async fn export(
                 duration_ms,
                 stmt_count: Some(stmt_count),
                 table_count: Some(table_count),
+                sql_type,
                 result_json: None,
                 result_truncated: false,
                 error_msg: None,
