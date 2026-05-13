@@ -5,6 +5,7 @@
 
 pub mod api;
 mod assets;
+pub mod audit;
 pub mod state;
 mod watcher;
 
@@ -17,6 +18,7 @@ use axum::Router;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 
+pub use audit::AuditWriter;
 pub use state::{AppState, ServerConfig};
 
 /// Run the HTTP server with embedded web UI.
@@ -33,9 +35,9 @@ pub async fn run_server(config: ServerConfig) -> Result<()> {
         }
     });
 
-    let app = build_router(state, config.port);
+    let app = build_router(Arc::clone(&state));
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], config.port));
+    let addr = SocketAddr::new(config.host, config.port);
 
     // Bind to port first to ensure it's available before opening browser
     let listener = tokio::net::TcpListener::bind(addr)
@@ -52,10 +54,13 @@ pub async fn run_server(config: ServerConfig) -> Result<()> {
         }
     }
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .context("Server error")?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
+    .context("Server error")?;
 
     watcher_handle.abort();
     println!("\nflowscope: server stopped");
@@ -77,23 +82,30 @@ pub async fn run_server(config: ServerConfig) -> Result<()> {
 const MAX_REQUEST_BODY_SIZE: usize = 100 * 1024 * 1024;
 
 /// Build the main router with all routes.
-pub fn build_router(state: Arc<AppState>, port: u16) -> Router {
-    // Restrict CORS to same-origin to prevent cross-site requests from reading local files.
-    // The server only binds to localhost, but without CORS restrictions any website could
-    // make requests to http://127.0.0.1:<port> and read the user's SQL files.
-    let allowed_origins = [
-        format!("http://localhost:{port}").parse().unwrap(),
-        format!("http://127.0.0.1:{port}").parse().unwrap(),
-    ];
+pub fn build_router(state: Arc<AppState>) -> Router {
+    let port = state.config.port;
+    let is_loopback = state.config.host.is_loopback();
 
-    let cors = CorsLayer::new()
-        .allow_origin(allowed_origins)
-        .allow_methods([
-            axum::http::Method::GET,
-            axum::http::Method::POST,
-            axum::http::Method::OPTIONS,
-        ])
-        .allow_headers([axum::http::header::CONTENT_TYPE]);
+    let cors = if is_loopback {
+        // Restrict CORS to same-origin to prevent cross-site requests from reading local files.
+        // The server only binds to localhost, but without CORS restrictions any website could
+        // make requests to http://127.0.0.1:<port> and read the user's SQL files.
+        let allowed_origins = [
+            format!("http://localhost:{port}").parse().unwrap(),
+            format!("http://127.0.0.1:{port}").parse().unwrap(),
+        ];
+        CorsLayer::new()
+            .allow_origin(allowed_origins)
+            .allow_methods([
+                axum::http::Method::GET,
+                axum::http::Method::POST,
+                axum::http::Method::OPTIONS,
+            ])
+            .allow_headers([axum::http::header::CONTENT_TYPE])
+    } else {
+        // External access: allow all origins
+        CorsLayer::permissive()
+    };
 
     Router::new()
         .nest("/api", api::api_routes())

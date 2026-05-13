@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use axum::{
     body::Body,
+    extract::connect_info::MockConnectInfo,
     http::{Request, StatusCode},
     Router,
 };
@@ -18,6 +19,7 @@ use flowscope_cli::fix::{apply_lint_fixes_with_runtime_options, LintFixRuntimeOp
 use flowscope_cli::server::{build_router, state::AppState, state::ServerConfig};
 use flowscope_core::{Dialect, FileSource, LintConfig};
 use serde_json::{json, Value};
+use std::net::SocketAddr;
 use tokio::sync::RwLock;
 use tower::ServiceExt;
 
@@ -32,7 +34,13 @@ fn test_state(config: ServerConfig, files: Vec<FileSource>) -> Arc<AppState> {
         files: RwLock::new(files),
         schema: RwLock::new(None),
         mtimes: RwLock::new(HashMap::new()),
+        audit: None,
     })
+}
+
+/// Build a test router with MockConnectInfo for unit tests that use oneshot().
+fn test_router(state: Arc<AppState>) -> Router {
+    build_router(state).layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))))
 }
 
 fn default_config() -> ServerConfig {
@@ -45,6 +53,8 @@ fn default_config() -> ServerConfig {
         port: 3000,
         open_browser: false,
         schema_path: None,
+        host: std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+        audit_log_path: None,
         #[cfg(feature = "templating")]
         template_config: None,
     }
@@ -74,7 +84,7 @@ async fn post_json(app: &Router, path: &str, payload: Value) -> (StatusCode, Val
 #[tokio::test]
 async fn health_returns_ok_status() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let response = app
         .oneshot(Request::get("/api/health").body(Body::empty()).unwrap())
@@ -97,7 +107,7 @@ async fn health_returns_ok_status() {
 #[tokio::test]
 async fn analyze_simple_select() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let response = app
         .oneshot(
@@ -128,7 +138,7 @@ async fn analyze_simple_select() {
 #[tokio::test]
 async fn analyze_with_join() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let response = app
         .oneshot(
@@ -162,7 +172,7 @@ async fn analyze_with_join() {
 #[tokio::test]
 async fn completion_returns_items() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let response = app
         .oneshot(
@@ -196,7 +206,7 @@ async fn completion_returns_items() {
 #[tokio::test]
 async fn split_multiple_statements() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let response = app
         .oneshot(
@@ -230,7 +240,7 @@ async fn split_multiple_statements() {
 #[tokio::test]
 async fn lint_fix_matches_shared_runtime_pipeline_for_cascading_sql() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
     let sql = "SELECT a +\n b FROM t";
 
     let (status, json) = post_json(
@@ -287,7 +297,7 @@ async fn lint_fix_matches_shared_runtime_pipeline_for_cascading_sql() {
 #[tokio::test]
 async fn lint_fix_applies_safe_fix_and_reports_counts() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -313,7 +323,7 @@ async fn lint_fix_applies_safe_fix_and_reports_counts() {
 #[tokio::test]
 async fn lint_fix_rule_config_enables_cv006_core_autofix() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -341,7 +351,7 @@ async fn lint_fix_rule_config_enables_cv006_core_autofix() {
 #[tokio::test]
 async fn lint_fix_applies_cv006_spacing_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -364,7 +374,7 @@ async fn lint_fix_applies_cv006_spacing_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_cv002_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -387,7 +397,7 @@ async fn lint_fix_applies_cv002_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_cv001_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -413,7 +423,7 @@ async fn lint_fix_applies_cv001_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_cv005_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -440,7 +450,7 @@ async fn lint_fix_applies_cv005_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_cv007_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -463,7 +473,7 @@ async fn lint_fix_applies_cv007_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_lt006_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -490,7 +500,7 @@ async fn lint_fix_applies_lt006_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_lt005_core_autofix_in_patch_mode_with_config() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
     let sql = format!("SELECT {} FROM t\n", vec!["column_name"; 60].join(" "));
 
     let (status, json) = post_json(
@@ -523,7 +533,7 @@ async fn lint_fix_applies_lt005_core_autofix_in_patch_mode_with_config() {
 #[tokio::test]
 async fn lint_fix_applies_al005_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -547,7 +557,7 @@ async fn lint_fix_applies_al005_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_al001_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -570,7 +580,7 @@ async fn lint_fix_applies_al001_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_al009_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -593,7 +603,7 @@ async fn lint_fix_applies_al009_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_st001_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -616,7 +626,7 @@ async fn lint_fix_applies_st001_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_am001_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -640,7 +650,7 @@ async fn lint_fix_applies_am001_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_am002_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -664,7 +674,7 @@ async fn lint_fix_applies_am002_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_am003_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -688,7 +698,7 @@ async fn lint_fix_applies_am003_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_am005_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -711,7 +721,7 @@ async fn lint_fix_applies_am005_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_am008_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -734,7 +744,7 @@ async fn lint_fix_applies_am008_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_st006_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -757,7 +767,7 @@ async fn lint_fix_applies_st006_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_st009_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -780,7 +790,7 @@ async fn lint_fix_applies_st009_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_st002_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -803,7 +813,7 @@ async fn lint_fix_applies_st002_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_st008_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -826,7 +836,7 @@ async fn lint_fix_applies_st008_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_lt004_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -848,7 +858,7 @@ async fn lint_fix_applies_lt004_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_lt003_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -871,7 +881,7 @@ async fn lint_fix_applies_lt003_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_lt001_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -894,7 +904,7 @@ async fn lint_fix_applies_lt001_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_lt002_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -919,7 +929,7 @@ async fn lint_fix_applies_tq003_core_autofix_in_patch_mode() {
     let mut config = default_config();
     config.dialect = Dialect::Mssql;
     let state = test_state(config, vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -944,7 +954,7 @@ async fn lint_fix_applies_tq002_core_autofix_in_patch_mode() {
     let mut config = default_config();
     config.dialect = Dialect::Mssql;
     let state = test_state(config, vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -971,7 +981,7 @@ async fn lint_fix_applies_tq002_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_st005_core_autofix_in_unsafe_mode_with_from_config() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1000,7 +1010,7 @@ async fn lint_fix_applies_st005_core_autofix_in_unsafe_mode_with_from_config() {
 #[tokio::test]
 async fn lint_fix_applies_cp001_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1023,7 +1033,7 @@ async fn lint_fix_applies_cp001_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_cp003_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1046,7 +1056,7 @@ async fn lint_fix_applies_cp003_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_cp002_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1071,7 +1081,7 @@ async fn lint_fix_applies_cp002_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_cp004_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1094,7 +1104,7 @@ async fn lint_fix_applies_cp004_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_cp005_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1118,7 +1128,7 @@ async fn lint_fix_applies_cp005_core_autofix_in_patch_mode() {
 async fn lint_fix_applies_cv010_core_autofix_in_patch_mode() {
     // CV10 only fires in dialects where both single/double quotes are strings.
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1143,7 +1153,7 @@ async fn lint_fix_applies_cv010_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_rf004_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1168,7 +1178,7 @@ async fn lint_fix_applies_rf004_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_rf003_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1191,7 +1201,7 @@ async fn lint_fix_applies_rf003_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_rf006_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1214,7 +1224,7 @@ async fn lint_fix_applies_rf006_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_cv003_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1237,7 +1247,7 @@ async fn lint_fix_applies_cv003_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_rule_config_enables_cv003_require_core_autofix() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1265,7 +1275,7 @@ async fn lint_fix_rule_config_enables_cv003_require_core_autofix() {
 #[tokio::test]
 async fn lint_fix_applies_st012_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1288,7 +1298,7 @@ async fn lint_fix_applies_st012_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_lt012_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1311,7 +1321,7 @@ async fn lint_fix_applies_lt012_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_lt013_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1338,7 +1348,7 @@ async fn lint_fix_applies_lt013_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_lt014_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1361,7 +1371,7 @@ async fn lint_fix_applies_lt014_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_lt010_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1384,7 +1394,7 @@ async fn lint_fix_applies_lt010_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_lt011_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1408,7 +1418,7 @@ async fn lint_fix_applies_lt011_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_lt007_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1431,7 +1441,7 @@ async fn lint_fix_applies_lt007_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_lt009_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1455,7 +1465,7 @@ async fn lint_fix_applies_lt009_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_lt008_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1478,7 +1488,7 @@ async fn lint_fix_applies_lt008_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_lt015_core_autofix_in_patch_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1501,7 +1511,7 @@ async fn lint_fix_applies_lt015_core_autofix_in_patch_mode() {
 #[tokio::test]
 async fn lint_fix_applies_jj001_core_autofix_only_in_unsafe_mode() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
     let sql = "SELECT '{{foo}}' AS templated\n";
 
     let (safe_status, safe_json) = post_json(
@@ -1540,7 +1550,7 @@ async fn lint_fix_applies_jj001_core_autofix_only_in_unsafe_mode() {
 #[tokio::test]
 async fn lint_fix_safe_vs_unsafe_mode_shows_expected_delta() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
     let sql = SQL_UNSAFE_FIX_REPRESENTATIVE;
 
     let (safe_status, safe_json) = post_json(
@@ -1590,7 +1600,7 @@ async fn lint_fix_safe_vs_unsafe_mode_shows_expected_delta() {
 #[tokio::test]
 async fn lint_fix_unsafe_without_legacy_ast_rewrites_keeps_st05_shape() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
     let sql = SQL_UNSAFE_FIX_REPRESENTATIVE;
 
     let (status, json) = post_json(
@@ -1614,7 +1624,7 @@ async fn lint_fix_unsafe_without_legacy_ast_rewrites_keeps_st05_shape() {
 #[tokio::test]
 async fn lint_fix_preserves_comments_while_fixing_non_comment_regions() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1643,7 +1653,7 @@ async fn lint_fix_preserves_comments_while_fixing_non_comment_regions() {
 #[tokio::test]
 async fn lint_fix_respects_disabled_rules() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let (status, json) = post_json(
         &app,
@@ -1669,7 +1679,7 @@ async fn lint_fix_respects_disabled_rules() {
 #[tokio::test]
 async fn lint_fix_rejects_non_object_rule_config_entries() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let response = app
         .oneshot(
@@ -1705,7 +1715,7 @@ async fn lint_fix_rejects_non_object_rule_config_entries() {
 #[tokio::test]
 async fn files_returns_empty_when_no_files() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let response = app
         .oneshot(Request::get("/api/files").body(Body::empty()).unwrap())
@@ -1737,7 +1747,7 @@ async fn files_returns_loaded_files() {
     ];
 
     let state = test_state(default_config(), files);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let response = app
         .oneshot(Request::get("/api/files").body(Body::empty()).unwrap())
@@ -1764,7 +1774,7 @@ async fn files_returns_loaded_files() {
 #[tokio::test]
 async fn schema_returns_null_when_no_schema() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let response = app
         .oneshot(Request::get("/api/schema").body(Body::empty()).unwrap())
@@ -1794,12 +1804,14 @@ async fn config_returns_server_configuration() {
         port: 8080,
         open_browser: false,
         schema_path: None,
+        host: std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+        audit_log_path: None,
         #[cfg(feature = "templating")]
         template_config: None,
     };
 
     let state = test_state(config, vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let response = app
         .oneshot(Request::get("/api/config").body(Body::empty()).unwrap())
@@ -1823,7 +1835,7 @@ async fn config_returns_server_configuration() {
 #[tokio::test]
 async fn export_json_format() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let response = app
         .oneshot(
@@ -1850,7 +1862,7 @@ async fn export_json_format() {
 #[tokio::test]
 async fn export_mermaid_format() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let response = app
         .oneshot(
@@ -1877,7 +1889,7 @@ async fn export_mermaid_format() {
 #[tokio::test]
 async fn export_unknown_format_returns_error() {
     let state = test_state(default_config(), vec![]);
-    let app = build_router(state, 3000);
+    let app = test_router(state);
 
     let response = app
         .oneshot(
@@ -1895,4 +1907,303 @@ async fn export_unknown_format_returns_error() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+// === Audit logging tests ===
+
+/// Helper: create AppState with audit logging enabled using a temp SQLite file.
+fn test_state_with_audit(
+    db_path: &std::path::Path,
+) -> Arc<AppState> {
+    use flowscope_cli::server::audit::AuditWriter;
+    let mut config = default_config();
+    config.audit_log_path = Some(db_path.to_path_buf());
+
+    let writer = AuditWriter::new(db_path.to_path_buf()).expect("AuditWriter init");
+    Arc::new(AppState {
+        config,
+        files: RwLock::new(vec![]),
+        schema: RwLock::new(None),
+        mtimes: RwLock::new(HashMap::new()),
+        audit: Some(std::sync::Arc::new(writer)),
+    })
+}
+
+/// Wait until the given SQLite database has `expected_count` rows.
+async fn wait_for_audit_rows(db_path: &std::path::Path, expected_count: usize) {
+    use rusqlite::Connection;
+    let db_path = db_path.to_path_buf();
+    for _ in 0..50 {
+        let path = db_path.clone();
+        let count: usize = tokio::task::spawn_blocking(move || {
+            let conn = Connection::open(&path)?;
+            let count: i64 = conn.query_row("SELECT COUNT(*) FROM audit_log", [], |r| r.get(0))?;
+            Ok::<_, rusqlite::Error>(count as usize)
+        })
+        .await
+        .unwrap()
+        .unwrap_or(0);
+
+        if count >= expected_count {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    panic!("Timed out waiting for {expected_count} audit rows");
+}
+
+#[tokio::test]
+async fn audit_records_written_for_analyze_inline_sql() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("audit.db");
+
+    let state = test_state_with_audit(&db_path);
+    let app = build_router(Arc::clone(&state))
+        .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))));
+
+    let (status, _json) = post_json(
+        &app,
+        "/api/analyze",
+        json!({ "sql": "SELECT id FROM users" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    wait_for_audit_rows(&db_path, 1).await;
+
+    // Verify the audit row
+    let db_path2 = db_path.clone();
+    let rows = tokio::task::spawn_blocking(move || {
+        use rusqlite::Connection;
+        let conn = Connection::open(&db_path2).unwrap();
+        let mut stmt = conn
+            .prepare("SELECT endpoint, sql_text, file_name, success FROM audit_log")
+            .unwrap();
+        let rows: Vec<(String, String, Option<String>, i32)> = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        rows
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, "/api/analyze");
+    assert!(rows[0].1.contains("SELECT id FROM users"));
+    assert!(rows[0].2.is_none()); // file_name is NULL for inline
+    assert_eq!(rows[0].3, 1);    // success = 1
+}
+
+#[tokio::test]
+async fn audit_files_array_writes_multiple_records() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("audit.db");
+
+    let state = test_state_with_audit(&db_path);
+    let app = build_router(Arc::clone(&state))
+        .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))));
+
+    let (status, _) = post_json(
+        &app,
+        "/api/analyze",
+        json!({
+            "sql": "",
+            "files": [
+                { "name": "a.sql", "content": "SELECT 1" },
+                { "name": "b.sql", "content": "SELECT 2" },
+                { "name": "c.sql", "content": "SELECT 3" },
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    // Expect 3 rows, one per file
+    wait_for_audit_rows(&db_path, 3).await;
+
+    let db_path2 = db_path.clone();
+    let file_names: Vec<Option<String>> = tokio::task::spawn_blocking(move || {
+        use rusqlite::Connection;
+        let conn = Connection::open(&db_path2).unwrap();
+        let mut stmt = conn
+            .prepare("SELECT file_name FROM audit_log ORDER BY id")
+            .unwrap();
+        stmt.query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(file_names.len(), 3);
+    let names: Vec<String> = file_names.into_iter().flatten().collect();
+    assert!(names.contains(&"a.sql".to_string()));
+    assert!(names.contains(&"b.sql".to_string()));
+    assert!(names.contains(&"c.sql".to_string()));
+}
+
+#[tokio::test]
+async fn audit_has_cte_flag_set_for_cte_query() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("audit.db");
+
+    let state = test_state_with_audit(&db_path);
+    let app = build_router(Arc::clone(&state))
+        .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))));
+
+    let (status, _) = post_json(
+        &app,
+        "/api/analyze",
+        json!({ "sql": "WITH cte AS (SELECT 1) SELECT * FROM cte" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    wait_for_audit_rows(&db_path, 1).await;
+
+    let db_path2 = db_path.clone();
+    let (has_cte, has_union): (i32, i32) = tokio::task::spawn_blocking(move || {
+        use rusqlite::Connection;
+        let conn = Connection::open(&db_path2).unwrap();
+        conn.query_row(
+            "SELECT has_cte, has_union FROM audit_log LIMIT 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap()
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(has_cte, 1, "has_cte should be 1 for CTE query");
+    assert_eq!(has_union, 0, "has_union should be 0");
+}
+
+#[tokio::test]
+async fn audit_has_union_flag_set_for_union_query() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("audit.db");
+
+    let state = test_state_with_audit(&db_path);
+    let app = build_router(Arc::clone(&state))
+        .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))));
+
+    // Use a query with real tables so that edges are created with the UNION operation label
+    let (status, _) = post_json(
+        &app,
+        "/api/analyze",
+        json!({ "sql": "SELECT id FROM users UNION ALL SELECT id FROM admins" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    wait_for_audit_rows(&db_path, 1).await;
+
+    let db_path2 = db_path.clone();
+    let has_union: i32 = tokio::task::spawn_blocking(move || {
+        use rusqlite::Connection;
+        let conn = Connection::open(&db_path2).unwrap();
+        conn.query_row(
+            "SELECT has_union FROM audit_log LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap()
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(has_union, 1, "has_union should be 1 for UNION query with tables");
+}
+
+#[tokio::test]
+async fn audit_query_api_returns_records() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("audit.db");
+
+    let state = test_state_with_audit(&db_path);
+    let app = build_router(Arc::clone(&state))
+        .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))));
+
+    // Insert a few records
+    for i in 1..=3 {
+        let (status, _) = post_json(
+            &app,
+            "/api/analyze",
+            json!({ "sql": format!("SELECT {i}") }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    wait_for_audit_rows(&db_path, 3).await;
+
+    // Query the audit API
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/api/audit?limit=10&offset=0")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(json["total"], 3);
+    assert_eq!(json["records"].as_array().unwrap().len(), 3);
+    // Verify record structure
+    let record = &json["records"][0];
+    assert!(record["endpoint"].is_string());
+    assert!(record["ts"].is_string());
+    assert!(record["sql_hash"].is_string());
+}
+
+#[tokio::test]
+async fn audit_disabled_when_no_path() {
+    // When audit_log_path is None, no SQLite file should be created
+    let state = test_state(default_config(), vec![]);
+    assert!(state.audit.is_none(), "audit should be None when no path configured");
+
+    let app = test_router(state);
+    let (status, _) = post_json(
+        &app,
+        "/api/analyze",
+        json!({ "sql": "SELECT 1" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    // No crash, no side effects
+}
+
+#[tokio::test]
+async fn audit_query_api_returns_empty_when_disabled() {
+    // When audit is disabled, GET /api/audit should return empty results (not an error)
+    let state = test_state(default_config(), vec![]);
+    let app = test_router(state);
+
+    let response = app
+        .oneshot(
+            Request::get("/api/audit")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["total"], 0);
+    assert!(json["records"].as_array().unwrap().is_empty());
 }

@@ -3,17 +3,22 @@
 //! This module provides the API endpoints for the web UI to interact with
 //! the FlowScope analysis engine.
 
+use std::net::SocketAddr;
 use std::{collections::BTreeMap, sync::Arc};
 
 use axum::{
-    extract::{Path, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
+use chrono::SecondsFormat;
 use serde::{Deserialize, Serialize};
 
+use super::audit::{
+    extract_audit_flags, sha256_hex, truncate_result_json, AuditEntry,
+};
 use super::AppState;
 
 /// Build the API router with all endpoints.
@@ -28,6 +33,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/schema", get(schema))
         .route("/export/{format}", post(export))
         .route("/config", get(config))
+        .route("/audit", get(audit_records))
 }
 
 // === Request/Response types ===
@@ -116,6 +122,27 @@ struct LintFixSkippedCountsResponse {
     blocked_total: usize,
 }
 
+#[derive(Deserialize)]
+struct AuditQueryParams {
+    #[serde(default = "default_audit_limit")]
+    limit: i64,
+    #[serde(default)]
+    offset: i64,
+    from: Option<String>,
+    to: Option<String>,
+    endpoint: Option<String>,
+}
+
+fn default_audit_limit() -> i64 {
+    50
+}
+
+#[derive(Serialize)]
+struct AuditQueryResponse {
+    total: i64,
+    records: Vec<serde_json::Value>,
+}
+
 // === Handlers ===
 
 /// GET /api/health - Health check with version
@@ -129,8 +156,10 @@ async fn health() -> Json<HealthResponse> {
 /// POST /api/analyze - Run lineage analysis
 async fn analyze(
     State(state): State<Arc<AppState>>,
+    ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
     Json(payload): Json<AnalyzeRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let start = std::time::Instant::now();
     let schema = state.schema.read().await.clone();
 
     // Build analysis options from request
@@ -149,8 +178,8 @@ async fn analyze(
     let template_config = resolve_template_config(payload.template_mode.as_deref(), state.as_ref());
 
     let request = flowscope_core::AnalyzeRequest {
-        sql: payload.sql,
-        files: payload.files,
+        sql: payload.sql.clone(),
+        files: payload.files.clone(),
         dialect: state.config.dialect,
         source_name: None,
         options,
@@ -160,6 +189,74 @@ async fn analyze(
     };
 
     let result = flowscope_core::analyze(&request);
+    let duration_ms = start.elapsed().as_millis() as u64;
+
+    // Record audit entries if audit logging is enabled
+    if let Some(ref audit) = state.audit {
+        let ts = chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+        let client_ip = client_addr.ip().to_string();
+        let dialect = format!("{:?}", state.config.dialect);
+        // Combine SQL text for flag detection (files mode joins all file content)
+        let combined_sql: String = if let Some(ref files) = payload.files {
+            files.iter().map(|f| f.content.as_str()).collect::<Vec<_>>().join("\n")
+        } else {
+            payload.sql.clone()
+        };
+        let (has_cte, has_union, stmt_count, table_count) = extract_audit_flags(&result, &combined_sql);
+        let (result_json, result_truncated) = truncate_result_json(&result);
+        let success = !result.summary.has_errors;
+
+        if let Some(ref files) = payload.files {
+            // files[] mode: one audit record per file
+            for file in files {
+                let sql_hash = sha256_hex(&file.content);
+                let sql_len = file.content.len();
+                audit.record(AuditEntry {
+                    ts: ts.clone(),
+                    client_ip: client_ip.clone(),
+                    endpoint: "/api/analyze".to_string(),
+                    dialect: dialect.clone(),
+                    file_name: Some(file.name.clone()),
+                    sql_text: file.content.clone(),
+                    sql_hash,
+                    sql_len,
+                    has_cte,
+                    has_union,
+                    success,
+                    duration_ms,
+                    stmt_count: Some(stmt_count),
+                    table_count: Some(table_count),
+                    result_json: result_json.clone(),
+                    result_truncated,
+                    error_msg: None,
+                });
+            }
+        } else {
+            // Inline SQL mode
+            let sql_hash = sha256_hex(&payload.sql);
+            let sql_len = payload.sql.len();
+            audit.record(AuditEntry {
+                ts,
+                client_ip,
+                endpoint: "/api/analyze".to_string(),
+                dialect,
+                file_name: None,
+                sql_text: payload.sql.clone(),
+                sql_hash,
+                sql_len,
+                has_cte,
+                has_union,
+                success,
+                duration_ms,
+                stmt_count: Some(stmt_count),
+                table_count: Some(table_count),
+                result_json,
+                result_truncated,
+                error_msg: None,
+            });
+        }
+    }
+
     Ok(Json(result))
 }
 
@@ -184,22 +281,57 @@ async fn completion(
 /// POST /api/split - Split SQL into statements
 async fn split(
     State(state): State<Arc<AppState>>,
+    ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
     Json(payload): Json<SplitRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let start = std::time::Instant::now();
+
     let request = flowscope_core::StatementSplitRequest {
-        sql: payload.sql,
+        sql: payload.sql.clone(),
         dialect: state.config.dialect,
     };
 
     let result = flowscope_core::split_statements(&request);
+    let duration_ms = start.elapsed().as_millis() as u64;
+
+    if let Some(ref audit) = state.audit {
+        let sql_hash = sha256_hex(&payload.sql);
+        let sql_len = payload.sql.len();
+        let stmt_count = result.statements.len();
+        let success = result.error.is_none();
+        let error_msg = result.error.clone();
+        audit.record(AuditEntry {
+            ts: chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+            client_ip: client_addr.ip().to_string(),
+            endpoint: "/api/split".to_string(),
+            dialect: format!("{:?}", state.config.dialect),
+            file_name: None,
+            sql_text: payload.sql,
+            sql_hash,
+            sql_len,
+            has_cte: false,
+            has_union: false,
+            success,
+            duration_ms,
+            stmt_count: Some(stmt_count),
+            table_count: None,
+            result_json: None,
+            result_truncated: false,
+            error_msg,
+        });
+    }
+
     Ok(Json(result))
 }
 
 /// POST /api/lint-fix - Apply deterministic lint fixes to SQL text.
 async fn lint_fix(
     State(state): State<Arc<AppState>>,
+    ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
     Json(payload): Json<LintFixRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let start = std::time::Instant::now();
+
     let rule_configs = normalize_rule_configs(payload.rule_configs)
         .map_err(|err| (StatusCode::BAD_REQUEST, err))?;
 
@@ -209,7 +341,7 @@ async fn lint_fix(
         rule_configs,
     };
 
-    let execution = crate::fix::apply_lint_fixes_with_runtime_options(
+    let exec_result = crate::fix::apply_lint_fixes_with_runtime_options(
         &payload.sql,
         state.config.dialect,
         &lint_config,
@@ -217,8 +349,40 @@ async fn lint_fix(
             include_unsafe_fixes: payload.unsafe_fixes,
             legacy_ast_fixes: payload.legacy_ast_fixes,
         },
-    )
-    .map_err(|err| {
+    );
+
+    let duration_ms = start.elapsed().as_millis() as u64;
+
+    // Record audit entry before potentially returning an error
+    if let Some(ref audit) = state.audit {
+        let sql_hash = sha256_hex(&payload.sql);
+        let sql_len = payload.sql.len();
+        let (success, error_msg) = match &exec_result {
+            Ok(_) => (true, None),
+            Err(e) => (false, Some(e.to_string())),
+        };
+        audit.record(AuditEntry {
+            ts: chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+            client_ip: client_addr.ip().to_string(),
+            endpoint: "/api/lint-fix".to_string(),
+            dialect: format!("{:?}", state.config.dialect),
+            file_name: None,
+            sql_text: payload.sql.clone(),
+            sql_hash,
+            sql_len,
+            has_cte: false,
+            has_union: false,
+            success,
+            duration_ms,
+            stmt_count: None,
+            table_count: None,
+            result_json: None,
+            result_truncated: false,
+            error_msg,
+        });
+    }
+
+    let execution = exec_result.map_err(|err| {
         eprintln!("flowscope: lint-fix failed: {err}");
         (
             StatusCode::BAD_REQUEST,
@@ -263,14 +427,16 @@ async fn schema(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 /// POST /api/export/:format - Export to specified format
 async fn export(
     State(state): State<Arc<AppState>>,
+    ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
     Path(format): Path<String>,
     Json(payload): Json<ExportRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let start = std::time::Instant::now();
     let schema = state.schema.read().await.clone();
 
     let request = flowscope_core::AnalyzeRequest {
-        sql: payload.sql,
-        files: payload.files,
+        sql: payload.sql.clone(),
+        files: payload.files.clone(),
         dialect: state.config.dialect,
         source_name: None,
         options: None,
@@ -280,6 +446,70 @@ async fn export(
     };
 
     let result = flowscope_core::analyze(&request);
+    let duration_ms = start.elapsed().as_millis() as u64;
+
+    // Record audit entry for export
+    if let Some(ref audit) = state.audit {
+        let ts = chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+        let client_ip = client_addr.ip().to_string();
+        let dialect = format!("{:?}", state.config.dialect);
+        let export_combined_sql: String = if let Some(ref files) = payload.files {
+            files.iter().map(|f| f.content.as_str()).collect::<Vec<_>>().join("\n")
+        } else {
+            payload.sql.clone()
+        };
+        let (has_cte, has_union, stmt_count, table_count) = extract_audit_flags(&result, &export_combined_sql);
+        let success = !result.summary.has_errors;
+        let endpoint = format!("/api/export/{format}");
+
+        if let Some(ref files) = payload.files {
+            for file in files {
+                let sql_hash = sha256_hex(&file.content);
+                let sql_len = file.content.len();
+                audit.record(AuditEntry {
+                    ts: ts.clone(),
+                    client_ip: client_ip.clone(),
+                    endpoint: endpoint.clone(),
+                    dialect: dialect.clone(),
+                    file_name: Some(file.name.clone()),
+                    sql_text: file.content.clone(),
+                    sql_hash,
+                    sql_len,
+                    has_cte,
+                    has_union,
+                    success,
+                    duration_ms,
+                    stmt_count: Some(stmt_count),
+                    table_count: Some(table_count),
+                    result_json: None,
+                    result_truncated: false,
+                    error_msg: None,
+                });
+            }
+        } else {
+            let sql_hash = sha256_hex(&payload.sql);
+            let sql_len = payload.sql.len();
+            audit.record(AuditEntry {
+                ts,
+                client_ip,
+                endpoint,
+                dialect,
+                file_name: None,
+                sql_text: payload.sql.clone(),
+                sql_hash,
+                sql_len,
+                has_cte,
+                has_union,
+                success,
+                duration_ms,
+                stmt_count: Some(stmt_count),
+                table_count: Some(table_count),
+                result_json: None,
+                result_truncated: false,
+                error_msg: None,
+            });
+        }
+    }
 
     match format.as_str() {
         "json" => {
@@ -350,6 +580,65 @@ async fn config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
             .as_ref()
             .map(|cfg| template_mode_to_str(cfg.mode).to_string()),
     })
+}
+
+/// GET /api/audit - Query audit log records with optional filtering
+async fn audit_records(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<AuditQueryParams>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let Some(ref _audit) = state.audit else {
+        // Audit not enabled: return empty result
+        return Ok(Json(AuditQueryResponse {
+            total: 0,
+            records: vec![],
+        }));
+    };
+
+    let audit_path = match state.config.audit_log_path {
+        Some(ref p) => p.clone(),
+        None => {
+            return Ok(Json(AuditQueryResponse {
+                total: 0,
+                records: vec![],
+            }))
+        }
+    };
+
+    let limit = params.limit.clamp(1, 500);
+    let offset = params.offset.max(0);
+    let from = params.from.clone();
+    let to = params.to.clone();
+    let endpoint_filter = params.endpoint.clone();
+
+    let result = tokio::task::spawn_blocking(move || {
+        super::audit::AuditWriter::query(
+            &audit_path,
+            limit,
+            offset,
+            from.as_deref(),
+            to.as_deref(),
+            endpoint_filter.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Audit query task error: {e}"),
+        )
+    })?
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Audit query failed: {e}"),
+        )
+    })?;
+
+    Ok(Json(AuditQueryResponse {
+        total: result.0,
+        records: result.1,
+    }))
 }
 
 fn normalize_rule_configs(

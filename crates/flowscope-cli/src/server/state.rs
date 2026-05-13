@@ -4,7 +4,9 @@
 //! watched files, and schema metadata. State is shared across handlers via `Arc`.
 
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use anyhow::{Context, Result};
@@ -12,6 +14,8 @@ use anyhow::{Context, Result};
 use flowscope_core::TemplateConfig;
 use flowscope_core::{Dialect, FileSource, SchemaMetadata};
 use tokio::sync::RwLock;
+
+use super::audit::AuditWriter;
 
 /// Server configuration derived from CLI arguments.
 #[derive(Debug, Clone)]
@@ -35,6 +39,10 @@ pub struct ServerConfig {
     /// Default template configuration (from CLI flags)
     #[cfg(feature = "templating")]
     pub template_config: Option<TemplateConfig>,
+    /// Host address to bind the HTTP server
+    pub host: IpAddr,
+    /// Path to SQLite file for audit logging; None disables auditing
+    pub audit_log_path: Option<PathBuf>,
 }
 
 /// Shared application state.
@@ -47,6 +55,8 @@ pub struct AppState {
     pub schema: RwLock<Option<SchemaMetadata>>,
     /// File modification times for change detection
     pub mtimes: RwLock<HashMap<PathBuf, SystemTime>>,
+    /// Optional audit log writer (None when --audit-log not specified)
+    pub audit: Option<Arc<AuditWriter>>,
 }
 
 impl AppState {
@@ -74,11 +84,28 @@ impl AppState {
             println!("flowscope: loaded {} SQL file(s)", file_count);
         }
 
+        // Initialise audit writer if a path was provided
+        let audit = if let Some(ref audit_path) = config.audit_log_path {
+            match AuditWriter::new(audit_path.clone()) {
+                Ok(writer) => {
+                    println!("flowscope: audit logging to {}", audit_path.display());
+                    Some(Arc::new(writer))
+                }
+                Err(e) => {
+                    eprintln!("flowscope: warning: failed to initialise audit log: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             config,
             files: RwLock::new(files),
             schema: RwLock::new(schema),
             mtimes: RwLock::new(mtimes),
+            audit,
         })
     }
 

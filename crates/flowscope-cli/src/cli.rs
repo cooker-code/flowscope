@@ -127,6 +127,11 @@ pub struct Args {
     #[arg(long, default_value = "3000")]
     pub port: u16,
 
+    /// Host address to bind the HTTP server (default: 127.0.0.1; use 0.0.0.0 to expose externally)
+    #[cfg(feature = "serve")]
+    #[arg(long, default_value = "127.0.0.1")]
+    pub host: std::net::IpAddr,
+
     /// Directories to watch for SQL files (can be repeated)
     #[cfg(feature = "serve")]
     #[arg(long, value_name = "DIR")]
@@ -136,6 +141,11 @@ pub struct Args {
     #[cfg(feature = "serve")]
     #[arg(long)]
     pub open: bool,
+
+    /// Path to SQLite database for request audit logging (enables audit logging)
+    #[cfg(feature = "serve")]
+    #[arg(long, value_name = "PATH")]
+    pub audit_log: Option<PathBuf>,
 }
 
 /// SQL dialect options

@@ -28,6 +28,7 @@ fn test_state_from_files(config: ServerConfig, files: Vec<FileSource>) -> Arc<Ap
         files: RwLock::new(files),
         schema: RwLock::new(None),
         mtimes: RwLock::new(HashMap::new()),
+        audit: None,
     })
 }
 
@@ -36,15 +37,21 @@ async fn spawn_test_server(
     config: ServerConfig,
     files: Vec<FileSource>,
 ) -> (String, tokio::task::JoinHandle<()>) {
+    use std::net::SocketAddr;
     let port = config.port;
     let state = test_state_from_files(config, files);
-    let app = build_router(state, port);
+    let app = build_router(state);
 
-    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 
     let handle = tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
     });
 
     // Give the server a moment to start
@@ -67,6 +74,8 @@ async fn server_starts_and_responds_to_health() {
         port,
         open_browser: false,
         schema_path: None,
+        host: std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+        audit_log_path: None,
         #[cfg(feature = "templating")]
         template_config: None,
     };
@@ -103,6 +112,8 @@ async fn analyze_endpoint_processes_complex_query() {
         port,
         open_browser: false,
         schema_path: None,
+        host: std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+        audit_log_path: None,
         #[cfg(feature = "templating")]
         template_config: None,
     };
@@ -162,6 +173,8 @@ async fn analyze_endpoint_with_multiple_files() {
         port,
         open_browser: false,
         schema_path: None,
+        host: std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+        audit_log_path: None,
         #[cfg(feature = "templating")]
         template_config: None,
     };
@@ -318,6 +331,8 @@ async fn app_state_reload_updates_files() {
         port: 3000,
         open_browser: false,
         schema_path: None,
+        host: std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+        audit_log_path: None,
         #[cfg(feature = "templating")]
         template_config: None,
     };
@@ -329,6 +344,7 @@ async fn app_state_reload_updates_files() {
         files: RwLock::new(files),
         schema: RwLock::new(None),
         mtimes: RwLock::new(mtimes),
+        audit: None,
     });
 
     // Verify initial state
@@ -365,6 +381,8 @@ async fn export_html_returns_valid_html() {
         port,
         open_browser: false,
         schema_path: None,
+        host: std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+        audit_log_path: None,
         #[cfg(feature = "templating")]
         template_config: None,
     };
@@ -402,6 +420,8 @@ async fn export_csv_returns_zip() {
         port,
         open_browser: false,
         schema_path: None,
+        host: std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+        audit_log_path: None,
         #[cfg(feature = "templating")]
         template_config: None,
     };

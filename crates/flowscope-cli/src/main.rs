@@ -139,6 +139,8 @@ fn run_serve_mode(args: Args) -> ExitCode {
         schema_path: args.schema.clone(),
         port: args.port,
         open_browser: args.open,
+        host: args.host,
+        audit_log_path: args.audit_log.clone(),
         #[cfg(feature = "templating")]
         template_config,
     };
