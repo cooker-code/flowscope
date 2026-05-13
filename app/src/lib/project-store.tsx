@@ -307,10 +307,10 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     });
   }, [backendFiles]);
 
-  // Reset run mode to 'all' when all selected files are removed
+  // Reset run mode to 'current' when all selected files are removed (custom → current)
   useEffect(() => {
     if (backendSelectedFileIds.length === 0 && backendRunMode === 'custom') {
-      setBackendRunMode('all');
+      setBackendRunMode('current');
     }
   }, [backendSelectedFileIds, backendRunMode]);
 
@@ -318,7 +318,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     if (!isBackendMode) {
       setBackendActiveFileId(null);
       setBackendSelectedFileIds([]);
-      setBackendRunMode('all');
+      setBackendRunMode('current');
     }
   }, [isBackendMode]);
 
@@ -467,7 +467,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       setBackendSelectedFileIds((prev) => {
         const exists = prev.includes(fileId);
         const updated = exists ? prev.filter((id) => id !== fileId) : [...prev, fileId];
-        setBackendRunMode(updated.length > 0 ? 'custom' : 'all');
+        setBackendRunMode(updated.length > 0 ? 'custom' : 'current');
         return updated;
       });
       return;
