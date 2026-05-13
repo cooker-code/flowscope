@@ -659,6 +659,9 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
 
             self.ctx.current_join_info.join_type = None;
             self.ctx.current_join_info.join_condition = None;
+            // Clear last_operation so subsequent FROM items or derived-table edges
+            // created after this JOIN loop do not inherit the JOIN operation type.
+            self.ctx.last_operation = None;
         }
     }
 
@@ -720,12 +723,21 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
                         .insert(node_id.clone(), name.clone());
                 }
 
+                // Save and clear last_operation before processing the subquery so
+                // that JOINs inside the derived table do not pollute the outer
+                // context's operation state, which would then be read by the
+                // create_source_edge call below and stamp an incorrect operation on
+                // the derived→target edge.
+                let saved_operation = self.ctx.last_operation.take();
                 let mut derived_visitor = LineageVisitor::new(
                     self.analyzer,
                     self.ctx,
                     derived_node_id.as_ref().map(|id| id.to_string()),
                 );
                 derived_visitor.visit_query(subquery);
+                // Restore the outer operation so any subsequent non-derived-table
+                // processing in the same FROM clause can still read the correct value.
+                self.ctx.last_operation = saved_operation;
                 let columns = self.ctx.take_output_columns_since(projection_checkpoint);
 
                 if let (Some(name), Some(node_id)) = (alias_name, derived_node_id) {

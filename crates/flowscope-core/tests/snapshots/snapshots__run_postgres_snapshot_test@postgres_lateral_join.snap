@@ -348,7 +348,6 @@ expression: clean_result
       "from": "table_1d63721b3610a67f",
       "to": "derived_013974812b6f941a",
       "type": "data_flow",
-      "operation": "INNER_JOIN",
       "joinType": "INNER",
       "joinCondition": "true",
       "statementIds": [

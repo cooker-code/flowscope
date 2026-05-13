@@ -587,9 +587,23 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
                             affected_tables.insert(table_canonical);
                         }
                     } else {
-                        // Unqualified refs are tracked canonically so self-join
-                        // ambiguity can broadcast the predicate to all instances.
-                        affected_tables.insert(table_canonical);
+                        // For unqualified refs: if the canonical name is itself an
+                        // alias with a unique instance in the current scope (i.e. a
+                        // derived table or CTE whose alias equals its canonical),
+                        // route to that specific instance to avoid broadcasting the
+                        // filter to identically-named nodes in other scopes.
+                        // For real tables (alias != canonical) resolve_alias_instance
+                        // returns None, so we fall back to canonical broadcast which
+                        // is required for correct self-join semantics.
+                        if let Some(instance) =
+                            self.ctx.resolve_alias_instance(&table_canonical)
+                        {
+                            affected_instances.insert(instance.node_id.clone());
+                        } else {
+                            // Unqualified refs are tracked canonically so self-join
+                            // ambiguity can broadcast the predicate to all instances.
+                            affected_tables.insert(table_canonical);
+                        }
                     }
                 }
             }
