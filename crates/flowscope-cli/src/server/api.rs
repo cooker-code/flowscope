@@ -34,6 +34,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/export/{format}", post(export))
         .route("/config", get(config))
         .route("/audit", get(audit_records))
+        .route("/audit/files", get(audit_files))
         .route("/audit/{id}", get(audit_record_detail))
 }
 
@@ -648,6 +649,40 @@ async fn audit_records(
         total: result.0,
         records: result.1,
     }))
+}
+
+/// GET /api/audit/files - List distinct files from the audit log (latest record per file)
+async fn audit_files(
+    State(state): State<Arc<AppState>>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let Some(ref _audit) = state.audit else {
+        // Audit not enabled: return empty array
+        return Ok(Json(Vec::<serde_json::Value>::new()));
+    };
+
+    let audit_path = match state.config.audit_log_path {
+        Some(ref p) => p.clone(),
+        None => return Ok(Json(Vec::<serde_json::Value>::new())),
+    };
+
+    let records = tokio::task::spawn_blocking(move || {
+        super::audit::AuditWriter::query_files(&audit_path)
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Audit files task error: {e}"),
+        )
+    })?
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Audit files query failed: {e}"),
+        )
+    })?;
+
+    Ok(Json(records))
 }
 
 /// GET /api/audit/:id - Fetch a single audit record with sql_text and result_json

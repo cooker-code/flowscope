@@ -376,6 +376,43 @@ impl AuditWriter {
         Ok((total, records))
     }
 
+    /// Query distinct files from the audit log.
+    ///
+    /// Returns one summary row per `file_name` (non-NULL), keeping the latest
+    /// record for each file.  Rows are ordered by `ts DESC`.
+    ///
+    /// This is a blocking operation that should be called from within
+    /// `spawn_blocking`.
+    pub fn query_files(db_path: &std::path::Path) -> anyhow::Result<Vec<serde_json::Value>> {
+        let conn = rusqlite::Connection::open(db_path)?;
+        let mut stmt = conn.prepare(
+            "SELECT id, file_name, MAX(ts) as ts, sql_type, table_count, has_cte \
+             FROM audit_log \
+             WHERE file_name IS NOT NULL \
+             GROUP BY file_name \
+             ORDER BY ts DESC",
+        )?;
+        let mut rows = stmt.raw_query();
+        let mut records = Vec::new();
+        while let Some(row) = rows.next()? {
+            let id: i64 = row.get(0)?;
+            let file_name: String = row.get(1)?;
+            let ts: String = row.get(2)?;
+            let sql_type: Option<String> = row.get(3)?;
+            let table_count: Option<i64> = row.get(4)?;
+            let has_cte: i32 = row.get(5)?;
+            records.push(serde_json::json!({
+                "id": id,
+                "file_name": file_name,
+                "ts": ts,
+                "sql_type": sql_type,
+                "table_count": table_count,
+                "has_cte": has_cte != 0,
+            }));
+        }
+        Ok(records)
+    }
+
     /// Fetch a single audit record by id, including sql_text and result_json.
     pub fn query_one(
         db_path: &std::path::Path,

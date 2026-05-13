@@ -7,6 +7,7 @@ import type { TemplateMode } from '@/types';
 import { DEFAULT_PROJECT, DEFAULT_DBT_PROJECT } from './default-projects';
 import { useBackend } from './backend-context';
 import { useBackendFiles } from '@/hooks/useBackendFiles';
+import type { AuditFileSummary } from '@/hooks/useBackendFiles';
 
 const uuidv4 = () => crypto.randomUUID();
 
@@ -167,6 +168,10 @@ interface ProjectContextType {
   backendWatchDirs: string[];
   /** Refresh files from backend */
   refreshBackendFiles: () => Promise<void>;
+  /** Distinct files seen in audit log (latest record per file), empty when audit disabled */
+  auditFiles: AuditFileSummary[];
+  /** Override the content of a backend file (used when loading from audit history) */
+  setBackendFileContent: (fileId: string, content: string) => void;
 }
 
 const ProjectContext = createContext<ProjectContextType | null>(null);
@@ -258,7 +263,18 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     watchDirs: backendWatchDirs,
     templateMode: backendTemplateMode,
     refresh: refreshBackendFiles,
+    auditFiles,
   } = useBackendFiles(isBackendMode);
+
+  // Content overrides for backend files (loaded from audit history, keyed by file name/id).
+  // Applied on top of the live file content from the backend watcher.
+  const [backendFileContentOverrides, setBackendFileContentOverrides] = useState<
+    Record<string, string>
+  >({});
+
+  const setBackendFileContent = useCallback((fileId: string, content: string) => {
+    setBackendFileContentOverrides((prev) => ({ ...prev, [fileId]: content }));
+  }, []);
 
   // Track backend-specific state separately since it's derived, not persisted.
   const [backendActiveFileId, setBackendActiveFileId] = useState<string | null>(null);
@@ -313,7 +329,11 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     return {
       id: BACKEND_PROJECT_ID,
       name: 'Server Files',
-      files: backendFiles.map(fileSourceToProjectFile),
+      files: backendFiles.map((file) => {
+        const base = fileSourceToProjectFile(file);
+        const override = backendFileContentOverrides[base.id];
+        return override !== undefined ? { ...base, content: override } : base;
+      }),
       activeFileId: backendActiveFileId,
       dialect: backendDialect,
       runMode: backendRunMode,
@@ -329,6 +349,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     backendActiveFileId,
     backendRunMode,
     backendSelectedFileIds,
+    backendFileContentOverrides,
   ]);
 
   useEffect(() => {
@@ -727,6 +748,8 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     backendSchema,
     backendWatchDirs,
     refreshBackendFiles,
+    auditFiles,
+    setBackendFileContent,
   };
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;

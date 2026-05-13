@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { ChevronDown, Plus, Upload, FolderUp, Search } from 'lucide-react';
+import { ChevronDown, Plus, Upload, FolderUp, Search, History } from 'lucide-react';
 import { useProject } from '@/lib/project-store';
 import { Input } from '@/components/ui/input';
 import {
@@ -11,6 +11,20 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { FileTree, getFilesInTreeOrder } from '@/components/FileTree';
 import { DEFAULT_FILE_NAMES, ACCEPTED_FILE_TYPES } from '@/lib/constants';
+
+/** Format an ISO timestamp string to "MM-DD HH:mm" for display */
+function formatAuditTs(ts: string): string {
+  try {
+    const d = new Date(ts);
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${mm}-${dd} ${hh}:${min}`;
+  } catch {
+    return ts;
+  }
+}
 
 interface FileSelectorProps {
   open?: boolean;
@@ -27,6 +41,9 @@ export function FileSelector({ open: controlledOpen, onOpenChange }: FileSelecto
     toggleFileSelection,
     renameFile,
     isReadOnly,
+    isBackendMode,
+    auditFiles,
+    setBackendFileContent,
   } = useProject();
 
   const [internalOpen, setInternalOpen] = useState(false);
@@ -43,6 +60,7 @@ export function FileSelector({ open: controlledOpen, onOpenChange }: FileSelecto
 
   const [focusedFileId, setFocusedFileId] = useState<string | null>(null);
   const [focusZone, setFocusZone] = useState<'search' | 'tree' | 'footer'>('search');
+  const [loadingAuditId, setLoadingAuditId] = useState<number | null>(null);
 
   const open = controlledOpen ?? internalOpen;
   const setOpen = onOpenChange ?? setInternalOpen;
@@ -122,6 +140,26 @@ export function FileSelector({ open: controlledOpen, onOpenChange }: FileSelecto
 
   const handleCancelDelete = () => {
     setDeletingFileId(null);
+  };
+
+  const handleSelectAuditFile = async (auditId: number, fileName: string) => {
+    setLoadingAuditId(auditId);
+    try {
+      const res = await fetch(`/api/audit/${auditId}`);
+      if (!res.ok) {
+        console.error(`Failed to fetch audit record ${auditId}: ${res.status}`);
+        return;
+      }
+      const record = (await res.json()) as { sql_text: string };
+      // fileId in the backend project equals the file's `name` (path) field
+      setBackendFileContent(fileName, record.sql_text);
+      selectFile(fileName);
+      setOpen(false);
+    } catch (err) {
+      console.error('Failed to load audit file content:', err);
+    } finally {
+      setLoadingAuditId(null);
+    }
   };
 
   const handleCreateFile = () => {
@@ -451,10 +489,10 @@ export function FileSelector({ open: controlledOpen, onOpenChange }: FileSelecto
             </div>
           </div>
 
-          {/* File Tree */}
+          {/* File Tree — hidden in backend/serve mode; Audit History replaces it */}
           <div
             ref={fileTreeRef}
-            className="max-h-[300px] overflow-y-auto outline-hidden"
+            className={`max-h-[300px] overflow-y-auto outline-hidden${isBackendMode ? ' hidden' : ''}`}
             tabIndex={-1}
           >
             {filteredFiles.length > 0 ? (
@@ -487,6 +525,50 @@ export function FileSelector({ open: controlledOpen, onOpenChange }: FileSelecto
               </div>
             )}
           </div>
+
+          {/* Audit file history — only shown in backend/serve mode when audit is enabled */}
+          {isBackendMode && auditFiles.length > 0 && (
+            <>
+              <div className="px-3 py-1.5 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <History className="size-3" />
+                <span>Audit History</span>
+              </div>
+              <div className="max-h-[200px] overflow-y-auto">
+                {auditFiles
+                  .filter(
+                    (af) =>
+                      !search.trim() ||
+                      af.file_name.toLowerCase().includes(search.toLowerCase())
+                  )
+                  .map((af) => {
+                    const baseName = af.file_name.split('/').pop() || af.file_name;
+                    const isLoading = loadingAuditId === af.id;
+                    return (
+                      <button
+                        key={af.id}
+                        type="button"
+                        disabled={isLoading}
+                        onClick={() => handleSelectAuditFile(af.id, af.file_name)}
+                        className="w-full flex items-start justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        <span className="truncate font-medium">{baseName}</span>
+                        <span className="shrink-0 text-[10px] text-muted-foreground space-x-1">
+                          {af.sql_type && (
+                            <span className="rounded bg-muted px-1 py-0.5 font-mono">
+                              {af.sql_type}
+                            </span>
+                          )}
+                          {af.table_count !== null && (
+                            <span className="rounded bg-muted px-1 py-0.5">{af.table_count}t</span>
+                          )}
+                          <span>{formatAuditTs(af.ts)}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+              </div>
+            </>
+          )}
 
           {/* Actions - hidden in read-only mode */}
           {!isReadOnly && (

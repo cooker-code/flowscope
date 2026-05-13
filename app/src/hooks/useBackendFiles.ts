@@ -20,6 +20,16 @@ interface BackendConfig {
   template_mode?: string | null;
 }
 
+/** One row from GET /api/audit/files (latest audit record per file) */
+export interface AuditFileSummary {
+  id: number;
+  file_name: string;
+  ts: string;
+  sql_type: string | null;
+  table_count: number | null;
+  has_cte: boolean;
+}
+
 export interface BackendFilesState {
   /** Files loaded from backend, null if not in backend mode or loading */
   files: FileSource[] | null;
@@ -37,6 +47,8 @@ export interface BackendFilesState {
   error: string | null;
   /** Refresh files from backend */
   refresh: () => Promise<void>;
+  /** Distinct files from the audit log (latest record per file), empty when audit disabled */
+  auditFiles: AuditFileSummary[];
 }
 
 // =============================================================================
@@ -119,6 +131,7 @@ export function useBackendFiles(enabled: boolean, baseUrl = ''): BackendFilesSta
   const [templateMode, setTemplateMode] = useState<TemplateMode>('raw');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [auditFiles, setAuditFiles] = useState<AuditFileSummary[]>([]);
 
   // Promise-based lock to prevent concurrent fetches (avoids race condition)
   const refreshPromiseRef = useRef<Promise<void> | null>(null);
@@ -135,6 +148,7 @@ export function useBackendFiles(enabled: boolean, baseUrl = ''): BackendFilesSta
       setDialect('generic');
       setWatchDirs([]);
       setTemplateMode('raw');
+      setAuditFiles([]);
       setError(null);
       setLoading(false);
       return;
@@ -150,12 +164,14 @@ export function useBackendFiles(enabled: boolean, baseUrl = ''): BackendFilesSta
       setError(null);
 
       try {
-        // Fetch files, schema, and config in parallel
-        const [filesResponse, schemaResponse, configResponse] = await Promise.all([
-          fetch(`${baseUrl}/api/files`),
-          fetch(`${baseUrl}/api/schema`),
-          fetch(`${baseUrl}/api/config`),
-        ]);
+        // Fetch files, schema, config, and audit files in parallel
+        const [filesResponse, schemaResponse, configResponse, auditFilesResponse] =
+          await Promise.all([
+            fetch(`${baseUrl}/api/files`),
+            fetch(`${baseUrl}/api/schema`),
+            fetch(`${baseUrl}/api/config`),
+            fetch(`${baseUrl}/api/audit/files`),
+          ]);
 
         if (!filesResponse.ok) {
           throw new BackendError(
@@ -192,6 +208,14 @@ export function useBackendFiles(enabled: boolean, baseUrl = ''): BackendFilesSta
           setTemplateMode('raw');
         }
 
+        // Parse audit files (optional: endpoint may not exist or audit may be disabled)
+        if (auditFilesResponse.ok) {
+          const auditFilesData = (await auditFilesResponse.json()) as AuditFileSummary[];
+          setAuditFiles(auditFilesData);
+        } else {
+          setAuditFiles([]);
+        }
+
         // Reset error tracking on success
         backoffMsRef.current = BACKOFF_INITIAL_MS;
         lastErrorTimeRef.current = null;
@@ -215,6 +239,7 @@ export function useBackendFiles(enabled: boolean, baseUrl = ''): BackendFilesSta
           setDialect('generic');
           setWatchDirs([]);
           setTemplateMode('raw');
+          setAuditFiles([]);
         }
         // Otherwise preserve last-known-good state on transient errors to avoid UI flicker
 
@@ -271,5 +296,6 @@ export function useBackendFiles(enabled: boolean, baseUrl = ''): BackendFilesSta
     loading,
     error,
     refresh: fetchFiles,
+    auditFiles,
   };
 }

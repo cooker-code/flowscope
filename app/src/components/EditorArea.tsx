@@ -51,7 +51,8 @@ export function EditorArea({
   onFileSelectorOpenChange,
   analysis,
 }: EditorAreaProps) {
-  const { currentProject, updateFile, createFile, setRunMode, isReadOnly } = useProject();
+  const { currentProject, updateFile, createFile, setRunMode, isReadOnly, isBackendMode } =
+    useProject();
 
   const theme = useThemeStore((state) => state.theme);
   const isDark = resolveTheme(theme) === 'dark';
@@ -62,6 +63,7 @@ export function EditorArea({
   // Track previous values to detect changes (null means initial mount)
   const previousSchema = useRef<string | null>(null);
   const previousHideCTEs = useRef<boolean | null>(null);
+  const previousBackendActiveFileId = useRef<string | null | undefined>(undefined);
 
   const { hideCTEs, highlightedSpan, result, analyzedContentByPath, stalePaths } =
     useLineageState();
@@ -164,6 +166,33 @@ export function EditorArea({
     runAnalysis,
     setError,
   ]);
+
+  // In backend (serve) mode, automatically re-run analysis whenever the active file
+  // changes.  The existing schema/hideCTEs effect intentionally skips this to avoid
+  // re-analysis on every keystroke; we handle the file-switch case here separately.
+  useEffect(() => {
+    if (!isBackendMode || !backendReady || !activeFile) {
+      // Initialise the ref so the first real file change can be detected.
+      previousBackendActiveFileId.current = activeFile?.id ?? null;
+      return;
+    }
+
+    const prevId = previousBackendActiveFileId.current;
+    previousBackendActiveFileId.current = activeFile.id;
+
+    // undefined means the component just mounted — skip to avoid a duplicate
+    // analysis on initial load (the initial analysis is triggered elsewhere).
+    if (prevId === undefined) {
+      return;
+    }
+
+    if (prevId !== activeFile.id) {
+      runAnalysis(activeFile.content, activeFile.path).catch((err) => {
+        console.error('Auto-analysis after file switch failed:', err);
+        setError(err instanceof Error ? err.message : 'Failed to re-run analysis after file switch');
+      });
+    }
+  }, [isBackendMode, backendReady, activeFile?.id, activeFile?.content, activeFile?.path, runAnalysis, setError]);
 
   // Compute resolved SQL from analysis result for the current file
   // Concatenates resolvedSql from all statements that came from the active file

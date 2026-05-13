@@ -27,7 +27,7 @@ Backend mode 下 `selectFile()` 只更新 `backendActiveFileId` 状态（`projec
 
 ### 2. 功能改造：文件列表来源改为审计 SQLite
 
-- 后端新增 `GET /api/audit/files` 端点（或复用 `GET /api/audit`），按 `file_name` 去重，每个文件返回最新一条审计记录摘要（`id`、`file_name`、`ts`、`sql_type`、`table_count`、`has_cte`）。
+- 后端新增 `GET /api/audit/files` 端点，按 `file_name` 去重，每个文件**只返回最新一条**审计记录摘要（`id`、`file_name`、`ts`、`sql_type`、`table_count`、`has_cte`），按 `ts DESC` 排序。
 - 前端文件列表改从审计记录获取，展示：文件名 + 最近处理时间 + sql_type + table_count。
 - 点击文件列表中某条记录：调用 `GET /api/audit/:id` 获取完整 `sql_text`，加载到编辑器并触发分析。
 

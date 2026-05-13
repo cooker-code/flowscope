@@ -3,7 +3,7 @@
   "name": "audit-file-switcher",
   "title": "Fix file switcher + connect file list to audit SQLite",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,
