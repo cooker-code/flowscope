@@ -58,8 +58,8 @@
 ## Decisions
 
 - **审计存储**：SQLite（单文件嵌入式，`rusqlite` 或 `sqlx + sqlite`）
+- **审计端点范围**：仅含 SQL 输入的端点：`/api/analyze`、`/api/lint-fix`、`/api/export/:format`、`/api/split`
 
 ## Open Questions
 
-1. **审计是否覆盖所有端点**，还是仅 `/api/analyze`？
-2. **服务网络访问范围**：是 localhost-only（开发者本机工具）还是需要监听 `0.0.0.0`（团队共享服务）？
+1. **服务网络访问范围**：是 localhost-only 还是 `0.0.0.0`（团队共享）？
