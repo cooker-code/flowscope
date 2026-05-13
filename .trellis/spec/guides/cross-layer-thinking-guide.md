@@ -187,6 +187,36 @@ When a CLI auto-detects a mode by probing a remote resource (e.g., checking if `
 
 ---
 
+## API Consumer Analysis (Read Model vs Write Model)
+
+**Trigger**: Any time you design an API that returns stored data.
+
+The data you WRITE (audit log, database record) and the data you EXPOSE (API response) serve different consumers with different needs. Never expose the write model directly without asking:
+
+### Checklist: Before finalizing an API response shape
+
+- [ ] **Who calls this endpoint?** (browser, CLI, monitoring script)
+- [ ] **What is the typical payload size?** Would a browser tab crash or freeze?
+- [ ] **List vs detail pattern needed?** If records contain large TEXT fields (SQL, JSON blobs), split into:
+  - List endpoint: summary fields only, fast to page through
+  - Detail endpoint (`/:id`): full fields including large TEXT
+- [ ] **Are field semantics accurate?** If sourcing from a library/engine, verify the field means what you think it means in YOUR context — don't pass-through blindly.
+
+### Real-world example from this project
+
+`GET /api/audit` initially returned all fields including `sql_text` and `result_json`. Two records with real Hive SQL caused a browser page height of 90,000px. Fix: list endpoint omits large fields; `GET /api/audit/:id` returns the full record.
+
+### Write model vs read model fields
+
+| Field type | List endpoint | Detail endpoint |
+|------------|---------------|-----------------|
+| IDs, timestamps, flags | ✅ Include | ✅ Include |
+| Short metadata (<100 bytes) | ✅ Include | ✅ Include |
+| Large TEXT (SQL, JSON, HTML) | ❌ Omit — use hash/length instead | ✅ Include |
+| Computed blobs (result_json) | ❌ Omit | ✅ Include |
+
+---
+
 ## When to Create Flow Documentation
 
 Create detailed flow docs when:

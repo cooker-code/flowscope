@@ -295,7 +295,29 @@ let table_count = result.nodes.iter()
 
 ---
 
-## 8. Build Notes
+## 8. New Field Checklist (防止重蹈覆辙)
+
+When adding a new column to `audit_log`, answer all four questions before writing code:
+
+| Question | Why it matters |
+|----------|----------------|
+| **Write scenario**: what value is stored and is it ever truncated? | Audit fields that ARE the audit value (like `sql_text`) must never be truncated |
+| **List query scenario**: does this field belong in list responses? | Large TEXT fields (>1KB typical) must be omitted from list queries |
+| **Detail query scenario**: does this field belong in detail responses? | Almost always yes |
+| **Semantic accuracy**: if sourcing from `AnalyzeResult`, does the engine's field mean exactly what the audit field name implies? | `summary.table_count` includes CTEs; `summary.statement_count` includes SET — never pass-through without verifying semantics |
+
+### Engine field semantic mapping
+
+| `AnalyzeResult` field | Audit field | Why they differ |
+|-----------------------|-------------|-----------------|
+| `summary.statement_count` | `stmt_count` (filtered) | Engine counts SET/USE/RESET; audit wants business statements only |
+| `summary.table_count` | `table_count` (filtered) | Engine counts table+CTE nodes; audit wants physical tables only |
+| `nodes` with `NodeType::Cte` | `has_cte` | Direct — CTE = WITH clause, NOT subquery |
+| `edges[].operation` + text scan | `has_union` | Dual detection needed: edge labels miss literal-only UNIONs |
+
+---
+
+## 9. Build Notes
 
 The `serve` feature requires `rusqlite` (bundled) and `sha2`:
 

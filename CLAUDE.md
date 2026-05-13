@@ -8,6 +8,64 @@ This file is intentionally short. `AGENTS.md` is the canonical source of build, 
 - Use `README.md` for architecture and project overview.
 - Keep Claude-specific notes here only when they are not already covered in `AGENTS.md`.
 
+---
+
+## Bug Handling During Validation (MANDATORY PROCESS)
+
+**When a bug is found during validation/testing, do NOT fix it silently in conversation.**
+
+Follow this loop for every bug, no matter how small:
+
+```
+发现 bug
+  ↓
+1. 在当前 Trellis 任务里记录（note 或 sub-task）
+  ↓
+2. 修复代码
+  ↓
+3. 立即运行 /trellis-break-loop（趁上下文新鲜）
+   - 根因是什么？（设计缺陷 / 假设错误 / 语义理解偏差）
+   - 为什么规划阶段没发现？
+   - 什么 spec 规则能拦截它？
+  ↓
+4. 运行 /trellis-update-spec
+   - 写"为什么犯这个错"，不只是"做了什么修复"
+   - causal chain（因果链）比修复本身更有价值
+```
+
+### 反模式（禁止）
+
+```
+❌ 对话中发现 bug → 直接修 → 继续聊 → 任务结束时统一补 spec
+```
+
+这会导致：
+- 因果链丢失（知道"不要截断"，但不知道"为什么会有截断这个想法"）
+- spec 只有规则没有根因，下次遇到类似但不完全相同的情况仍会犯错
+- Trellis 任务和实际代码变更脱节，无法追溯
+
+### 正确模式
+
+```
+✅ 发现 bug → 暂停 → break-loop → update-spec → 修复 → 继续
+```
+
+即使会话变慢，每次修复都在给未来 AI 会话建立真正可用的记忆。
+
+---
+
+## Trellis 任务流程速查
+
+| 阶段 | 工具 | 时机 |
+|------|------|------|
+| 需求不清晰 | `/trellis-brainstorm` | 规划前 |
+| 开始编码前 | `/trellis-before-dev` | 每次切换 package 时 |
+| 发现 bug | `/trellis-break-loop` | **bug 修复后立即** |
+| 编码完成 | `/trellis-check` | 提交前 |
+| 沉淀经验 | `/trellis-update-spec` | break-loop 之后 |
+
+---
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
