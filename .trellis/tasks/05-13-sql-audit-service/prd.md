@@ -55,8 +55,11 @@
 - 审计日志加密（可后续迭代）。
 - 分布式多节点审计聚合。
 
+## Decisions
+
+- **审计存储**：SQLite（单文件嵌入式，`rusqlite` 或 `sqlx + sqlite`）
+
 ## Open Questions
 
-1. **审计日志存储方式**：文件（NDJSON append）、SQLite、还是外部数据库？— 见下方讨论。
-2. **审计是否覆盖所有端点**，还是仅 `/api/analyze`？
-3. **CORS 策略**：是否需要从 localhost-only 扩展为允许跨域（面向外部调用方）？
+1. **审计是否覆盖所有端点**，还是仅 `/api/analyze`？
+2. **服务网络访问范围**：是 localhost-only（开发者本机工具）还是需要监听 `0.0.0.0`（团队共享服务）？
