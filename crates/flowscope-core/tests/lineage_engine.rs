@@ -3436,6 +3436,86 @@ fn insert_with_cte_source() {
     );
 }
 
+#[test]
+fn insert_overwrite_outer_subquery_has_data_flow_to_target() {
+    // Regression test: INSERT OVERWRITE TABLE target SELECT ... FROM (subquery) JOIN ...
+    // The target table must have at least one data_flow IN edge.
+    // Previously, derived-table nodes never forwarded data_flow to the outer INSERT target.
+    let sql = r#"
+        insert overwrite table tgt
+        select outer_q.user_id, outer_q.course_id
+        from (
+            select user_id, course_id
+            from src_a
+        ) outer_q
+        inner join (
+            select id, name
+            from src_b
+        ) lookup on outer_q.course_id = lookup.id
+    "#;
+
+    let result = run_analysis(sql, Dialect::Hive, None);
+    assert!(!result.summary.has_errors, "unexpected parse errors");
+
+    let tgt_node = result
+        .nodes
+        .iter()
+        .find(|n| n.node_type == NodeType::Table && n.label.as_ref() == "tgt")
+        .expect("target table 'tgt' should exist");
+
+    let df_in: Vec<_> = result
+        .edges
+        .iter()
+        .filter(|e| e.to == tgt_node.id && e.edge_type == EdgeType::DataFlow)
+        .collect();
+
+    assert!(
+        !df_in.is_empty(),
+        "INSERT OVERWRITE + outer subquery: target must have at least one data_flow IN edge, got 0"
+    );
+}
+
+#[test]
+fn insert_overwrite_collect_set_has_data_flow_to_target() {
+    // Regression test: INSERT OVERWRITE TABLE target SELECT collect_set(...) FROM (subquery) GROUP BY
+    // The target table must have at least one data_flow IN edge.
+    // Previously, aggregation expressions produced only derivation edges at column level
+    // while the INSERT target had no table-level data_flow edge at all.
+    let sql = r#"
+        insert overwrite table tgt
+        select a.user_id, collect_set(a.device_id) as device_set
+        from (
+            select user_id, device_id
+            from src_a
+        ) a
+        left join (
+            select user_id, label
+            from src_b
+        ) b on a.user_id = b.user_id
+        group by a.user_id
+    "#;
+
+    let result = run_analysis(sql, Dialect::Hive, None);
+    assert!(!result.summary.has_errors, "unexpected parse errors");
+
+    let tgt_node = result
+        .nodes
+        .iter()
+        .find(|n| n.node_type == NodeType::Table && n.label.as_ref() == "tgt")
+        .expect("target table 'tgt' should exist");
+
+    let df_in: Vec<_> = result
+        .edges
+        .iter()
+        .filter(|e| e.to == tgt_node.id && e.edge_type == EdgeType::DataFlow)
+        .collect();
+
+    assert!(
+        !df_in.is_empty(),
+        "INSERT OVERWRITE + collect_set: target must have at least one data_flow IN edge, got 0"
+    );
+}
+
 // ============================================================================
 // DIALECT-SPECIFIC ADVANCED FEATURES
 // ============================================================================
@@ -12293,11 +12373,7 @@ fn hive_with_cte_insert_overwrite_target_table_has_edges() {
     assert!(tgt_node.is_some(), "target table 'tgt' should be present");
     let tgt_id = &tgt_node.unwrap().id;
 
-    let edges_to_tgt = result
-        .edges
-        .iter()
-        .filter(|e| &e.to == tgt_id)
-        .count();
+    let edges_to_tgt = result.edges.iter().filter(|e| &e.to == tgt_id).count();
     assert!(
         edges_to_tgt > 0,
         "target table 'tgt' must have at least one incoming edge, got 0"

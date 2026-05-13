@@ -723,6 +723,14 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
                 let columns = self.ctx.take_output_columns_since(projection_checkpoint);
 
                 if let (Some(name), Some(node_id)) = (alias_name, derived_node_id) {
+                    // If there is an outer target (e.g. an INSERT target table), emit a
+                    // table-level data_flow edge from this derived table node to that target.
+                    // Without this, INSERT … SELECT … FROM (subquery) patterns produce no
+                    // data_flow IN edge on the target table.
+                    if let Some(outer_target) = self.target_node.as_deref() {
+                        self.analyzer
+                            .create_source_edge(self.ctx, &node_id, Some(outer_target));
+                    }
                     self.ctx
                         .register_table_in_scope(name.clone(), node_id.clone());
                     self.ctx.register_alias_in_scope(name.clone(), name.clone());

@@ -155,7 +155,8 @@ impl<'a> Analyzer<'a> {
                             qualified_name: Some(canonical.clone().into()),
                             ..Default::default()
                         });
-                        self.tracker.record_produced(&canonical, ctx.statement_index);
+                        self.tracker
+                            .record_produced(&canonical, ctx.statement_index);
                         Some(target_id)
                     } else {
                         ctx.ensure_output_node_with_model(None);
@@ -527,6 +528,12 @@ impl<'a> Analyzer<'a> {
 
         self.tracker
             .record_produced(&canonical, ctx.statement_index);
+
+        // Register the INSERT target as the statement-level sink so that
+        // add_join_dependency_edges (which reads ctx.sink_node_id) correctly
+        // creates JoinDependency edges for joined tables that don't otherwise
+        // contribute column-level lineage to the target.
+        ctx.sink_node_id = Some(target_id.clone());
 
         // Analyze source — use analyze_query (not analyze_query_body) so that
         // INSERT … WITH cte AS (…) SELECT … has its CTEs properly recognised.

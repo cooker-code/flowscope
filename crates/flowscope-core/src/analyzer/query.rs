@@ -414,7 +414,7 @@ impl<'a> Analyzer<'a> {
     }
 
     /// Creates a data flow edge from source to target.
-    fn create_source_edge(
+    pub(super) fn create_source_edge(
         &mut self,
         ctx: &mut StatementContext,
         source_id: &Arc<str>,
