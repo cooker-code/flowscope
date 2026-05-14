@@ -100,4 +100,11 @@ cargo build -p flowscope-cli --features serve           # 2. embed 进 binary
 pkill -f 'flowscope.*--serve'; ./target/debug/flowscope --serve ...  # 3. 重启
 ```
 
-**agent-browser 的限制**：Radix UI DropdownMenu 内部的 button 无法被 `click @ref` 可靠点击（DOM 会被提前删除）。需要通过手动 Chrome 操作或 JS 注入验证。
+**浏览器自动化分两档**：
+
+| 工具 | Radix DropdownMenu / Popover 内的 button | 备注 |
+|------|------------------------------------------|------|
+| Cursor IDE 浏览器 MCP（`cursor-ide-browser`，基于 Playwright） | ✅ 可靠 | snapshot 拿 ref → click，DOM detach 前 Playwright 会等待事件冒泡完成 |
+| 外部 `agent-browser` CLI | ❌ 不可靠 | DOM 会在 click 落地前被 Radix 卸载，需手动 Chrome 或 JS 注入 |
+
+优先用 Cursor 浏览器 MCP 做端到端验证；仅在没有 Cursor 上下文（独立 CI、远程 SSH）时退化到 agent-browser CLI + 手动验证。

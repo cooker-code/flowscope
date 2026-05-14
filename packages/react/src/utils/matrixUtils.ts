@@ -25,6 +25,17 @@ export interface TableDependencyWithDetails {
   columns: Array<{ source: string; target: string; expression?: string }>;
   spans: Span[];
   locations: Array<{ span: Span; sourceName?: string; statementIndex: number }>;
+  /**
+   * Synthetic dependency reconstructed via transitive closure when CTE rows/columns
+   * are hidden in the matrix. Set by `collapseCteFromMatrix`; never produced by the
+   * primary extraction path. UI uses this to render a subtler arrow or tooltip note.
+   */
+  indirect?: boolean;
+  /**
+   * When `indirect === true`, lists the CTE hops (qualified names or labels) that the
+   * physical-to-physical dependency was rebuilt through. Empty/undefined when direct.
+   */
+  viaCtes?: string[];
 }
 
 export interface ScriptDependency {
@@ -41,6 +52,77 @@ export interface MatrixCellData {
 export interface MatrixData {
   items: string[];
   cells: Map<string, Map<string, MatrixCellData>>;
+}
+
+/**
+ * Aggregated per-row / per-column statistics for a matrix. Drives complexity
+ * margins (Fan-In/Fan-Out bars), heatmap intensity normalization, and clustering.
+ *
+ * Computed by `computeMatrixMetrics` — the single source of truth shared by
+ * the matrix Web Worker (initial build) and the main thread (post-CTE-collapse
+ * recomputation). Do NOT duplicate this logic in another location.
+ */
+export interface MatrixMetrics {
+  rowCounts: Map<string, number>;
+  colCounts: Map<string, number>;
+  maxRow: number;
+  maxCol: number;
+  maxIntensity: number;
+}
+
+/**
+ * Computes row/col degree and heatmap intensity bounds for a matrix.
+ *
+ * Iterates `matrix.cells` once: every `write` cell increments `rowCounts[row]`
+ * and `colCounts[col]`; non-self/non-none cells contribute to `maxIntensity`
+ * (column count for tables, shared-table count for scripts).
+ *
+ * Used by both `matrix.worker.ts` (initial build) and `MatrixView` after a
+ * CTE collapse rewrites the cell graph in place.
+ */
+export function computeMatrixMetrics(
+  matrix: MatrixData,
+  mode: 'tables' | 'scripts'
+): MatrixMetrics {
+  const rowCounts = new Map<string, number>();
+  const colCounts = new Map<string, number>();
+  let maxRow = 0;
+  let maxCol = 0;
+  let maxIntensity = 1;
+
+  for (const item of matrix.items) {
+    rowCounts.set(item, 0);
+    colCounts.set(item, 0);
+  }
+
+  for (const [rowId, rowCells] of matrix.cells) {
+    for (const [colId, cell] of rowCells) {
+      if (cell.type === 'write') {
+        const rowCount = (rowCounts.get(rowId) || 0) + 1;
+        rowCounts.set(rowId, rowCount);
+        maxRow = Math.max(maxRow, rowCount);
+
+        const colCount = (colCounts.get(colId) || 0) + 1;
+        colCounts.set(colId, colCount);
+        maxCol = Math.max(maxCol, colCount);
+      }
+
+      if (cell.type !== 'none' && cell.type !== 'self') {
+        let intensity = 0;
+        if (mode === 'tables') {
+          intensity = (cell.details as { columnCount?: number } | undefined)?.columnCount || 0;
+        } else {
+          intensity =
+            (cell.details as { sharedTables?: string[] } | undefined)?.sharedTables?.length || 0;
+        }
+        if (intensity > maxIntensity) {
+          maxIntensity = intensity;
+        }
+      }
+    }
+  }
+
+  return { rowCounts, colCounts, maxRow, maxCol, maxIntensity };
 }
 
 // ============================================================================
@@ -275,6 +357,170 @@ export function buildTableMatrix(dependencies: TableDependencyWithDetails[]): Ma
   }
 
   return { items, cells };
+}
+
+/**
+ * Returns the matrix-key (qualifiedName or label) for every CTE node in the result.
+ * Matrix items use the same `qualifiedName || label` convention as
+ * `extractTableDependenciesWithDetails`, so this set can be intersected directly
+ * with `MatrixData.items`.
+ */
+export function extractCteItemKeys(result: AnalyzeResult): Set<string> {
+  const keys = new Set<string>();
+  for (const node of result.nodes) {
+    if (node.type === 'cte') {
+      keys.add(node.qualifiedName || node.label);
+    }
+  }
+  return keys;
+}
+
+/**
+ * Removes CTE rows/columns from a table matrix and reconstructs physical-to-physical
+ * dependencies that previously only existed via CTE chains.
+ *
+ * Algorithm:
+ *  1. Filter `items` to drop CTE keys.
+ *  2. For each remaining physical item `A`, BFS forward through the original `cells`,
+ *     traversing only `write` edges. Whenever we land on another physical item `B`
+ *     via at least one CTE hop AND there is no direct edge `A→B` already, emit a
+ *     synthetic dependency carrying `indirect: true` and the CTE path in `viaCtes`.
+ *  3. Rebuild a fresh `MatrixData` containing direct edges (preserved as-is) plus
+ *     synthetic indirect ones.
+ *
+ * Returns a new MatrixData; the input is not mutated.
+ */
+export function collapseCteFromMatrix(matrix: MatrixData, cteSet: Set<string>): MatrixData {
+  if (cteSet.size === 0) return matrix;
+
+  const physicalItems = matrix.items.filter((item) => !cteSet.has(item));
+  const physicalSet = new Set(physicalItems);
+
+  const directWrite = new Map<string, Map<string, MatrixCellData>>();
+  for (const [rowItem, rowCells] of matrix.cells) {
+    if (!physicalSet.has(rowItem)) continue;
+    const filteredRow = new Map<string, MatrixCellData>();
+    for (const [colItem, cell] of rowCells) {
+      if (!physicalSet.has(colItem)) continue;
+      filteredRow.set(colItem, cell);
+    }
+    directWrite.set(rowItem, filteredRow);
+  }
+
+  const indirectWrites = new Map<string, Map<string, { viaCtes: string[]; sample?: MatrixCellData }>>();
+
+  for (const startNode of physicalItems) {
+    const visited = new Set<string>();
+    visited.add(startNode);
+    type Frontier = { node: string; path: string[]; firstEdge?: MatrixCellData };
+    const queue: Frontier[] = [{ node: startNode, path: [], firstEdge: undefined }];
+
+    while (queue.length > 0) {
+      const { node, path, firstEdge } = queue.shift()!;
+      const rowCells = matrix.cells.get(node);
+      if (!rowCells) continue;
+
+      for (const [target, cell] of rowCells) {
+        if (cell.type !== 'write') continue;
+        if (visited.has(target)) continue;
+        visited.add(target);
+
+        const isCte = cteSet.has(target);
+
+        if (!isCte) {
+          if (path.length === 0) continue;
+          if (target === startNode) continue;
+
+          const directRow = directWrite.get(startNode);
+          const existing = directRow?.get(target);
+          if (existing && (existing.type === 'write' || existing.type === 'read')) continue;
+
+          let bucket = indirectWrites.get(startNode);
+          if (!bucket) {
+            bucket = new Map();
+            indirectWrites.set(startNode, bucket);
+          }
+          if (!bucket.has(target)) {
+            bucket.set(target, { viaCtes: [...path], sample: firstEdge ?? cell });
+          }
+          continue;
+        }
+
+        queue.push({
+          node: target,
+          path: [...path, target],
+          firstEdge: firstEdge ?? cell,
+        });
+      }
+    }
+  }
+
+  const cells = new Map<string, Map<string, MatrixCellData>>();
+  for (const rowItem of physicalItems) {
+    const row = new Map<string, MatrixCellData>();
+    const directRow = directWrite.get(rowItem) ?? new Map<string, MatrixCellData>();
+    const bucket = indirectWrites.get(rowItem);
+
+    for (const colItem of physicalItems) {
+      if (rowItem === colItem) {
+        row.set(colItem, { type: 'self' });
+        continue;
+      }
+
+      const directCell = directRow.get(colItem);
+      if (directCell && directCell.type !== 'none') {
+        row.set(colItem, directCell);
+        continue;
+      }
+
+      const indirect = bucket?.get(colItem);
+      if (indirect) {
+        const baseDetails = indirect.sample?.details as TableDependencyWithDetails | undefined;
+        const syntheticDetails: TableDependencyWithDetails = {
+          sourceTable: rowItem,
+          targetTable: colItem,
+          columnCount: baseDetails?.columnCount ?? 0,
+          columns: baseDetails?.columns ?? [],
+          spans: baseDetails?.spans ?? [],
+          locations: baseDetails?.locations ?? [],
+          indirect: true,
+          viaCtes: indirect.viaCtes,
+        };
+        row.set(colItem, { type: 'write', details: syntheticDetails });
+        continue;
+      }
+
+      const reverseDirect = directWrite.get(colItem)?.get(rowItem);
+      if (reverseDirect && reverseDirect.type === 'write') {
+        row.set(colItem, { type: 'read', details: reverseDirect.details });
+        continue;
+      }
+
+      const reverseIndirect = indirectWrites.get(colItem)?.get(rowItem);
+      if (reverseIndirect) {
+        const baseDetails = reverseIndirect.sample?.details as
+          | TableDependencyWithDetails
+          | undefined;
+        const syntheticDetails: TableDependencyWithDetails = {
+          sourceTable: colItem,
+          targetTable: rowItem,
+          columnCount: baseDetails?.columnCount ?? 0,
+          columns: baseDetails?.columns ?? [],
+          spans: baseDetails?.spans ?? [],
+          locations: baseDetails?.locations ?? [],
+          indirect: true,
+          viaCtes: reverseIndirect.viaCtes,
+        };
+        row.set(colItem, { type: 'read', details: syntheticDetails });
+        continue;
+      }
+
+      row.set(colItem, { type: 'none' });
+    }
+    cells.set(rowItem, row);
+  }
+
+  return { items: physicalItems, cells };
 }
 
 /**
