@@ -85,7 +85,7 @@ const [page, setPage] = useState(1);
 
 > 历史教训：`AuditPage` 最初这么写，用户从列表点 Open lineage 进详情，
 > 再 Back to audit list 时所有筛选条件被重置为 Any、回到第 1 页。
-> 见 `.trellis/tasks/05-14-fix-audit-page-tz-and-filter-state/`.
+> 见 `.trellis/tasks/archive/2026-05/05-14-fix-audit-page-tz-and-filter-state/`.
 
 ---
 
@@ -152,7 +152,7 @@ import { formatLocalTs } from '@/lib/utils';
 
 > 历史教训：`AuditPage` 列表 + `SqlPreviewCapsule` Sheet 都直接渲染 `r.ts`，
 > 东八区用户看到 `2026-05-14T09:34:56.736Z` 以为是上午 9 点。
-> 见 `.trellis/tasks/05-14-fix-audit-page-tz-and-filter-state/`.
+> 见 `.trellis/tasks/archive/2026-05/05-14-fix-audit-page-tz-and-filter-state/`.
 
 ---
 
@@ -223,7 +223,7 @@ const data = await res.json();
 
 > 历史教训：上一个 task 验证完误把 proxy 当临时调试配置回滚了，下一次
 > `yarn dev` 立刻整页崩溃。
-> 见 `.trellis/tasks/05-14-fix-vite-dev-api-proxy/break-loop.md`.
+> 见 `.trellis/tasks/archive/2026-05/05-14-fix-vite-dev-api-proxy/break-loop.md`.
 
 ### 改 dev 配置时的判定标准
 

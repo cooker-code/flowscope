@@ -6,7 +6,7 @@
 //! where that normalization lives — previously the same 13-step pipeline lived
 //! in an external Python batch script which meant real API callers got no
 //! benefit. The script was deleted; see task PRD
-//! `.trellis/tasks/05-14-port-hive-preprocess-to-core/prd.md` and spec
+//! `.trellis/tasks/archive/2026-05/05-14-port-hive-preprocess-to-core/prd.md` and spec
 //! `.trellis/spec/flowscope-core/backend/hive-compat-preprocess.md` for the
 //! full contract and rationale.
 //!
