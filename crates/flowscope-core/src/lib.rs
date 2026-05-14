@@ -1,5 +1,6 @@
 pub mod analyzer;
 pub mod completion;
+pub mod dialect_ext;
 pub mod error;
 pub mod extractors;
 pub mod generated;
