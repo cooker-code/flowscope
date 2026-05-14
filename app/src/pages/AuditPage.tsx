@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, Loader2, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,12 +12,26 @@ import {
 } from '@/components/ui/select';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useProject } from '@/lib/project-store';
-import { cn } from '@/lib/utils';
+import { cn, formatLocalTs } from '@/lib/utils';
 
 const PAGE_SIZE = 50;
 
 const ANY = '__any__';
 const SQL_TYPE_OPTIONS = ['SELECT', 'INSERT', 'WITH', 'CREATE', 'UPDATE', 'DELETE', 'MERGE'];
+
+// Filter / pagination state lives in the URL so it survives navigating to a
+// lineage detail and back. See `LAST_AUDIT_QUERY_KEY` for the cross-detail
+// hand-off used by SqlPreviewCapsule.
+const URL_PARAM_KEYS = [
+  'from',
+  'to',
+  'sql_type',
+  'success',
+  'file_name',
+  'keyword',
+  'page',
+] as const;
+export const LAST_AUDIT_QUERY_KEY = 'flowscope.audit.lastListQuery';
 
 interface AuditListRecord {
   id: number;
@@ -38,25 +52,75 @@ interface AuditQueryResponse {
 
 export function AuditPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { isBackendMode, backendAuditStorage } = useProject();
 
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
-  const [sqlType, setSqlType] = useState(ANY);
-  const [success, setSuccess] = useState(ANY);
-  const [fileName, setFileName] = useState('');
-  const [keyword, setKeyword] = useState('');
-  const debouncedKeyword = useDebounce(keyword, 300);
+  // URL is the source of truth for filters/pagination — survives back/forward
+  // and round-trips through the lineage detail view.
+  const from = searchParams.get('from') ?? '';
+  const to = searchParams.get('to') ?? '';
+  const sqlType = searchParams.get('sql_type') ?? ANY;
+  const success = searchParams.get('success') ?? ANY;
+  const fileName = searchParams.get('file_name') ?? '';
+  const urlKeyword = searchParams.get('keyword') ?? '';
+  const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10) || 1);
 
-  const [page, setPage] = useState(1);
+  // Text inputs maintain a local mirror so typing stays responsive; the
+  // debounced value is what we push back to the URL (and the request).
+  const [fileNameInput, setFileNameInput] = useState(fileName);
+  const [keywordInput, setKeywordInput] = useState(urlKeyword);
+  const debouncedFileName = useDebounce(fileNameInput, 300);
+  const debouncedKeyword = useDebounce(keywordInput, 300);
+
+  // Helper: mutate the URL while resetting page=1 on any filter change.
+  // Pass `null` to clear a param (instead of writing an empty value).
+  const updateParams = useCallback(
+    (updates: Record<string, string | null>, opts: { resetPage?: boolean } = {}) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          for (const [key, value] of Object.entries(updates)) {
+            if (value === null || value === '' || value === ANY) {
+              next.delete(key);
+            } else {
+              next.set(key, value);
+            }
+          }
+          if (opts.resetPage && next.get('page') !== '1') {
+            next.delete('page');
+          }
+          return next;
+        },
+        { replace: true }
+      );
+    },
+    [setSearchParams]
+  );
+
+  // Sync the debounced text-input values into the URL (resetting page=1).
+  useEffect(() => {
+    if (debouncedFileName !== fileName) {
+      updateParams({ file_name: debouncedFileName }, { resetPage: true });
+    }
+  }, [debouncedFileName, fileName, updateParams]);
+
+  useEffect(() => {
+    if (debouncedKeyword !== urlKeyword) {
+      updateParams({ keyword: debouncedKeyword }, { resetPage: true });
+    }
+  }, [debouncedKeyword, urlKeyword, updateParams]);
+
+  const setFrom = (v: string) => updateParams({ from: v }, { resetPage: true });
+  const setTo = (v: string) => updateParams({ to: v }, { resetPage: true });
+  const setSqlType = (v: string) => updateParams({ sql_type: v }, { resetPage: true });
+  const setSuccess = (v: string) => updateParams({ success: v }, { resetPage: true });
+  const setPage = (next: number) => updateParams({ page: next === 1 ? null : String(next) });
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<AuditQueryResponse | null>(null);
 
-  useEffect(() => {
-    setPage(1);
-  }, [from, to, sqlType, success, fileName, debouncedKeyword]);
-
+  // Build the request query string from the current URL state.
   const queryString = useMemo(() => {
     const p = new URLSearchParams();
     p.set('limit', String(PAGE_SIZE));
@@ -72,9 +136,9 @@ export function AuditPage() {
     if (sqlType && sqlType !== ANY) p.set('sql_type', sqlType);
     if (success === 'true' || success === 'false') p.set('success', success);
     if (fileName.trim()) p.set('file_name', fileName.trim());
-    if (debouncedKeyword.trim()) p.set('keyword', debouncedKeyword.trim());
+    if (urlKeyword.trim()) p.set('keyword', urlKeyword.trim());
     return p.toString();
-  }, [page, from, to, sqlType, success, fileName, debouncedKeyword]);
+  }, [page, from, to, sqlType, success, fileName, urlKeyword]);
 
   const fetchList = useCallback(async () => {
     setLoading(true);
@@ -100,6 +164,21 @@ export function AuditPage() {
     void fetchList();
   }, [fetchList]);
 
+  // Persist the current list URL so "Back to audit list" on the lineage detail
+  // can restore the exact same filtered/paginated view even after a hard refresh.
+  useEffect(() => {
+    const onlyListParams = new URLSearchParams();
+    for (const key of URL_PARAM_KEYS) {
+      const v = searchParams.get(key);
+      if (v !== null && v !== '') onlyListParams.set(key, v);
+    }
+    try {
+      window.localStorage.setItem(LAST_AUDIT_QUERY_KEY, onlyListParams.toString());
+    } catch {
+      // localStorage may be unavailable (private mode, quota); silently degrade.
+    }
+  }, [searchParams]);
+
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
 
   const openLineage = (id: number) => {
@@ -107,13 +186,9 @@ export function AuditPage() {
   };
 
   const resetFilters = () => {
-    setFrom('');
-    setTo('');
-    setSqlType(ANY);
-    setSuccess(ANY);
-    setFileName('');
-    setKeyword('');
-    setPage(1);
+    setFileNameInput('');
+    setKeywordInput('');
+    setSearchParams(new URLSearchParams(), { replace: true });
   };
 
   const auditDisabled = isBackendMode && backendAuditStorage !== null && !backendAuditStorage.enabled;
@@ -194,8 +269,8 @@ export function AuditPage() {
             <Input
               className="h-9 w-[200px] text-xs"
               placeholder="Substring…"
-              value={fileName}
-              onChange={(e) => setFileName(e.target.value)}
+              value={fileNameInput}
+              onChange={(e) => setFileNameInput(e.target.value)}
             />
           </div>
           <div className="space-y-1">
@@ -203,8 +278,8 @@ export function AuditPage() {
             <Input
               className="h-9 w-[220px] text-xs"
               placeholder="Search in SQL…"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
+              value={keywordInput}
+              onChange={(e) => setKeywordInput(e.target.value)}
             />
           </div>
           <Button type="button" variant="outline" size="sm" className="h-9" onClick={resetFilters}>
@@ -237,7 +312,7 @@ export function AuditPage() {
                 size="sm"
                 className="h-7 px-2"
                 disabled={page <= 1 || loading}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                onClick={() => setPage(Math.max(1, page - 1))}
               >
                 <ChevronLeft className="size-4" />
               </Button>
@@ -250,7 +325,7 @@ export function AuditPage() {
                 size="sm"
                 className="h-7 px-2"
                 disabled={loading || !data || page >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
+                onClick={() => setPage(page + 1)}
               >
                 <ChevronRight className="size-4" />
               </Button>
@@ -286,7 +361,12 @@ export function AuditPage() {
                     onClick={() => openLineage(r.id)}
                   >
                     <td className="px-3 py-2 font-mono text-muted-foreground">{r.id}</td>
-                    <td className="px-3 py-2 whitespace-nowrap font-mono">{r.ts}</td>
+                    <td
+                      className="px-3 py-2 whitespace-nowrap font-mono"
+                      title={r.ts}
+                    >
+                      {formatLocalTs(r.ts)}
+                    </td>
                     <td className="px-3 py-2 max-w-[140px] truncate">{r.endpoint}</td>
                     <td className="px-3 py-2">{r.dialect}</td>
                     <td className="px-3 py-2 max-w-[180px] truncate" title={r.file_name ?? ''}>

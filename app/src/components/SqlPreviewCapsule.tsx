@@ -11,6 +11,8 @@ import {
 } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { LAST_AUDIT_QUERY_KEY } from '@/pages/AuditPage';
+import { formatLocalTs } from '@/lib/utils';
 
 interface AuditDetail {
   id: number;
@@ -81,13 +83,32 @@ export function SqlPreviewCapsule({ auditId }: SqlPreviewCapsuleProps) {
         <SheetContent side="right" className="w-full sm:max-w-lg flex flex-col gap-0 p-0">
           <SheetHeader className="p-6 pb-2 space-y-1">
             <SheetTitle className="text-base">Audit record #{auditId}</SheetTitle>
-            <SheetDescription className="text-xs font-mono break-all">
-              {detail?.ts ?? '—'}
+            <SheetDescription
+              className="text-xs font-mono break-all"
+              title={detail?.ts ?? undefined}
+            >
+              {formatLocalTs(detail?.ts)}
             </SheetDescription>
           </SheetHeader>
 
           <div className="px-6 pb-4 flex flex-wrap gap-2 text-xs">
-            <Button variant="link" className="h-auto p-0 text-xs" onClick={() => navigate('/audit')}>
+            <Button
+              variant="link"
+              className="h-auto p-0 text-xs"
+              onClick={() => {
+                // Restore the filters/page the user had on the list page (saved
+                // by AuditPage to localStorage). Falls back to a bare /audit
+                // when there's no recorded query (e.g. user landed on
+                // /?auditId=N directly via a shared link).
+                let saved = '';
+                try {
+                  saved = window.localStorage.getItem(LAST_AUDIT_QUERY_KEY) ?? '';
+                } catch {
+                  // ignore
+                }
+                navigate(saved ? `/audit?${saved}` : '/audit');
+              }}
+            >
               Back to audit list
             </Button>
           </div>
