@@ -703,7 +703,7 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
                         "statement_{}::scope_{}::{}",
                         self.ctx.statement_index, derived_scope_id, name
                     );
-                    self.ctx.add_node(Node {
+                    let id = self.ctx.add_node(Node {
                         id: generate_node_id("derived", &scoped_name),
                         node_type: NodeType::Cte,
                         label: name.clone().into(),
@@ -711,7 +711,32 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
                         span: derived_span,
                         name_spans: derived_span.into_iter().collect(),
                         ..Default::default()
-                    })
+                    });
+
+                    // If this derived table appears as the right operand of an
+                    // outer JOIN (e.g. `LEFT JOIN (SELECT ...) b ON ...`), the
+                    // derived node ITSELF — not its inner tables — is the
+                    // joined relation. Register it into `joined_table_info`
+                    // BEFORE the recursive subquery visit (which clears
+                    // `current_join_info`), so the JOIN metadata reflects the
+                    // outer context.
+                    //
+                    // This is the symmetric counterpart of `create_table_node`
+                    // (which registers plain tables) and
+                    // `resolve_cte_reference` (which registers CTE instances).
+                    // Without it, consumers like `count_joins` and
+                    // `add_join_dependency_edges` cannot see the derived node
+                    // as a joined operand, and may incorrectly attribute the
+                    // JOIN to inner tables of the subquery (see the
+                    // accompanying save/restore of `current_join_info` below
+                    // for why inner tables otherwise get the leaked metadata).
+                    if self.ctx.current_join_info.join_type.is_some() {
+                        self.ctx
+                            .joined_table_info
+                            .insert(id.clone(), self.ctx.current_join_info.clone());
+                    }
+
+                    id
                 });
 
                 if let (Some(name), Some(node_id)) = (alias_name.as_ref(), derived_node_id.as_ref())

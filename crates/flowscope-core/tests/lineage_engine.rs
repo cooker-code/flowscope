@@ -12490,9 +12490,7 @@ fn same_name_derived_alias_in_nested_cte_scope_does_not_collide() {
 
     if let Some(orders) = orders_node {
         let leaking_edge = result.edges.iter().any(|e| {
-            e.edge_type == EdgeType::DataFlow
-                && e.from == orders.id
-                && e.to == new_device_node.id
+            e.edge_type == EdgeType::DataFlow && e.from == orders.id && e.to == new_device_node.id
         });
         assert!(
             !leaking_edge,

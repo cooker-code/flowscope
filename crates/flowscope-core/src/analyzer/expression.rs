@@ -595,9 +595,7 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
                         // For real tables (alias != canonical) resolve_alias_instance
                         // returns None, so we fall back to canonical broadcast which
                         // is required for correct self-join semantics.
-                        if let Some(instance) =
-                            self.ctx.resolve_alias_instance(&table_canonical)
-                        {
+                        if let Some(instance) = self.ctx.resolve_alias_instance(&table_canonical) {
                             affected_instances.insert(instance.node_id.clone());
                         } else {
                             // Unqualified refs are tracked canonically so self-join

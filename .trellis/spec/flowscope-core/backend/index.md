@@ -19,6 +19,8 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Error Handling](./error-handling.md) | Error types, handling strategies | To fill |
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
+| [Analyzer Visitor Context](./analyzer-visitor-context.md) | Save/restore rules for ambient visitor state (`current_join_info`, `last_operation`) when recursing into derived subqueries | Filled |
+| [Edge Types](./edge-types.md) | Canonical contract for the 5 `EdgeType` variants (DataFlow / Derivation / JoinDependency / Ownership / CrossStatement): when emitted, how rendered, invariants | Filled |
 
 ---
 

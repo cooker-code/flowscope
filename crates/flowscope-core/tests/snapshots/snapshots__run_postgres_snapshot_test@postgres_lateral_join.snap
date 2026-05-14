@@ -223,17 +223,6 @@ expression: clean_result
   ],
   "edges": [
     {
-      "id": "edge_02bd98df335ef9b8",
-      "from": "table_1d63721b3610a67f",
-      "to": "output_74d22f755ec62dbc",
-      "type": "join_dependency",
-      "joinType": "INNER",
-      "joinCondition": "true",
-      "statementIds": [
-        0
-      ]
-    },
-    {
       "id": "edge_1bb9f818e49b0ceb",
       "from": "output_74d22f755ec62dbc",
       "to": "column_9a0ca2442c2dc4da",
@@ -247,8 +236,6 @@ expression: clean_result
       "from": "column_1e11ec7c6d834a7a",
       "to": "column_65f97f7aff84d059",
       "type": "data_flow",
-      "joinType": "INNER",
-      "joinCondition": "true",
       "statementIds": [
         0
       ]
@@ -330,6 +317,8 @@ expression: clean_result
       "from": "column_f90c7842427d027c",
       "to": "column_9c737dc18431697f",
       "type": "data_flow",
+      "joinType": "INNER",
+      "joinCondition": "true",
       "statementIds": [
         0
       ]
@@ -348,8 +337,6 @@ expression: clean_result
       "from": "table_1d63721b3610a67f",
       "to": "derived_013974812b6f941a",
       "type": "data_flow",
-      "joinType": "INNER",
-      "joinCondition": "true",
       "statementIds": [
         0
       ]
@@ -359,6 +346,8 @@ expression: clean_result
       "from": "column_65f97f7aff84d059",
       "to": "column_61a6536ccb8c4e39",
       "type": "data_flow",
+      "joinType": "INNER",
+      "joinCondition": "true",
       "statementIds": [
         0
       ]
@@ -368,8 +357,6 @@ expression: clean_result
       "from": "column_fc7fc7c46a855c0c",
       "to": "column_f90c7842427d027c",
       "type": "data_flow",
-      "joinType": "INNER",
-      "joinCondition": "true",
       "statementIds": [
         0
       ]
