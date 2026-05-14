@@ -9,11 +9,15 @@
 //! | Feature                       | Reason                                   |
 //! |-------------------------------|------------------------------------------|
 //! | `supports_struct_literal`     | `STRUCT(col AS name)` field naming       |
+//! | `parse_infix` (DIV operator)  | `a DIV b` integer division               |
 //!
 //! Anything not explicitly overridden is delegated to the upstream
 //! `HiveDialect` so behavior stays in sync with sqlparser-rs.
 
+use sqlparser::ast::{BinaryOperator, Expr};
 use sqlparser::dialect::{Dialect, HiveDialect};
+use sqlparser::keywords::Keyword;
+use sqlparser::parser::{Parser, ParserError};
 
 /// FlowScope's enhanced Hive dialect.
 ///
@@ -75,6 +79,33 @@ impl Dialect for FlowscopeHiveDialect {
     fn supports_struct_literal(&self) -> bool {
         true
     }
+
+    // ── PR2 override ────────────────────────────────────────────────────────
+    //
+    // Hive's `DIV` operator (BIGINT integer division) is documented at
+    // <https://cwiki.apache.org/confluence/display/hive/languagemanual+udf>
+    // but sqlparser-rs only registers `DIV` parsing inside MySqlDialect. We
+    // mirror that implementation here so `a DIV b` parses as a BinaryOp
+    // identical to MySQL's `MyIntegerDivide`.
+    fn parse_infix(
+        &self,
+        parser: &mut Parser,
+        expr: &Expr,
+        _precedence: u8,
+    ) -> Option<Result<Expr, ParserError>> {
+        if parser.parse_keyword(Keyword::DIV) {
+            let rhs = match parser.parse_expr() {
+                Ok(e) => e,
+                Err(e) => return Some(Err(e)),
+            };
+            return Some(Ok(Expr::BinaryOp {
+                left: Box::new(expr.clone()),
+                op: BinaryOperator::MyIntegerDivide,
+                right: Box::new(rhs),
+            }));
+        }
+        None
+    }
 }
 
 #[cfg(test)]
@@ -118,5 +149,20 @@ mod tests {
                 x -> x.l\
              ) FROM t"
         ));
+    }
+
+    // ── PR2 (DIV operator) tests ─────────────────────────────────────────────
+
+    #[test]
+    fn integer_division_with_div_operator_parses() {
+        // From id=2568:
+        // CAST(shumei_timestamp AS BIGINT) DIV 1000
+        assert!(parse_ok("SELECT x DIV 1000 FROM t"));
+        assert!(parse_ok("SELECT CAST(x AS BIGINT) DIV 1000 AS r FROM t"));
+    }
+
+    #[test]
+    fn upstream_hive_still_fails_div() {
+        assert!(Parser::parse_sql(&HiveDialect {}, "SELECT x DIV 1000 FROM t").is_err());
     }
 }
