@@ -10,6 +10,8 @@
 //! |-------------------------------|------------------------------------------|
 //! | `supports_struct_literal`     | `STRUCT(col AS name)` field naming       |
 //! | `parse_infix` (DIV operator)  | `a DIV b` integer division               |
+//! | `is_table_alias` (OFFSET)     | Hive has no OFFSET keyword, so `offset`  |
+//! |                               | can legally name a table (`(...) offset`)|
 //!
 //! Anything not explicitly overridden is delegated to the upstream
 //! `HiveDialect` so behavior stays in sync with sqlparser-rs.
@@ -78,6 +80,26 @@ impl Dialect for FlowscopeHiveDialect {
     // all override this to `true`; we do the same for Hive.
     fn supports_struct_literal(&self) -> bool {
         true
+    }
+
+    // ── PR3 override ────────────────────────────────────────────────────────
+    //
+    // Hive's SELECT grammar does NOT have an OFFSET clause (see
+    // <https://cwiki.apache.org/confluence/display/Hive/LanguageManual+Select>),
+    // so writing `CROSS JOIN (...) offset` to name a derived table `offset` is
+    // perfectly legal Hive syntax. sqlparser-rs, however, keeps OFFSET in its
+    // global `RESERVED_FOR_TABLE_ALIAS` list and HiveDialect inherits that
+    // default, which makes the construct fail with "Expected: ), found: <next
+    // token>". We loosen the rule here.
+    //
+    // Anything that's truly required to disambiguate Hive grammar (SELECT,
+    // FROM, WHERE, etc.) is still rejected because we only remove OFFSET from
+    // the reserved set.
+    fn is_table_alias(&self, kw: &Keyword, parser: &mut Parser) -> bool {
+        if matches!(kw, Keyword::OFFSET) {
+            return true;
+        }
+        self.inner.is_table_alias(kw, parser)
     }
 
     // ── PR2 override ────────────────────────────────────────────────────────
@@ -164,5 +186,37 @@ mod tests {
     #[test]
     fn upstream_hive_still_fails_div() {
         assert!(Parser::parse_sql(&HiveDialect {}, "SELECT x DIV 1000 FROM t").is_err());
+    }
+
+    // ── PR3 (OFFSET as table alias) tests ────────────────────────────────────
+
+    #[test]
+    fn offset_keyword_as_table_alias_parses() {
+        // From id=2482:
+        // CROSS JOIN (SELECT 0 AS offset_val UNION ALL SELECT 1) offset
+        assert!(parse_ok(
+            "SELECT * FROM t \
+             CROSS JOIN (SELECT 0 AS v UNION ALL SELECT 1) offset \
+             WHERE t.x = offset.v"
+        ));
+    }
+
+    #[test]
+    fn upstream_hive_still_fails_offset_alias() {
+        assert!(Parser::parse_sql(
+            &HiveDialect {},
+            "SELECT * FROM t CROSS JOIN (SELECT 0 AS v) offset WHERE t.x = offset.v"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn select_keyword_still_rejected_as_table_alias() {
+        // Sanity guard: the override only loosens OFFSET, not everything.
+        assert!(Parser::parse_sql(
+            &FlowscopeHiveDialect::default(),
+            "SELECT * FROM t CROSS JOIN (SELECT 1) select"
+        )
+        .is_err());
     }
 }
