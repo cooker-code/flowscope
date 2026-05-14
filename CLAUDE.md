@@ -35,7 +35,7 @@ This file is intentionally short. `AGENTS.md` is the canonical source of build, 
 
 1. **组件文件定位**：精确到文件路径 + 行号（不是"某个地方"）。
 2. **API 数据先验证**：血缘/数据逻辑问题先用 curl 验证 API 返回；API 不对 → **先修 Rust 引擎**；API 对、图不对 → 才改前端渲染。
-3. **验证方式**：`agent-browser` 无法可靠点击 Radix UI DropdownMenu 内的 button，需手动 Chrome 验证或 JS 注入。
+3. **验证方式**：Cursor IDE 浏览器 MCP（基于 Playwright）可以可靠点击 Radix UI DropdownMenu / Popover 内的 button，无需手动 Chrome；外部 `agent-browser` CLI 在该场景仍不可靠，需走手动 Chrome 或 JS 注入。
 
 完整规范、curl 模板、验证 SOP 见 `.trellis/spec/flowscope-app/frontend/ui-change-protocol.md`。
 

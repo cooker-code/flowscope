@@ -5,6 +5,7 @@
 import type { AnalyzeResult } from '@pondpilot/flowscope-core';
 import type {
   MatrixData,
+  MatrixMetrics,
   TableDependencyWithDetails,
   ScriptDependency,
   MatrixCellData,
@@ -13,6 +14,8 @@ import {
   extractTableDependenciesWithDetails,
   extractScriptDependencies,
   extractAllColumnNames,
+  extractCteItemKeys,
+  computeMatrixMetrics,
 } from '../utils/matrixUtils';
 
 export interface MatrixBuildRequest {
@@ -34,57 +37,13 @@ export interface MatrixBuildResponse {
   tableItemsRendered: number;
   scriptItemCount: number;
   scriptItemsRendered: number;
+  /**
+   * Matrix-keys (qualifiedName || label) of CTE nodes present in the analysis.
+   * Sent as an array because Sets do not survive structured cloning between
+   * Worker boundaries on every runtime; the main thread reconstructs a Set.
+   */
+  cteItemKeys: string[];
   error?: string;
-}
-
-export interface MatrixMetrics {
-  rowCounts: Map<string, number>;
-  colCounts: Map<string, number>;
-  maxRow: number;
-  maxCol: number;
-  maxIntensity: number;
-}
-
-function computeMatrixMetrics(matrix: MatrixData, mode: 'tables' | 'scripts'): MatrixMetrics {
-  const rowCounts = new Map<string, number>();
-  const colCounts = new Map<string, number>();
-  let maxRow = 0;
-  let maxCol = 0;
-  let maxIntensity = 1;
-
-  for (const item of matrix.items) {
-    rowCounts.set(item, 0);
-    colCounts.set(item, 0);
-  }
-
-  for (const [rowId, rowCells] of matrix.cells) {
-    for (const [colId, cell] of rowCells) {
-      if (cell.type === 'write') {
-        const rowCount = (rowCounts.get(rowId) || 0) + 1;
-        rowCounts.set(rowId, rowCount);
-        maxRow = Math.max(maxRow, rowCount);
-
-        const colCount = (colCounts.get(colId) || 0) + 1;
-        colCounts.set(colId, colCount);
-        maxCol = Math.max(maxCol, colCount);
-      }
-
-      if (cell.type !== 'none' && cell.type !== 'self') {
-        let intensity = 0;
-        if (mode === 'tables') {
-          intensity = (cell.details as { columnCount?: number } | undefined)?.columnCount || 0;
-        } else {
-          intensity =
-            (cell.details as { sharedTables?: string[] } | undefined)?.sharedTables?.length || 0;
-        }
-        if (intensity > maxIntensity) {
-          maxIntensity = intensity;
-        }
-      }
-    }
-  }
-
-  return { rowCounts, colCounts, maxRow, maxCol, maxIntensity };
 }
 
 function buildTableMatrixWithItems(
@@ -253,6 +212,10 @@ self.onmessage = (event: MessageEvent<MatrixBuildRequest>) => {
     const allColumnNames = extractAllColumnNames(request.result);
     const columnNamesMs = performance.now() - columnNamesStart;
 
+    const cteKeysStart = performance.now();
+    const cteItemKeys = Array.from(extractCteItemKeys(request.result));
+    const cteKeysMs = performance.now() - cteKeysStart;
+
     const duration = performance.now() - startTime;
     if (debug) {
       console.log(
@@ -267,7 +230,9 @@ self.onmessage = (event: MessageEvent<MatrixBuildRequest>) => {
       console.log(
         `[Matrix Worker] steps: scriptDeps ${scriptDepsMs.toFixed(1)}ms, scriptMatrix ${scriptMatrixMs.toFixed(1)}ms, scriptMetrics ${scriptMetricsMs.toFixed(1)}ms`
       );
-      console.log(`[Matrix Worker] steps: columnNames ${columnNamesMs.toFixed(1)}ms`);
+      console.log(
+        `[Matrix Worker] steps: columnNames ${columnNamesMs.toFixed(1)}ms, cteKeys ${cteKeysMs.toFixed(1)}ms (${cteItemKeys.length} CTEs)`
+      );
     }
 
     console.log(`[Matrix Worker] Build completed in ${duration.toFixed(2)}ms`);
@@ -284,6 +249,7 @@ self.onmessage = (event: MessageEvent<MatrixBuildRequest>) => {
       tableItemsRendered,
       scriptItemCount: scriptDeps.allScripts.length,
       scriptItemsRendered,
+      cteItemKeys,
     };
 
     self.postMessage(response);
@@ -313,6 +279,7 @@ self.onmessage = (event: MessageEvent<MatrixBuildRequest>) => {
       tableItemsRendered: 0,
       scriptItemCount: 0,
       scriptItemsRendered: 0,
+      cteItemKeys: [],
       error: error instanceof Error ? error.message : 'Unknown error',
     };
     self.postMessage(response);

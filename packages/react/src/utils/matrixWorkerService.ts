@@ -3,12 +3,8 @@
  * Offloads matrix computation to keep the UI responsive.
  */
 import type { AnalyzeResult } from '@pondpilot/flowscope-core';
-import type { MatrixData } from './matrixUtils';
-import type {
-  MatrixBuildRequest,
-  MatrixBuildResponse,
-  MatrixMetrics,
-} from '../workers/matrix.worker';
+import type { MatrixData, MatrixMetrics } from './matrixUtils';
+import type { MatrixBuildRequest, MatrixBuildResponse } from '../workers/matrix.worker';
 
 interface PendingRequest {
   resolve: (result: MatrixBuildResult) => void;
@@ -25,6 +21,7 @@ export interface MatrixBuildResult {
   tableItemsRendered: number;
   scriptItemCount: number;
   scriptItemsRendered: number;
+  cteItemKeys: string[];
 }
 
 const MATRIX_DEBUG = !!(import.meta as { env?: { DEV?: boolean } }).env?.DEV;
@@ -52,6 +49,7 @@ function getWorker(): Worker {
         tableItemsRendered,
         scriptItemCount,
         scriptItemsRendered,
+        cteItemKeys,
         error,
       } = event.data;
       const pending = pendingRequests.get(requestId);
@@ -71,6 +69,7 @@ function getWorker(): Worker {
           tableItemsRendered,
           scriptItemCount,
           scriptItemsRendered,
+          cteItemKeys,
         });
       }
 

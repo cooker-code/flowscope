@@ -109,10 +109,11 @@ pub enum Dialect {
 
 impl Dialect {
     pub fn to_sqlparser_dialect(&self) -> Box<dyn sqlparser::dialect::Dialect> {
+        use crate::dialect_ext::FlowscopeHiveDialect;
         use sqlparser::dialect::{
             AnsiDialect, BigQueryDialect, ClickHouseDialect, DatabricksDialect, DuckDbDialect,
-            GenericDialect, HiveDialect, MsSqlDialect, MySqlDialect, OracleDialect,
-            PostgreSqlDialect, RedshiftSqlDialect, SQLiteDialect, SnowflakeDialect,
+            GenericDialect, MsSqlDialect, MySqlDialect, OracleDialect, PostgreSqlDialect,
+            RedshiftSqlDialect, SQLiteDialect, SnowflakeDialect,
         };
         match self {
             Self::Generic => Box::new(GenericDialect {}),
@@ -121,7 +122,10 @@ impl Dialect {
             Self::Clickhouse => Box::new(ClickHouseDialect {}),
             Self::Databricks => Box::new(DatabricksDialect {}),
             Self::Duckdb => Box::new(DuckDbDialect {}),
-            Self::Hive => Box::new(HiveDialect {}),
+            // Use FlowScope's enhanced Hive dialect that fixes gaps in
+            // sqlparser-rs's upstream HiveDialect (STRUCT named fields,
+            // DIV operator, ...). See dialect_ext/flowscope_hive.rs.
+            Self::Hive => Box::new(FlowscopeHiveDialect::default()),
             Self::Mssql => Box::new(MsSqlDialect {}),
             Self::Mysql => Box::new(MySqlDialect {}),
             Self::Oracle => Box::new(OracleDialect {}),

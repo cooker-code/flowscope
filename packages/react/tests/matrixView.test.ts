@@ -5,6 +5,8 @@ import {
   extractScriptDependencies,
   buildTableMatrix,
   buildScriptMatrix,
+  collapseCteFromMatrix,
+  extractCteItemKeys,
   type TableDependencyWithDetails,
 } from '../src/utils/matrixUtils';
 
@@ -658,5 +660,130 @@ describe('buildScriptMatrix', () => {
 
     expect(matrix.items).toContain('lone.sql');
     expect(matrix.cells.get('lone.sql')?.get('lone.sql')?.type).toBe('self');
+  });
+});
+
+// ============================================================================
+// CTE collapse + transitive closure
+// ============================================================================
+
+const dep = (
+  source: string,
+  target: string,
+  columnCount = 1
+): TableDependencyWithDetails => ({
+  sourceTable: source,
+  targetTable: target,
+  columnCount,
+  columns:
+    columnCount > 0
+      ? [{ source: `${source}_col`, target: `${target}_col` }]
+      : [],
+  spans: [],
+  locations: [],
+});
+
+describe('extractCteItemKeys', () => {
+  it('returns the matrix-key for every CTE node, prefering qualifiedName', () => {
+    const result: AnalyzeResult = {
+      statements: [],
+      nodes: [
+        { id: 'n1', type: 'cte', label: 'a', qualifiedName: 'script1.a' } as Node,
+        { id: 'n2', type: 'cte', label: 'b' } as Node,
+        { id: 'n3', type: 'table', label: 'real_t', qualifiedName: 'public.real_t' } as Node,
+      ],
+      edges: [],
+      issues: [],
+      summary: {
+        statementCount: 0,
+        tableCount: 0,
+        columnCount: 0,
+        joinCount: 0,
+        complexityScore: 0,
+        issueCount: { errors: 0, warnings: 0, infos: 0 },
+        hasErrors: false,
+      },
+    };
+
+    const keys = extractCteItemKeys(result);
+    expect(keys.has('script1.a')).toBe(true);
+    expect(keys.has('b')).toBe(true);
+    expect(keys.has('public.real_t')).toBe(false);
+    expect(keys.size).toBe(2);
+  });
+});
+
+describe('collapseCteFromMatrix', () => {
+  it('rebuilds a physical→physical write through a single CTE hop', () => {
+    // real_t -> cte_a -> sink_t  (no direct real_t -> sink_t)
+    const matrix = buildTableMatrix([dep('real_t', 'cte_a'), dep('cte_a', 'sink_t')]);
+    const collapsed = collapseCteFromMatrix(matrix, new Set(['cte_a']));
+
+    expect(collapsed.items).toEqual(['real_t', 'sink_t']);
+    expect(collapsed.cells.get('real_t')?.get('cte_a')).toBeUndefined();
+
+    const rebuilt = collapsed.cells.get('real_t')?.get('sink_t');
+    expect(rebuilt?.type).toBe('write');
+    const details = rebuilt?.details as TableDependencyWithDetails;
+    expect(details.indirect).toBe(true);
+    expect(details.viaCtes).toEqual(['cte_a']);
+
+    // Symmetric read on the other side
+    const reverse = collapsed.cells.get('sink_t')?.get('real_t');
+    expect(reverse?.type).toBe('read');
+    expect((reverse?.details as TableDependencyWithDetails).indirect).toBe(true);
+  });
+
+  it('walks multi-hop CTE chains and records the full hop path', () => {
+    // real_t -> cte_a -> cte_b -> sink_t
+    const matrix = buildTableMatrix([
+      dep('real_t', 'cte_a'),
+      dep('cte_a', 'cte_b'),
+      dep('cte_b', 'sink_t'),
+    ]);
+    const collapsed = collapseCteFromMatrix(matrix, new Set(['cte_a', 'cte_b']));
+
+    expect(collapsed.items.sort()).toEqual(['real_t', 'sink_t']);
+    const cell = collapsed.cells.get('real_t')?.get('sink_t');
+    expect(cell?.type).toBe('write');
+    const details = cell?.details as TableDependencyWithDetails;
+    expect(details.indirect).toBe(true);
+    expect(details.viaCtes).toEqual(['cte_a', 'cte_b']);
+  });
+
+  it('keeps a direct edge intact when the same pair also has a CTE-mediated path', () => {
+    // real_t -> sink_t (direct, columns=5)
+    // real_t -> cte_a -> sink_t (indirect)
+    const matrix = buildTableMatrix([
+      dep('real_t', 'sink_t', 5),
+      dep('real_t', 'cte_a'),
+      dep('cte_a', 'sink_t'),
+    ]);
+    const collapsed = collapseCteFromMatrix(matrix, new Set(['cte_a']));
+
+    const cell = collapsed.cells.get('real_t')?.get('sink_t');
+    expect(cell?.type).toBe('write');
+    const details = cell?.details as TableDependencyWithDetails;
+    // Direct edge preserved verbatim — no `indirect` flag, original columnCount.
+    expect(details.indirect).toBeUndefined();
+    expect(details.columnCount).toBe(5);
+  });
+
+  it('returns the original matrix unchanged when the CTE set is empty', () => {
+    const matrix = buildTableMatrix([dep('A', 'B')]);
+    const collapsed = collapseCteFromMatrix(matrix, new Set());
+    expect(collapsed).toBe(matrix);
+  });
+
+  it('does not invent edges between physical tables that share no CTE chain', () => {
+    // A -> cte_x -> B   and   C is unrelated
+    const matrix = buildTableMatrix([dep('A', 'cte_x'), dep('cte_x', 'B'), dep('C', 'C2')]);
+    const collapsed = collapseCteFromMatrix(matrix, new Set(['cte_x']));
+
+    expect(collapsed.items.sort()).toEqual(['A', 'B', 'C', 'C2']);
+    expect(collapsed.cells.get('A')?.get('B')?.type).toBe('write');
+    expect(collapsed.cells.get('A')?.get('C')?.type).toBe('none');
+    expect(collapsed.cells.get('B')?.get('C')?.type).toBe('none');
+    expect(collapsed.cells.get('C')?.get('C2')?.type).toBe('write');
   });
 });
