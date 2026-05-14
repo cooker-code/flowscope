@@ -1,5 +1,7 @@
 # FlowScope
 
+> **Note**: This is a personal fork of [`pondpilot/flowscope`](https://github.com/pondpilot/flowscope) maintained by [@cooker-code](https://github.com/cooker-code) with additional customizations (Trellis AI workflow integration, audit review page, derived-subquery JOIN fix, Cursor IDE platform support). Upstream is tracked via the `upstream` git remote and synced periodically; see [Syncing with upstream](#syncing-with-upstream) below.
+
 [![CI](https://github.com/pondpilot/flowscope/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/pondpilot/flowscope/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-available-brightgreen.svg)](docs/README.md)
 [![codecov](https://codecov.io/gh/pondpilot/flowscope/graph/badge.svg)](https://codecov.io/gh/pondpilot/flowscope)
@@ -205,6 +207,30 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, testing expectations, and cont
 ## License
 
 The core engine and packages are released under Apache-2.0. See [LICENSE](LICENSE) for details. The `app/` directory uses the O'Saasy License; see [app/LICENSE](app/LICENSE).
+
+## Syncing with upstream
+
+This fork tracks `pondpilot/flowscope` via the `upstream` git remote. To pull in upstream changes:
+
+```bash
+git fetch upstream
+git log --oneline master..upstream/master   # preview what's new
+git merge upstream/master                    # or: git rebase upstream/master
+git push origin master
+```
+
+If you set up a one-shot alias:
+
+```bash
+git config alias.sync-upstream '!git fetch upstream && git merge upstream/master && git push origin master'
+git sync-upstream
+```
+
+The `upstream` remote has its push URL intentionally disabled to prevent accidental pushes to `pondpilot/flowscope`. Restore it explicitly if you ever need to open a PR:
+
+```bash
+git remote set-url --push upstream https://github.com/pondpilot/flowscope.git
+```
 
 ---
 
