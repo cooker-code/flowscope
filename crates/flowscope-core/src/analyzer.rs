@@ -48,15 +48,57 @@ use std::collections::HashMap;
 // Re-export for use in other analyzer modules
 pub(crate) use schema_registry::TableResolution;
 
-/// Main entry point for SQL analysis
+/// Main entry point for SQL analysis.
+///
+/// For `Dialect::Hive`, the request SQL (and any per-file `content`) is first
+/// normalized via `crate::hive_preprocess::preprocess` to bridge Hive-isms that
+/// sqlparser-rs cannot parse natively (SET/ADD directives, `arr[n]`, double-
+/// quoted string literals, `! IN`, `GROUPING SETS`, etc.). See
+/// `crates/flowscope-core/src/hive_preprocess.rs` for the full pipeline.
 #[must_use]
 pub fn analyze(request: &AnalyzeRequest) -> AnalyzeResult {
     #[cfg(feature = "tracing")]
     let _span =
         info_span!("analyze_request", statement_count = %request.sql.matches(';').count() + 1)
             .entered();
+
+    if request.dialect == crate::types::Dialect::Hive {
+        let preprocessed = preprocess_hive_request(request);
+        // If the Hive pipeline stripped the entire input (e.g. a file that is
+        // 100% SET / ADD / DDL statements), return an empty-but-successful
+        // result instead of falling through to the "Provide inline SQL" error.
+        if hive_request_is_empty(&preprocessed) {
+            return AnalyzeResult::default();
+        }
+        let mut analyzer = Analyzer::new(&preprocessed);
+        return analyzer.analyze();
+    }
+
     let mut analyzer = Analyzer::new(request);
     analyzer.analyze()
+}
+
+/// Clone `request` and replace its SQL (and any inline file contents) with
+/// the Hive-compatibility preprocessed version. Only invoked for Hive dialect.
+fn preprocess_hive_request(request: &AnalyzeRequest) -> AnalyzeRequest {
+    let mut cloned = request.clone();
+    cloned.sql = crate::hive_preprocess::preprocess(&request.sql);
+    if let Some(files) = cloned.files.as_mut() {
+        for f in files.iter_mut() {
+            f.content = crate::hive_preprocess::preprocess(&f.content);
+        }
+    }
+    cloned
+}
+
+fn hive_request_is_empty(request: &AnalyzeRequest) -> bool {
+    let sql_empty = request.sql.trim().is_empty();
+    let files_empty = request
+        .files
+        .as_ref()
+        .map(|fs| fs.iter().all(|f| f.content.trim().is_empty()))
+        .unwrap_or(true);
+    sql_empty && files_empty
 }
 
 /// Split SQL into statement spans.

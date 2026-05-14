@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/flowscope-cli/backend/hive-sql-preprocessing.md", "reason": "验收标准：4步预处理全部实现；错误分类基于API issues message，不扫描原始SQL；已知可接受失败类型不计入错误率"}
+{"file": ".trellis/spec/flowscope-cli/backend/hive-sql-preprocessing.md", "reason": "验收标准更新：5步预处理（含Step5数组下标）；DDL注释前置bug已修复；TRANSFORM AS一并删除；纯DDL文件skip而非failed；最终成功率≥99.3%（5071/5105）；剩余34个为已归档parser限制"}

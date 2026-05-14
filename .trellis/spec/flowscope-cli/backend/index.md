@@ -21,6 +21,11 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
 
+> Note: Hive SQL preprocessing was previously documented here. It has been moved to
+> [`flowscope-core/backend/hive-compat-preprocess.md`](../../flowscope-core/backend/hive-compat-preprocess.md)
+> because it runs inside `flowscope_core::analyze` (not in cli middleware). All
+> API/wasm/cli callers receive it automatically when `dialect=hive`.
+
 ---
 
 ## How to Fill These Guidelines

@@ -23,6 +23,7 @@ These guides help you **ask the right questions before coding**.
 |-------|---------|-------------|
 | [Code Reuse Thinking Guide](./code-reuse-thinking-guide.md) | Identify patterns and reduce duplication | When you notice repeated patterns |
 | [Cross-Layer Thinking Guide](./cross-layer-thinking-guide.md) | Think through data flow across layers | Features spanning multiple layers |
+| [Fix Location Thinking Guide](./fix-location-thinking-guide.md) | Decide which layer to put a fix in | Before fixing a bug or adding compatibility |
 
 ---
 
@@ -46,6 +47,16 @@ These guides help you **ask the right questions before coding**.
 - [ ] **You're creating a new utility/helper function** ← Search first!
 
 → Read [Code Reuse Thinking Guide](./code-reuse-thinking-guide.md)
+
+### When to Think About Fix Location
+
+- [ ] You're writing a "compatibility" / "preprocessing" / "normalization" step
+- [ ] You're about to add code to a test harness or local script
+- [ ] You found a bug and the obvious place to fix is *outside* the shared library
+- [ ] Your fix only runs in tests, CI tooling, or a one-off batch script
+- [ ] Pass rate / metrics improved but you can't explain how real users benefit
+
+→ Read [Fix Location Thinking Guide](./fix-location-thinking-guide.md)
 
 ---
 

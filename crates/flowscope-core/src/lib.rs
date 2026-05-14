@@ -4,6 +4,7 @@ pub mod dialect_ext;
 pub mod error;
 pub mod extractors;
 pub mod generated;
+pub mod hive_preprocess;
 pub mod linter;
 pub mod parser;
 #[cfg(feature = "templating")]

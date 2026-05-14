@@ -21,6 +21,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
 | [Analyzer Visitor Context](./analyzer-visitor-context.md) | Save/restore rules for ambient visitor state (`current_join_info`, `last_operation`) when recursing into derived subqueries | Filled |
 | [Edge Types](./edge-types.md) | Canonical contract for the 5 `EdgeType` variants (DataFlow / Derivation / JoinDependency / Ownership / CrossStatement): when emitted, how rendered, invariants | Filled |
+| [Hive Compatibility Preprocess](./hive-compat-preprocess.md) | 13-step preprocessing pipeline that runs inside `flowscope_core::analyze` when `dialect=hive`. Normalizes SET/ADD directives, placeholders, double-quote strings, `arr[n]`, `! IN`, `GROUPING SETS`, etc. so the parser can ingest real-world Hive SQL. | Filled |
 
 ---
 
