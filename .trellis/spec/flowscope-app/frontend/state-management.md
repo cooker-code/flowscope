@@ -167,6 +167,76 @@ import { formatLocalTs } from '@/lib/utils';
 
 ---
 
+## Dev Environment Contract（MANDATORY）
+
+**前端在 dev 模式下假设 `/api/*` 已经被 Vite 代理到 CLI HTTP server。**
+
+### 拓扑
+
+```
+浏览器 ──HTTP──> Vite dev (3000) ──/api/*──> CLI serve (3099)
+                                 └──/*────> React SPA
+```
+
+`app/vite.config.ts` 里有常驻 proxy：
+
+```ts
+server: {
+  port: 3000,
+  proxy: {
+    '/api': process.env.FLOWSCOPE_API_PROXY ?? 'http://localhost:3099',
+  },
+},
+```
+
+CLI 跑在别的端口时用 `FLOWSCOPE_API_PROXY=http://localhost:9099 yarn dev`。
+
+### 启动顺序
+
+1. 先起 CLI：`just cli-release -- serve --audit-log /tmp/flowscope-audit.db --port 3099`
+2. 再起前端：`yarn workspace @pondpilot/flowscope-app dev`（或 `cd app && yarn dev`）
+
+如果先起 vite 再起 CLI 也 OK（vite proxy 是按请求建立连接的），但 CLI 没起来时
+前端会看到下面的友好错误。
+
+### 错误处理约定：HTML fallback 检测
+
+**用 `fetch('/api/...')` + `res.json()` 的代码必须先检查 `content-type`。**
+否则 dev 配置错（proxy 没生效 / CLI 没起）时 `res.json()` 会抛
+`Unexpected token '<', "<!DOCTYPE "...`，用户看了一头雾水。
+
+```tsx
+const res = await fetch('/api/audit?...');
+if (!res.ok) { setError(`Request failed (${res.status})`); return; }
+
+const contentType = res.headers.get('content-type') ?? '';
+if (!contentType.includes('application/json')) {
+  const preview = (await res.text()).slice(0, 60).replace(/\s+/g, ' ');
+  setError(
+    `API did not return JSON (got: "${preview}…"). ` +
+    'Check CLI is running on http://localhost:3099 and Vite has /api proxied.'
+  );
+  return;
+}
+const data = await res.json();
+```
+
+> 历史教训：上一个 task 验证完误把 proxy 当临时调试配置回滚了，下一次
+> `yarn dev` 立刻整页崩溃。
+> 见 `.trellis/tasks/05-14-fix-vite-dev-api-proxy/break-loop.md`.
+
+### 改 dev 配置时的判定标准
+
+每次动 `vite.config.ts` / `Cargo.toml` / `package.json` 的 dev/build 字段，
+**问一句**：
+
+> 如果删掉这一行，**下次别人 / CI 起 `yarn dev` 还能正常工作吗？**
+
+- 不能 → 这是长期依赖，必须常驻 + 注释解释 + 写进 spec。
+- 能 → 才是真正的"临时调试配置"，可以回滚。
+
+---
+
 ## Common Mistakes
 
 | 反模式 | 后果 | 正确做法 |
@@ -176,3 +246,5 @@ import { formatLocalTs } from '@/lib/utils';
 | 默认值（`Any`、`1`、空字符串）写入 URL | URL 又长又脏 | setter 自动剔除等于默认值的项 |
 | 裸渲染 API timestamp | 跨时区用户看错时间 | `formatLocalTs(iso)` |
 | `localStorage` 不 `try/catch` | 隐私模式 / 配额满直接报错 | 必须包 `try { ... } catch {}` |
+| `vite.config.ts` 缺 `/api` proxy | 整页爆 `Unexpected token '<'` | proxy 常驻 + fetch 端 Content-Type 兜底 |
+| 把 dev 必需配置当临时调试 hack 回滚 | 下次 `yarn dev` 立刻坏 | "删了还能工作吗"判定标准 |

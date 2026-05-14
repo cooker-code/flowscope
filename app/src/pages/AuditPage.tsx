@@ -150,6 +150,22 @@ export function AuditPage() {
         setData(null);
         return;
       }
+      // Guard against the Vite-dev-without-proxy footgun: when `/api/*` is
+      // not proxied to the CLI server (default port 3099), the request
+      // falls through to the SPA fallback and returns `index.html`. Parsing
+      // that as JSON yields a cryptic `Unexpected token '<'`. Detect the
+      // HTML shape up front and produce an actionable hint instead.
+      const contentType = res.headers.get('content-type') ?? '';
+      if (!contentType.includes('application/json')) {
+        const preview = (await res.text()).slice(0, 60).replace(/\s+/g, ' ');
+        setError(
+          `Audit API did not return JSON (got: "${preview}…"). ` +
+            'In dev mode make sure the CLI is running on http://localhost:3099 ' +
+            'and that Vite has `/api` proxied to it (see app/vite.config.ts).'
+        );
+        setData(null);
+        return;
+      }
       const json = (await res.json()) as AuditQueryResponse;
       setData(json);
     } catch (e) {
