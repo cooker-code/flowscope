@@ -12,12 +12,24 @@ import { isValidDialect } from '@/lib/project-store';
 import type { TemplateMode } from '@/types';
 import { isValidTemplateMode } from '@/types';
 
+/** Audit storage metadata from `GET /api/config` (serve mode). */
+export interface AuditStorageInfo {
+  type: string | null;
+  location: string | null;
+  enabled: boolean;
+}
+
 /** Response from /api/config endpoint */
 interface BackendConfig {
   dialect: string;
   watch_dirs: string[];
   has_schema: boolean;
   template_mode?: string | null;
+  audit_storage?: {
+    type?: string | null;
+    location?: string | null;
+    enabled?: boolean;
+  };
 }
 
 /** One row from GET /api/audit/files (latest audit record per file) */
@@ -49,6 +61,8 @@ export interface BackendFilesState {
   refresh: () => Promise<void>;
   /** Distinct files from the audit log (latest record per file), empty when audit disabled */
   auditFiles: AuditFileSummary[];
+  /** Audit log storage (SQLite path, etc.) from `/api/config`; null if unknown */
+  auditStorage: AuditStorageInfo | null;
 }
 
 // =============================================================================
@@ -132,6 +146,7 @@ export function useBackendFiles(enabled: boolean, baseUrl = ''): BackendFilesSta
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [auditFiles, setAuditFiles] = useState<AuditFileSummary[]>([]);
+  const [auditStorage, setAuditStorage] = useState<AuditStorageInfo | null>(null);
 
   // Promise-based lock to prevent concurrent fetches (avoids race condition)
   const refreshPromiseRef = useRef<Promise<void> | null>(null);
@@ -149,6 +164,7 @@ export function useBackendFiles(enabled: boolean, baseUrl = ''): BackendFilesSta
       setWatchDirs([]);
       setTemplateMode('raw');
       setAuditFiles([]);
+      setAuditStorage(null);
       setError(null);
       setLoading(false);
       return;
@@ -204,8 +220,18 @@ export function useBackendFiles(enabled: boolean, baseUrl = ''): BackendFilesSta
           } else {
             setTemplateMode('raw');
           }
+          if (configData.audit_storage) {
+            setAuditStorage({
+              enabled: Boolean(configData.audit_storage.enabled),
+              type: configData.audit_storage.type ?? null,
+              location: configData.audit_storage.location ?? null,
+            });
+          } else {
+            setAuditStorage(null);
+          }
         } else {
           setTemplateMode('raw');
+          setAuditStorage(null);
         }
 
         // Parse audit files (optional: endpoint may not exist or audit may be disabled)
@@ -240,6 +266,7 @@ export function useBackendFiles(enabled: boolean, baseUrl = ''): BackendFilesSta
           setWatchDirs([]);
           setTemplateMode('raw');
           setAuditFiles([]);
+          setAuditStorage(null);
         }
         // Otherwise preserve last-known-good state on transient errors to avoid UI flicker
 
@@ -297,5 +324,6 @@ export function useBackendFiles(enabled: boolean, baseUrl = ''): BackendFilesSta
     error,
     refresh: fetchFiles,
     auditFiles,
+    auditStorage,
   };
 }

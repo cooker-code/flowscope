@@ -87,9 +87,17 @@ curl -s -X POST http://localhost:3099/api/analyze \
 ## 前端改动的回测要求
 
 每次前端改动后必须：
-1. `cd app && ../node_modules/.bin/vite build` 构建通过
-2. `cd app && npx tsc --noEmit` 类型检查通过
-3. 更新 `embedded-app` → 重启服务 → 手动验证目标行为
-4. 确认其他页面元素无破坏（截图对比）
+1. `cd app && yarn build` 构建通过（生成新 `app/dist/`）
+2. `cd app && yarn typecheck` 类型检查通过
+3. **CLI Serve 模式必须重新 embed**：`cargo build -p flowscope-cli --features serve`（否则 `:3099` 仍服务旧 bundle，新页面/路由全部不可见）
+4. 重启 `./target/debug/flowscope --serve --port <port> ...`，手动验证目标行为
+5. 确认其他页面元素无破坏
+
+**跨层改动（前端 + Rust CLI）的打包顺序**（见 AGENTS.md "CLI Serve Mode Build Order"）：
+```bash
+cd app && yarn build                                     # 1. 构建前端 bundle → app/dist/
+cargo build -p flowscope-cli --features serve           # 2. embed 进 binary
+pkill -f 'flowscope.*--serve'; ./target/debug/flowscope --serve ...  # 3. 重启
+```
 
 **agent-browser 的限制**：Radix UI DropdownMenu 内部的 button 无法被 `click @ref` 可靠点击（DOM 会被提前删除）。需要通过手动 Chrome 操作或 JS 注入验证。

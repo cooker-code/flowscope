@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { FileSelector } from './FileSelector';
+import { SqlPreviewCapsule } from './SqlPreviewCapsule';
 import type { RunMode } from '@/lib/project-store';
 import type { AnalyzeResult } from '@pondpilot/flowscope-core';
 
@@ -31,6 +32,8 @@ interface EditorToolbarProps {
   showSqlViewToggle?: boolean;
   hasResolvedSql?: boolean;
   setResultFromCache?: (result: AnalyzeResult) => void;
+  /** Audit deep-link: replaces file selector */
+  auditId?: string | null;
 }
 
 export function EditorToolbar({
@@ -48,15 +51,20 @@ export function EditorToolbar({
   showSqlViewToggle = false,
   hasResolvedSql = false,
   setResultFromCache,
+  auditId,
 }: EditorToolbarProps) {
   return (
     <div className="flex items-center justify-between px-3 py-2 border-b h-[44px] shrink-0 bg-muted/30 overflow-hidden gap-2">
       <div className="flex items-center gap-2 min-w-0 flex-1">
-        <FileSelector
-          open={fileSelectorOpen}
-          onOpenChange={onFileSelectorOpenChange}
-          setResultFromCache={setResultFromCache}
-        />
+        {auditId ? (
+          <SqlPreviewCapsule auditId={auditId} />
+        ) : (
+          <FileSelector
+            open={fileSelectorOpen}
+            onOpenChange={onFileSelectorOpenChange}
+            setResultFromCache={setResultFromCache}
+          />
+        )}
 
         {showSqlViewToggle && (
           <TooltipProvider>

@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { Routes, Route } from 'react-router-dom';
 import { LineageProvider } from '@pondpilot/flowscope-react';
 import '@pondpilot/flowscope-react/styles.css';
 
@@ -12,6 +13,7 @@ import { Toaster } from './components/ui/sonner';
 import { useShareImport } from './hooks';
 import { DebugPanel } from './components/debug/DebugPanel';
 import { initializeTheme } from './lib/theme-store';
+import { AuditPage } from './pages/AuditPage';
 
 function ShareImportHandler() {
   useShareImport();
@@ -25,9 +27,17 @@ function AppContent() {
     <>
       <ShareImportHandler />
       <LineageProvider defaultLayoutAlgorithm="dagre">
-        <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
-          <Workspace backendReady={ready} error={error} onRetry={retry} isRetrying={isRetrying} />
-        </div>
+        <Routes>
+          <Route path="/audit" element={<AuditPage />} />
+          <Route
+            path="/"
+            element={
+              <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
+                <Workspace backendReady={ready} error={error} onRetry={retry} isRetrying={isRetrying} />
+              </div>
+            }
+          />
+        </Routes>
         <Toaster position="bottom-right" />
         <WelcomeModal />
         <GlobalDropZone />

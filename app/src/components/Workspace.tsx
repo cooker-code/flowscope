@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { Share2, Github } from 'lucide-react';
+import { Share2, Github, ScrollText } from 'lucide-react';
 import { toast } from 'sonner';
+import { useSearchParams, Link } from 'react-router-dom';
 import { useLineageActions, useLineageState } from '@pondpilot/flowscope-react';
 import { Button } from './ui/button';
 import { FlowScopeLogo } from './FlowScopeLogo';
@@ -19,7 +20,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/t
 import { useProject } from '@/lib/project-store';
 import { NavigationProvider, useNavigation } from '@/lib/navigation-context';
 import { FocusRegistryProvider } from '@/lib/focus-registry';
-import { useGlobalShortcuts, useAnalysis } from '@/hooks';
+import { useGlobalShortcuts, useAnalysis, useLoadAuditRecord } from '@/hooks';
 import type { GlobalShortcut } from '@/hooks';
 import { useThemeStore, type Theme } from '@/lib/theme-store';
 import { useViewStateStore } from '@/lib/view-state-store';
@@ -48,6 +49,14 @@ export function Workspace({ backendReady, error, onRetry, isRetrying }: Workspac
   useSyncActiveProject();
   const { adapter } = useBackend();
   const analysis = useAnalysis(backendReady, { adapter });
+  const [searchParams] = useSearchParams();
+  const auditIdParam = searchParams.get('auditId');
+
+  useLoadAuditRecord({
+    auditId: auditIdParam,
+    enabled: Boolean(auditIdParam),
+    setResultFromCache: analysis.setResultFromCache,
+  });
   const lineageActions = useLineageActions();
   const {
     highlightSpan,
@@ -345,6 +354,14 @@ export function Workspace({ backendReady, error, onRetry, isRetrying }: Workspac
 
           {/* Project Selector */}
           <ProjectSelector open={projectSelectorOpen} onOpenChange={setProjectSelectorOpen} />
+          {isBackendMode && (
+            <Button variant="outline" size="sm" className="h-8 gap-1 text-xs shrink-0" asChild>
+              <Link to="/audit">
+                <ScrollText className="size-3.5" />
+                Audit log
+              </Link>
+            </Button>
+          )}
         </div>
 
         {/* Header Actions */}
@@ -469,6 +486,7 @@ export function Workspace({ backendReady, error, onRetry, isRetrying }: Workspac
                   fileSelectorOpen={fileSelectorOpen}
                   onFileSelectorOpenChange={setFileSelectorOpen}
                   analysis={analysis}
+                  auditId={auditIdParam}
                 />
               </ResizablePanel>
 

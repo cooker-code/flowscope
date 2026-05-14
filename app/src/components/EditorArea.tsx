@@ -44,6 +44,8 @@ interface EditorAreaProps {
   fileSelectorOpen: boolean;
   onFileSelectorOpenChange: (open: boolean) => void;
   analysis: EditorAnalysisState;
+  /** When set (deep link from audit log), replaces file selector with SQL preview capsule */
+  auditId?: string | null;
 }
 
 export function EditorArea({
@@ -52,6 +54,7 @@ export function EditorArea({
   fileSelectorOpen,
   onFileSelectorOpenChange,
   analysis,
+  auditId,
 }: EditorAreaProps) {
   const { currentProject, updateFile, createFile, setRunMode, isReadOnly, isBackendMode } =
     useProject();
@@ -301,6 +304,7 @@ export function EditorArea({
         showSqlViewToggle={showSqlViewToggle}
         hasResolvedSql={!!resolvedSql}
         setResultFromCache={setResultFromCache}
+        auditId={auditId}
       />
 
       {isActiveFileStale && (

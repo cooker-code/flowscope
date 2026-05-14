@@ -7,7 +7,7 @@ import type { TemplateMode } from '@/types';
 import { DEFAULT_PROJECT, DEFAULT_DBT_PROJECT } from './default-projects';
 import { useBackend } from './backend-context';
 import { useBackendFiles } from '@/hooks/useBackendFiles';
-import type { AuditFileSummary } from '@/hooks/useBackendFiles';
+import type { AuditFileSummary, AuditStorageInfo } from '@/hooks/useBackendFiles';
 
 const uuidv4 = () => crypto.randomUUID();
 
@@ -172,6 +172,8 @@ interface ProjectContextType {
   auditFiles: AuditFileSummary[];
   /** Override the content of a backend file (used when loading from audit history) */
   setBackendFileContent: (fileId: string, content: string) => void;
+  /** Audit DB storage metadata from server config (serve mode) */
+  backendAuditStorage: AuditStorageInfo | null;
 }
 
 const ProjectContext = createContext<ProjectContextType | null>(null);
@@ -264,6 +266,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     templateMode: backendTemplateMode,
     refresh: refreshBackendFiles,
     auditFiles,
+    auditStorage,
   } = useBackendFiles(isBackendMode);
 
   // Content overrides for backend files (loaded from audit history, keyed by file name/id).
@@ -282,15 +285,28 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const [backendSelectedFileIds, setBackendSelectedFileIds] = useState<string[]>([]);
 
   useEffect(() => {
+    const overrideKeys = Object.keys(backendFileContentOverrides);
+
     if (!backendFiles || backendFiles.length === 0) {
-      setBackendActiveFileId(null);
+      if (overrideKeys.length === 0) {
+        setBackendActiveFileId(null);
+        return;
+      }
+      if (!backendActiveFileId || !overrideKeys.includes(backendActiveFileId)) {
+        setBackendActiveFileId(overrideKeys[0]);
+      }
       return;
     }
 
-    if (!backendActiveFileId || !backendFiles.some((file) => file.name === backendActiveFileId)) {
+    const validIds = new Set(backendFiles.map((file) => file.name));
+    for (const k of overrideKeys) {
+      validIds.add(k);
+    }
+
+    if (!backendActiveFileId || !validIds.has(backendActiveFileId)) {
       setBackendActiveFileId(backendFiles[0].name);
     }
-  }, [backendFiles, backendActiveFileId]);
+  }, [backendFiles, backendActiveFileId, backendFileContentOverrides]);
 
   // Sync selected file IDs when backend files change (files may be removed)
   useEffect(() => {
@@ -324,16 +340,28 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
 
   // Create a virtual project from backend files
   const backendProject: Project | null = useMemo(() => {
-    if (!isBackendMode || !backendFiles) return null;
+    if (!isBackendMode || backendFiles === null) return null;
+
+    const regularFiles: ProjectFile[] = backendFiles.map((file) => {
+      const base = fileSourceToProjectFile(file);
+      const override = backendFileContentOverrides[base.id];
+      return override !== undefined ? { ...base, content: override } : base;
+    });
+    const backendFileIds = new Set(regularFiles.map((f) => f.id));
+    const syntheticFiles: ProjectFile[] = Object.entries(backendFileContentOverrides)
+      .filter(([id]) => !backendFileIds.has(id))
+      .map(([id, content]) => ({
+        id,
+        name: id.split('/').pop() || id,
+        path: id,
+        content,
+        language: id.endsWith('.sql') ? 'sql' : id.endsWith('.json') ? 'json' : 'text',
+      }));
 
     return {
       id: BACKEND_PROJECT_ID,
       name: 'Server Files',
-      files: backendFiles.map((file) => {
-        const base = fileSourceToProjectFile(file);
-        const override = backendFileContentOverrides[base.id];
-        return override !== undefined ? { ...base, content: override } : base;
-      }),
+      files: [...regularFiles, ...syntheticFiles],
       activeFileId: backendActiveFileId,
       dialect: backendDialect,
       runMode: backendRunMode,
@@ -750,6 +778,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     refreshBackendFiles,
     auditFiles,
     setBackendFileContent,
+    backendAuditStorage: auditStorage,
   };
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;
