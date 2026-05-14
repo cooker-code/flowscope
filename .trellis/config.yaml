@@ -88,23 +88,3 @@ max_journal_lines: 2000
 #
 # codex:
 #   dispatch_mode: inline  # or "sub-agent" to dispatch trellis-* sub-agents
-
-# Auto-detected monorepo packages
-packages:
-  flowscope-core:
-    path: packages/core
-  flowscope-react:
-    path: packages/react
-  flowscope-app:
-    path: app
-  flowscope-vscode-webview:
-    path: vscode/webview-ui
-  flowscope-core:
-    path: crates/flowscope-core
-  flowscope-wasm:
-    path: crates/flowscope-wasm
-  flowscope-cli:
-    path: crates/flowscope-cli
-  flowscope-export:
-    path: crates/flowscope-export
-default_package: @pondpilot/flowscope-core
