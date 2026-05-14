@@ -19,6 +19,7 @@ interface AuditDetail {
   ts: string;
   dialect: string;
   file_name: string | null;
+  source_name: string | null;
   sql_type: string | null;
   success: boolean;
   duration_ms: number;
@@ -125,6 +126,10 @@ export function SqlPreviewCapsule({ auditId }: SqlPreviewCapsuleProps) {
                 <p>
                   <span className="font-medium text-foreground">File:</span>{' '}
                   {detail.file_name ?? '(inline)'}
+                </p>
+                <p>
+                  <span className="font-medium text-foreground">Name:</span>{' '}
+                  {detail.source_name ?? '—'}
                 </p>
                 <p>
                   <span className="font-medium text-foreground">SQL type:</span>{' '}

@@ -19,6 +19,11 @@ pub struct AuditEntry {
     pub endpoint: String,
     pub dialect: String,
     pub file_name: Option<String>,
+    /// Optional caller-supplied business identifier (dbt model name, ETL job
+    /// id, ad-hoc tag, etc). Forwarded verbatim from `AnalyzeRequest.sourceName`.
+    /// `None` when the API caller didn't supply one or the entry comes from
+    /// an endpoint that doesn't accept the field (split / lint-fix / export).
+    pub source_name: Option<String>,
     pub sql_text: String,
     pub sql_hash: String,
     pub sql_len: usize,
@@ -46,6 +51,8 @@ pub struct AuditLogListFilters<'a> {
     pub sql_type: Option<&'a str>,
     pub success: Option<bool>,
     pub file_name_filter: Option<&'a str>,
+    /// Case-sensitive `LIKE %?%` match on `source_name`.
+    pub source_name_filter: Option<&'a str>,
     pub keyword: Option<&'a str>,
 }
 
@@ -130,6 +137,11 @@ pub fn sha256_hex(s: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+/// Step 1: create the base table if missing. Indexes go in a *separate*
+/// statement (`CREATE_INDEXES_SQL`) so an old database that pre-dates a
+/// column doesn't try to index that column before the additive migration
+/// adds it. Schema evolution order is strict:
+/// `CREATE TABLE` → `ALTER TABLE ADD COLUMN` → `CREATE INDEX`.
 const CREATE_TABLE_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS audit_log (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -138,6 +150,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
     endpoint         TEXT    NOT NULL,
     dialect          TEXT    NOT NULL,
     file_name        TEXT,
+    source_name      TEXT,
     sql_text         TEXT    NOT NULL,
     sql_hash         TEXT    NOT NULL,
     sql_len          INTEGER NOT NULL,
@@ -152,27 +165,41 @@ CREATE TABLE IF NOT EXISTS audit_log (
     result_truncated INTEGER NOT NULL DEFAULT 0,
     error_msg        TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_audit_ts        ON audit_log(ts);
-CREATE INDEX IF NOT EXISTS idx_audit_endpoint  ON audit_log(endpoint);
-CREATE INDEX IF NOT EXISTS idx_audit_sql_hash  ON audit_log(sql_hash);
-CREATE INDEX IF NOT EXISTS idx_audit_has_cte   ON audit_log(has_cte);
-CREATE INDEX IF NOT EXISTS idx_audit_sql_type  ON audit_log(sql_type);
 "#;
 
-/// Migration: add sql_type column to existing databases that pre-date this field.
-const MIGRATE_SQL_TYPE: &str = "ALTER TABLE audit_log ADD COLUMN sql_type TEXT";
+/// Step 3: indexes — must run *after* the additive migrations, otherwise
+/// indexing a freshly-added column on an old DB fails with
+/// `no such column`.
+const CREATE_INDEXES_SQL: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_audit_ts          ON audit_log(ts);
+CREATE INDEX IF NOT EXISTS idx_audit_endpoint    ON audit_log(endpoint);
+CREATE INDEX IF NOT EXISTS idx_audit_sql_hash    ON audit_log(sql_hash);
+CREATE INDEX IF NOT EXISTS idx_audit_has_cte     ON audit_log(has_cte);
+CREATE INDEX IF NOT EXISTS idx_audit_sql_type    ON audit_log(sql_type);
+CREATE INDEX IF NOT EXISTS idx_audit_source_name ON audit_log(source_name);
+"#;
+
+/// Step 2: additive column migrations. Each migration is applied at
+/// startup; SQLite raises `duplicate column name` if it has already run,
+/// which we swallow. New entries must be additive — never drop or rename
+/// columns here, do that through a fresh migration with renamed table
+/// semantics.
+const ADDITIVE_MIGRATIONS: &[&str] = &[
+    "ALTER TABLE audit_log ADD COLUMN sql_type TEXT",
+    "ALTER TABLE audit_log ADD COLUMN source_name TEXT",
+];
 
 const INSERT_SQL: &str = r#"
 INSERT INTO audit_log (
-    ts, client_ip, endpoint, dialect, file_name,
+    ts, client_ip, endpoint, dialect, file_name, source_name,
     sql_text, sql_hash, sql_len,
     has_cte, has_union, success, duration_ms,
     stmt_count, table_count, sql_type, result_json, result_truncated, error_msg
 ) VALUES (
-    ?1, ?2, ?3, ?4, ?5,
-    ?6, ?7, ?8,
-    ?9, ?10, ?11, ?12,
-    ?13, ?14, ?15, ?16, ?17, ?18
+    ?1, ?2, ?3, ?4, ?5, ?6,
+    ?7, ?8, ?9,
+    ?10, ?11, ?12, ?13,
+    ?14, ?15, ?16, ?17, ?18, ?19
 )
 "#;
 
@@ -202,13 +229,25 @@ impl AuditWriter {
             })?;
             conn.execute_batch(CREATE_TABLE_SQL)
                 .map_err(|e| anyhow::anyhow!("Failed to initialise audit schema: {}", e))?;
-            // Migrate existing databases: ignore "duplicate column" error
-            if let Err(e) = conn.execute_batch(MIGRATE_SQL_TYPE) {
-                let msg = e.to_string();
-                if !msg.contains("duplicate column") {
-                    return Err(anyhow::anyhow!("Failed to migrate audit schema: {}", e));
+            // Apply additive ALTER TABLE migrations. Pre-existing columns
+            // raise "duplicate column name", which is the expected path on
+            // every restart and must be swallowed. Indexes are created
+            // afterwards (below) so an old DB doesn't try to index a column
+            // that hasn't been added yet.
+            for stmt in ADDITIVE_MIGRATIONS {
+                if let Err(e) = conn.execute_batch(stmt) {
+                    let msg = e.to_string();
+                    if !msg.contains("duplicate column") {
+                        return Err(anyhow::anyhow!(
+                            "Failed to migrate audit schema with `{}`: {}",
+                            stmt,
+                            e
+                        ));
+                    }
                 }
             }
+            conn.execute_batch(CREATE_INDEXES_SQL)
+                .map_err(|e| anyhow::anyhow!("Failed to create audit indexes: {}", e))?;
             conn
         };
 
@@ -231,6 +270,7 @@ impl AuditWriter {
                             entry.endpoint,
                             entry.dialect,
                             entry.file_name,
+                            entry.source_name,
                             entry.sql_text,
                             entry.sql_hash,
                             entry.sql_len as i64,
@@ -308,6 +348,10 @@ impl AuditWriter {
             cond_parts.push("file_name LIKE ?");
             extra_params.push(format!("%{fn_pat}%"));
         }
+        if let Some(sn_pat) = filters.source_name_filter {
+            cond_parts.push("source_name LIKE ?");
+            extra_params.push(format!("%{sn_pat}%"));
+        }
         if let Some(kw) = filters.keyword {
             cond_parts.push("LOWER(sql_text) LIKE LOWER(?)");
             extra_params.push(format!("%{kw}%"));
@@ -341,9 +385,9 @@ impl AuditWriter {
         // List query: omit sql_text and result_json to keep responses small.
         // Use GET /api/audit/:id for full detail including those fields.
         let select_sql = format!(
-            "SELECT id, ts, client_ip, endpoint, dialect, file_name, sql_hash, sql_len, \
-             has_cte, has_union, success, duration_ms, stmt_count, table_count, sql_type, \
-             result_truncated, error_msg \
+            "SELECT id, ts, client_ip, endpoint, dialect, file_name, source_name, \
+             sql_hash, sql_len, has_cte, has_union, success, duration_ms, \
+             stmt_count, table_count, sql_type, result_truncated, error_msg \
              FROM audit_log {where_clause} ORDER BY ts DESC LIMIT ?{limit_idx} OFFSET ?{offset_idx}"
         );
 
@@ -363,17 +407,18 @@ impl AuditWriter {
             let endpoint: String = row.get(3)?;
             let dialect: String = row.get(4)?;
             let file_name: Option<String> = row.get(5)?;
-            let sql_hash: String = row.get(6)?;
-            let sql_len: i64 = row.get(7)?;
-            let has_cte: i32 = row.get(8)?;
-            let has_union: i32 = row.get(9)?;
-            let success: i32 = row.get(10)?;
-            let duration_ms: i64 = row.get(11)?;
-            let stmt_count: Option<i64> = row.get(12)?;
-            let table_count: Option<i64> = row.get(13)?;
-            let sql_type: Option<String> = row.get(14)?;
-            let result_truncated: i32 = row.get(15)?;
-            let error_msg: Option<String> = row.get(16)?;
+            let source_name: Option<String> = row.get(6)?;
+            let sql_hash: String = row.get(7)?;
+            let sql_len: i64 = row.get(8)?;
+            let has_cte: i32 = row.get(9)?;
+            let has_union: i32 = row.get(10)?;
+            let success: i32 = row.get(11)?;
+            let duration_ms: i64 = row.get(12)?;
+            let stmt_count: Option<i64> = row.get(13)?;
+            let table_count: Option<i64> = row.get(14)?;
+            let sql_type: Option<String> = row.get(15)?;
+            let result_truncated: i32 = row.get(16)?;
+            let error_msg: Option<String> = row.get(17)?;
 
             records.push(serde_json::json!({
                 "id": id,
@@ -382,6 +427,7 @@ impl AuditWriter {
                 "endpoint": endpoint,
                 "dialect": dialect,
                 "file_name": file_name,
+                "source_name": source_name,
                 "sql_hash": sql_hash,
                 "sql_len": sql_len,
                 "has_cte": has_cte != 0,
@@ -443,9 +489,9 @@ impl AuditWriter {
     ) -> anyhow::Result<Option<serde_json::Value>> {
         let conn = rusqlite::Connection::open(db_path)?;
         let mut stmt = conn.prepare(
-            "SELECT id, ts, client_ip, endpoint, dialect, file_name, sql_text, sql_hash, sql_len, \
-             has_cte, has_union, success, duration_ms, stmt_count, table_count, sql_type, \
-             result_json, result_truncated, error_msg \
+            "SELECT id, ts, client_ip, endpoint, dialect, file_name, source_name, \
+             sql_text, sql_hash, sql_len, has_cte, has_union, success, duration_ms, \
+             stmt_count, table_count, sql_type, result_json, result_truncated, error_msg \
              FROM audit_log WHERE id = ?1",
         )?;
         stmt.raw_bind_parameter(1, id)?;
@@ -453,7 +499,7 @@ impl AuditWriter {
         match rows.next()? {
             None => Ok(None),
             Some(row) => {
-                let result_json_raw: Option<String> = row.get(16)?;
+                let result_json_raw: Option<String> = row.get(17)?;
                 let result_json = result_json_raw
                     .as_deref()
                     .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
@@ -464,21 +510,208 @@ impl AuditWriter {
                     "endpoint":         row.get::<_, String>(3)?,
                     "dialect":          row.get::<_, String>(4)?,
                     "file_name":        row.get::<_, Option<String>>(5)?,
-                    "sql_text":         row.get::<_, String>(6)?,
-                    "sql_hash":         row.get::<_, String>(7)?,
-                    "sql_len":          row.get::<_, i64>(8)?,
-                    "has_cte":          row.get::<_, i32>(9)? != 0,
-                    "has_union":        row.get::<_, i32>(10)? != 0,
-                    "success":          row.get::<_, i32>(11)? != 0,
-                    "duration_ms":      row.get::<_, i64>(12)?,
-                    "stmt_count":       row.get::<_, Option<i64>>(13)?,
-                    "table_count":      row.get::<_, Option<i64>>(14)?,
-                    "sql_type":         row.get::<_, Option<String>>(15)?,
+                    "source_name":      row.get::<_, Option<String>>(6)?,
+                    "sql_text":         row.get::<_, String>(7)?,
+                    "sql_hash":         row.get::<_, String>(8)?,
+                    "sql_len":          row.get::<_, i64>(9)?,
+                    "has_cte":          row.get::<_, i32>(10)? != 0,
+                    "has_union":        row.get::<_, i32>(11)? != 0,
+                    "success":          row.get::<_, i32>(12)? != 0,
+                    "duration_ms":      row.get::<_, i64>(13)?,
+                    "stmt_count":       row.get::<_, Option<i64>>(14)?,
+                    "table_count":      row.get::<_, Option<i64>>(15)?,
+                    "sql_type":         row.get::<_, Option<String>>(16)?,
                     "result_json":      result_json,
-                    "result_truncated": row.get::<_, i32>(17)? != 0,
-                    "error_msg":        row.get::<_, Option<String>>(18)?,
+                    "result_truncated": row.get::<_, i32>(18)? != 0,
+                    "error_msg":        row.get::<_, Option<String>>(19)?,
                 })))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Construct a synthetic AuditEntry; callers override only the fields
+    /// they care about for the test.
+    fn make_entry(source_name: Option<&str>, file_name: Option<&str>) -> AuditEntry {
+        AuditEntry {
+            ts: "2026-05-14T10:00:00.000Z".to_string(),
+            client_ip: "127.0.0.1".to_string(),
+            endpoint: "/api/analyze".to_string(),
+            dialect: "Hive".to_string(),
+            file_name: file_name.map(str::to_string),
+            source_name: source_name.map(str::to_string),
+            sql_text: "SELECT 1".to_string(),
+            sql_hash: sha256_hex("SELECT 1"),
+            sql_len: 8,
+            has_cte: false,
+            has_union: false,
+            success: true,
+            duration_ms: 1,
+            stmt_count: Some(1),
+            table_count: Some(0),
+            sql_type: Some("SELECT".to_string()),
+            result_json: None,
+            result_truncated: false,
+            error_msg: None,
+        }
+    }
+
+    /// Write directly via rusqlite (no async writer) so we can run synchronously.
+    fn insert_direct(conn: &rusqlite::Connection, entry: &AuditEntry) {
+        conn.execute(
+            INSERT_SQL,
+            rusqlite::params![
+                entry.ts,
+                entry.client_ip,
+                entry.endpoint,
+                entry.dialect,
+                entry.file_name,
+                entry.source_name,
+                entry.sql_text,
+                entry.sql_hash,
+                entry.sql_len as i64,
+                entry.has_cte as i32,
+                entry.has_union as i32,
+                entry.success as i32,
+                entry.duration_ms as i64,
+                entry.stmt_count.map(|v| v as i64),
+                entry.table_count.map(|v| v as i64),
+                entry.sql_type,
+                entry.result_json,
+                entry.result_truncated as i32,
+                entry.error_msg,
+            ],
+        )
+        .expect("insert");
+    }
+
+    fn fresh_db() -> (tempfile::TempDir, PathBuf, rusqlite::Connection) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.db");
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(CREATE_TABLE_SQL).unwrap();
+        for stmt in ADDITIVE_MIGRATIONS {
+            // duplicate column is fine on a fresh schema that already has the column.
+            let _ = conn.execute_batch(stmt);
+        }
+        conn.execute_batch(CREATE_INDEXES_SQL).unwrap();
+        (dir, path, conn)
+    }
+
+    #[test]
+    fn insert_and_query_round_trip_source_name() {
+        let (_dir, path, conn) = fresh_db();
+        insert_direct(&conn, &make_entry(Some("etl-job-1234"), None));
+        insert_direct(&conn, &make_entry(None, Some("foo.sql")));
+        drop(conn);
+
+        let (total, records) =
+            AuditWriter::query(&path, 100, 0, AuditLogListFilters::default()).unwrap();
+        assert_eq!(total, 2);
+        assert_eq!(records.len(), 2);
+        // ORDER BY ts DESC + same ts → SQLite picks insertion order DESC,
+        // so the second insert (file_name set) lands first.
+        let first = &records[0];
+        let second = &records[1];
+        assert_eq!(first["file_name"], serde_json::json!("foo.sql"));
+        assert_eq!(first["source_name"], serde_json::json!(null));
+        assert_eq!(second["source_name"], serde_json::json!("etl-job-1234"));
+    }
+
+    #[test]
+    fn source_name_filter_is_like_pattern() {
+        let (_dir, path, conn) = fresh_db();
+        insert_direct(&conn, &make_entry(Some("etl-job-1234"), None));
+        insert_direct(&conn, &make_entry(Some("etl-job-5678"), None));
+        insert_direct(&conn, &make_entry(Some("dbt-model-orders"), None));
+        drop(conn);
+
+        let filters = AuditLogListFilters {
+            source_name_filter: Some("etl-job"),
+            ..Default::default()
+        };
+        let (total, records) = AuditWriter::query(&path, 100, 0, filters).unwrap();
+        assert_eq!(total, 2);
+        for rec in &records {
+            let sn = rec["source_name"].as_str().unwrap();
+            assert!(sn.starts_with("etl-job-"), "got {sn}");
+        }
+    }
+
+    #[test]
+    fn query_one_returns_source_name_in_detail() {
+        let (_dir, path, conn) = fresh_db();
+        insert_direct(&conn, &make_entry(Some("payment-pipeline"), None));
+        drop(conn);
+
+        let detail = AuditWriter::query_one(&path, 1).unwrap().expect("row");
+        assert_eq!(detail["source_name"], serde_json::json!("payment-pipeline"));
+        assert_eq!(detail["sql_text"], serde_json::json!("SELECT 1"));
+    }
+
+    #[test]
+    fn additive_migration_is_idempotent_on_existing_db() {
+        // Simulate an old database that pre-dates the source_name column:
+        // create a stripped CREATE TABLE without source_name, then run
+        // AuditWriter::new and verify the column is added without error.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.db");
+        {
+            let legacy_conn = rusqlite::Connection::open(&path).unwrap();
+            legacy_conn
+                .execute_batch(
+                    "CREATE TABLE audit_log (
+                        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ts          TEXT NOT NULL,
+                        client_ip   TEXT NOT NULL,
+                        endpoint    TEXT NOT NULL,
+                        dialect     TEXT NOT NULL,
+                        file_name   TEXT,
+                        sql_text    TEXT NOT NULL,
+                        sql_hash    TEXT NOT NULL,
+                        sql_len     INTEGER NOT NULL,
+                        has_cte     INTEGER NOT NULL DEFAULT 0,
+                        has_union   INTEGER NOT NULL DEFAULT 0,
+                        success     INTEGER NOT NULL,
+                        duration_ms INTEGER NOT NULL,
+                        stmt_count  INTEGER,
+                        table_count INTEGER,
+                        result_json TEXT,
+                        result_truncated INTEGER NOT NULL DEFAULT 0,
+                        error_msg   TEXT
+                    );",
+                )
+                .unwrap();
+        }
+
+        // First open: should add sql_type + source_name columns.
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let _writer = AuditWriter::new(path.clone()).expect("first open");
+        });
+
+        // Second open (after restart with the new schema): must not error
+        // (duplicate column is swallowed).
+        rt.block_on(async {
+            let _writer = AuditWriter::new(path.clone()).expect("second open");
+        });
+
+        // Verify the column actually exists and is queryable.
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let row: Option<String> = conn
+            .query_row(
+                "SELECT name FROM pragma_table_info('audit_log') WHERE name = 'source_name'",
+                [],
+                |r| r.get(0),
+            )
+            .ok();
+        assert_eq!(row.as_deref(), Some("source_name"));
     }
 }

@@ -15,7 +15,7 @@ This spec applies whenever:
 
 ---
 
-## 2. SQLite Schema (Current — v2)
+## 2. SQLite Schema (Current — v3)
 
 ```sql
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
     endpoint         TEXT    NOT NULL,               -- "/api/analyze" | "/api/lint-fix" | "/api/split" | "/api/export/:format"
     dialect          TEXT    NOT NULL,               -- "Generic" | "Hive" | "Postgres" etc.
     file_name        TEXT,                           -- files[] mode: source file name; inline SQL: NULL
+    source_name      TEXT,                           -- caller-supplied business identifier (sourceName / source_name); NULL when omitted
     sql_text         TEXT    NOT NULL,               -- full original SQL — NEVER truncated
     sql_hash         TEXT    NOT NULL,               -- SHA-256(sql_text) hex, for dedup lookups
     sql_len          INTEGER NOT NULL,               -- byte length of sql_text
@@ -40,30 +41,75 @@ CREATE TABLE IF NOT EXISTS audit_log (
     error_msg        TEXT                            -- error summary on failure; NULL on success
 );
 
-CREATE INDEX IF NOT EXISTS idx_audit_ts        ON audit_log(ts);
-CREATE INDEX IF NOT EXISTS idx_audit_endpoint  ON audit_log(endpoint);
-CREATE INDEX IF NOT EXISTS idx_audit_sql_hash  ON audit_log(sql_hash);
-CREATE INDEX IF NOT EXISTS idx_audit_has_cte   ON audit_log(has_cte);
-CREATE INDEX IF NOT EXISTS idx_audit_sql_type  ON audit_log(sql_type);
+-- Indexes are created in a separate step AFTER additive migrations have
+-- added their columns. See "Migration order" below.
+CREATE INDEX IF NOT EXISTS idx_audit_ts          ON audit_log(ts);
+CREATE INDEX IF NOT EXISTS idx_audit_endpoint    ON audit_log(endpoint);
+CREATE INDEX IF NOT EXISTS idx_audit_sql_hash    ON audit_log(sql_hash);
+CREATE INDEX IF NOT EXISTS idx_audit_has_cte     ON audit_log(has_cte);
+CREATE INDEX IF NOT EXISTS idx_audit_sql_type    ON audit_log(sql_type);
+CREATE INDEX IF NOT EXISTS idx_audit_source_name ON audit_log(source_name);
 ```
 
-### Migration: adding new columns
+### Migration order (CRITICAL — strict three-phase)
 
-New optional columns are added with `ALTER TABLE ... ADD COLUMN`. The migration runs at startup and ignores "duplicate column" errors (idempotent):
+Schema evolution at startup runs in three ordered phases, with indexes
+**deliberately separated from `CREATE TABLE`** so an old database doesn't
+try to index a column the additive migration hasn't added yet:
+
+1. `CREATE TABLE IF NOT EXISTS audit_log (...)` — base columns only, no indexes.
+2. Apply each entry of `ADDITIVE_MIGRATIONS` (`ALTER TABLE ... ADD COLUMN`).
+   `duplicate column name` is the steady-state error and **must** be swallowed.
+3. `CREATE INDEX IF NOT EXISTS ...` — runs only after every column referenced
+   by an index is guaranteed to exist.
 
 ```rust
-const MIGRATE_SQL_TYPE: &str = "ALTER TABLE audit_log ADD COLUMN sql_type TEXT";
-
-if let Err(e) = conn.execute_batch(MIGRATE_SQL_TYPE) {
-    if !e.to_string().contains("duplicate column") {
-        return Err(...);
+conn.execute_batch(CREATE_TABLE_SQL)?;
+for stmt in ADDITIVE_MIGRATIONS {
+    if let Err(e) = conn.execute_batch(stmt) {
+        if !e.to_string().contains("duplicate column") {
+            return Err(...);
+        }
     }
 }
+conn.execute_batch(CREATE_INDEXES_SQL)?;
 ```
+
+**Adding a new column checklist**:
+
+- [ ] Add the column declaration to `CREATE_TABLE_SQL` (so fresh databases get it directly).
+- [ ] Append `"ALTER TABLE audit_log ADD COLUMN <name> <type>"` to `ADDITIVE_MIGRATIONS` (for existing databases).
+- [ ] If the column needs an index, add `CREATE INDEX IF NOT EXISTS ...` to `CREATE_INDEXES_SQL` (**not** to `CREATE_TABLE_SQL`).
+- [ ] Add a unit test against the **legacy** pre-migration schema (see `additive_migration_is_idempotent_on_existing_db` in `audit.rs::tests`) — opening it twice must succeed without error.
 
 ---
 
 ## 3. Field Semantics (Critical)
+
+### `source_name` — caller-supplied business identifier
+
+Optional opaque string forwarded from `POST /api/analyze` body to the audit
+row verbatim. The API accepts both spellings:
+
+```json
+{ "sql": "...", "dialect": "hive", "sourceName": "etl-job-1234" }
+{ "sql": "...", "dialect": "hive", "source_name": "etl-job-1234" }
+```
+
+- Maps internally to `flowscope_core::AnalyzeRequest.source_name` (so the
+  engine can also use it for grouping when relevant) **and** to
+  `AuditEntry.source_name` (persisted for audit/search).
+- `NULL` when the caller omitted the field, and also `NULL` for audit rows
+  written by `/api/split`, `/api/lint-fix`, `/api/export/:format`, which
+  do not accept a sourceName parameter today.
+- In `files[]` mode the same `sourceName` is shared across every per-file
+  audit row (same semantics as `result_json` / `sql_type`).
+- Filter via `GET /api/audit?source_name=…` — substring `LIKE %value%` match,
+  case-sensitive (mirrors `file_name`).
+
+**Use cases**: ETL job id, dbt model name, scheduler task id, ad-hoc tag for
+manual investigations. The audit DB never interprets the value; it's
+purely a search/correlation key for the caller.
 
 ### `stmt_count` — meaningful statements only
 
@@ -152,7 +198,7 @@ Truncated to 1,048,576 bytes if oversized. `result_truncated = 1` is set when tr
 **Response omits `sql_text` and `result_json`** to keep list responses small and browser-viewable.
 
 ```
-GET /api/audit?limit=50&offset=0&from=2026-05-01T00:00:00.000Z&to=2026-05-31T23:59:59.999Z&endpoint=/api/analyze&sql_type=INSERT&success=true&file_name=orders&keyword=MERGE
+GET /api/audit?limit=50&offset=0&from=2026-05-01T00:00:00.000Z&to=2026-05-31T23:59:59.999Z&endpoint=/api/analyze&sql_type=INSERT&success=true&file_name=orders&source_name=etl-job&keyword=MERGE
 ```
 
 | Param | Type | Default | Max | Notes |
@@ -165,6 +211,7 @@ GET /api/audit?limit=50&offset=0&from=2026-05-01T00:00:00.000Z&to=2026-05-31T23:
 | `sql_type` | string | — | — | exact match on `sql_type` column |
 | `success` | bool | — | — | `true` / `false` query param |
 | `file_name` | string | — | — | substring match: `file_name LIKE %value%` |
+| `source_name` (alias `sourceName`) | string | — | — | substring match: `source_name LIKE %value%` |
 | `keyword` | string | — | — | case-insensitive substring on `sql_text` (list rows still omit `sql_text` in JSON) |
 
 Response:
@@ -175,7 +222,8 @@ Response:
     {
       "id": 10, "ts": "...", "client_ip": "127.0.0.1",
       "endpoint": "/api/analyze", "dialect": "Hive",
-      "file_name": "orders.sql", "sql_hash": "...", "sql_len": 4885,
+      "file_name": "orders.sql", "source_name": "etl-job-1234",
+      "sql_hash": "...", "sql_len": 4885,
       "has_cte": true, "has_union": false, "success": true,
       "duration_ms": 5, "stmt_count": 1, "table_count": 3,
       "sql_type": "INSERT", "result_truncated": false, "error_msg": null
@@ -235,7 +283,7 @@ When serve mode returns configuration JSON, it includes:
 - `file_name`: the respective file name
 - `sql_text`: that file's content
 - `sql_hash`: SHA-256 of that file's content
-- Shared: `has_cte`, `has_union`, `stmt_count`, `table_count`, `sql_type`, `result_json` — all from the combined `AnalyzeResult`
+- Shared: `has_cte`, `has_union`, `stmt_count`, `table_count`, `sql_type`, `result_json`, `source_name` — all from the combined `AnalyzeResult` (or, for `source_name`, the request-level field)
 
 **Why shared result**: The engine analyzes all files together as one cross-file lineage graph. Individual per-file results do not exist.
 

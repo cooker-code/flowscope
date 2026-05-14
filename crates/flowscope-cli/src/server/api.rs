@@ -55,6 +55,13 @@ struct AnalyzeRequest {
     enable_column_lineage: Option<bool>,
     #[serde(default)]
     template_mode: Option<String>,
+    /// Optional caller-supplied business identifier (dbt model name, ETL
+    /// job id, ad-hoc tag, …). Forwarded to `core::AnalyzeRequest.source_name`
+    /// and persisted into `audit_log.source_name` verbatim. Accepts both
+    /// `sourceName` (camelCase, matching the rest of this API) and
+    /// `source_name` (snake_case) on input.
+    #[serde(default, alias = "sourceName")]
+    source_name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -146,6 +153,11 @@ struct AuditQueryParams {
     success: Option<bool>,
     /// Substring match on `file_name`
     file_name: Option<String>,
+    /// Substring match on `source_name` (caller-supplied identifier).
+    /// Accepts both snake_case (`source_name=…`) and camelCase
+    /// (`sourceName=…`) for consistency with the analyze input.
+    #[serde(default, alias = "sourceName")]
+    source_name: Option<String>,
     /// Case-insensitive substring match on `sql_text`
     keyword: Option<String>,
 }
@@ -198,7 +210,7 @@ async fn analyze(
         sql: payload.sql.clone(),
         files: payload.files.clone(),
         dialect: state.config.dialect,
-        source_name: None,
+        source_name: payload.source_name.clone(),
         options,
         schema,
         #[cfg(feature = "templating")]
@@ -239,6 +251,7 @@ async fn analyze(
                     endpoint: "/api/analyze".to_string(),
                     dialect: dialect.clone(),
                     file_name: Some(file.name.clone()),
+                    source_name: payload.source_name.clone(),
                     sql_text: file.content.clone(),
                     sql_hash,
                     sql_len,
@@ -264,6 +277,7 @@ async fn analyze(
                 endpoint: "/api/analyze".to_string(),
                 dialect,
                 file_name: None,
+                source_name: payload.source_name.clone(),
                 sql_text: payload.sql.clone(),
                 sql_hash,
                 sql_len,
@@ -330,6 +344,11 @@ async fn split(
             endpoint: "/api/split".to_string(),
             dialect: format!("{:?}", state.config.dialect),
             file_name: None,
+            // /api/split does not accept a sourceName parameter (only
+            // /api/analyze does). Leaving NULL keeps this column meaningful
+            // as "caller-supplied identifier" without forcing every endpoint
+            // to invent one.
+            source_name: None,
             sql_text: payload.sql,
             sql_hash,
             sql_len,
@@ -392,6 +411,7 @@ async fn lint_fix(
             endpoint: "/api/lint-fix".to_string(),
             dialect: format!("{:?}", state.config.dialect),
             file_name: None,
+            source_name: None,
             sql_text: payload.sql.clone(),
             sql_hash,
             sql_len,
@@ -503,6 +523,7 @@ async fn export(
                     endpoint: endpoint.clone(),
                     dialect: dialect.clone(),
                     file_name: Some(file.name.clone()),
+                    source_name: None,
                     sql_text: file.content.clone(),
                     sql_hash,
                     sql_len,
@@ -527,6 +548,7 @@ async fn export(
                 endpoint,
                 dialect,
                 file_name: None,
+                source_name: None,
                 sql_text: payload.sql.clone(),
                 sql_hash,
                 sql_len,
@@ -660,6 +682,7 @@ async fn audit_records(
     let sql_type = params.sql_type.clone().filter(|s| !s.trim().is_empty());
     let success = params.success;
     let file_name = params.file_name.clone().filter(|s| !s.trim().is_empty());
+    let source_name = params.source_name.clone().filter(|s| !s.trim().is_empty());
     let keyword = params.keyword.clone().filter(|s| !s.trim().is_empty());
 
     let result = tokio::task::spawn_blocking(move || {
@@ -670,6 +693,7 @@ async fn audit_records(
             sql_type: sql_type.as_deref(),
             success,
             file_name_filter: file_name.as_deref(),
+            source_name_filter: source_name.as_deref(),
             keyword: keyword.as_deref(),
         };
         super::audit::AuditWriter::query(&audit_path, limit, offset, filters)
