@@ -1828,6 +1828,14 @@ async fn config_returns_server_configuration() {
     assert_eq!(json["dialect"], "Postgres");
     assert!(json["watch_dirs"].is_array());
     assert_eq!(json["has_schema"], false);
+    assert_eq!(json["audit_storage"]["enabled"], false);
+    assert!(
+        json["audit_storage"]["type"].is_null() || json["audit_storage"]["type"] == Value::Null
+    );
+    assert!(
+        json["audit_storage"]["location"].is_null()
+            || json["audit_storage"]["location"] == Value::Null
+    );
 }
 
 // === Export endpoint tests ===
@@ -1912,9 +1920,7 @@ async fn export_unknown_format_returns_error() {
 // === Audit logging tests ===
 
 /// Helper: create AppState with audit logging enabled using a temp SQLite file.
-fn test_state_with_audit(
-    db_path: &std::path::Path,
-) -> Arc<AppState> {
+fn test_state_with_audit(db_path: &std::path::Path) -> Arc<AppState> {
     use flowscope_cli::server::audit::AuditWriter;
     let mut config = default_config();
     config.audit_log_path = Some(db_path.to_path_buf());
@@ -1993,7 +1999,7 @@ async fn audit_records_written_for_analyze_inline_sql() {
     assert_eq!(rows[0].0, "/api/analyze");
     assert!(rows[0].1.contains("SELECT id FROM users"));
     assert!(rows[0].2.is_none()); // file_name is NULL for inline
-    assert_eq!(rows[0].3, 1);    // success = 1
+    assert_eq!(rows[0].3, 1); // success = 1
 }
 
 #[tokio::test]
@@ -2106,17 +2112,16 @@ async fn audit_has_union_flag_set_for_union_query() {
     let has_union: i32 = tokio::task::spawn_blocking(move || {
         use rusqlite::Connection;
         let conn = Connection::open(&db_path2).unwrap();
-        conn.query_row(
-            "SELECT has_union FROM audit_log LIMIT 1",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap()
+        conn.query_row("SELECT has_union FROM audit_log LIMIT 1", [], |r| r.get(0))
+            .unwrap()
     })
     .await
     .unwrap();
 
-    assert_eq!(has_union, 1, "has_union should be 1 for UNION query with tables");
+    assert_eq!(
+        has_union, 1,
+        "has_union should be 1 for UNION query with tables"
+    );
 }
 
 #[tokio::test]
@@ -2171,15 +2176,13 @@ async fn audit_query_api_returns_records() {
 async fn audit_disabled_when_no_path() {
     // When audit_log_path is None, no SQLite file should be created
     let state = test_state(default_config(), vec![]);
-    assert!(state.audit.is_none(), "audit should be None when no path configured");
+    assert!(
+        state.audit.is_none(),
+        "audit should be None when no path configured"
+    );
 
     let app = test_router(state);
-    let (status, _) = post_json(
-        &app,
-        "/api/analyze",
-        json!({ "sql": "SELECT 1" }),
-    )
-    .await;
+    let (status, _) = post_json(&app, "/api/analyze", json!({ "sql": "SELECT 1" })).await;
     assert_eq!(status, StatusCode::OK);
     // No crash, no side effects
 }
@@ -2191,11 +2194,7 @@ async fn audit_query_api_returns_empty_when_disabled() {
     let app = test_router(state);
 
     let response = app
-        .oneshot(
-            Request::get("/api/audit")
-                .body(Body::empty())
-                .unwrap(),
-        )
+        .oneshot(Request::get("/api/audit").body(Body::empty()).unwrap())
         .await
         .unwrap();
 
@@ -2206,4 +2205,245 @@ async fn audit_query_api_returns_empty_when_disabled() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["total"], 0);
     assert!(json["records"].as_array().unwrap().is_empty());
+}
+
+/// Seed `audit_log` with a row (used for filter query tests).
+fn insert_audit_row(
+    db_path: &std::path::Path,
+    ts: &str,
+    file_name: Option<&str>,
+    sql_text: &str,
+    sql_type: &str,
+    success: i32,
+) {
+    use flowscope_cli::server::audit::sha256_hex;
+    let conn = rusqlite::Connection::open(db_path).unwrap();
+    let hash = sha256_hex(sql_text);
+    let len = sql_text.len() as i64;
+    conn.execute(
+        "INSERT INTO audit_log (
+            ts, client_ip, endpoint, dialect, file_name,
+            sql_text, sql_hash, sql_len,
+            has_cte, has_union, success, duration_ms,
+            stmt_count, table_count, sql_type, result_json, result_truncated, error_msg
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+        rusqlite::params![
+            ts,
+            "127.0.0.1",
+            "/api/analyze",
+            "Generic",
+            file_name,
+            sql_text,
+            hash,
+            len,
+            0i32,
+            0i32,
+            success,
+            1i64,
+            1i64,
+            1i64,
+            sql_type,
+            "{}",
+            0i32,
+            Option::<String>::None,
+        ],
+    )
+    .unwrap();
+}
+
+#[tokio::test]
+async fn config_exposes_audit_storage_when_enabled() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("audit.db");
+    let state = test_state_with_audit(&db_path);
+    let app = test_router(state);
+
+    let response = app
+        .oneshot(Request::get("/api/config").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(json["audit_storage"]["enabled"], true);
+    assert_eq!(json["audit_storage"]["type"], "sqlite");
+    let loc = json["audit_storage"]["location"].as_str().unwrap();
+    assert!(loc.contains("audit.db"), "unexpected location: {loc}");
+}
+
+#[tokio::test]
+async fn audit_query_filter_by_sql_type() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("audit.db");
+    let state = test_state_with_audit(&db_path);
+    let app = build_router(Arc::clone(&state))
+        .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))));
+
+    insert_audit_row(
+        &db_path,
+        "2026-01-02T00:00:00.000Z",
+        None,
+        "WITH a AS (SELECT 1) SELECT * FROM a",
+        "WITH",
+        1,
+    );
+    insert_audit_row(
+        &db_path,
+        "2026-01-01T00:00:00.000Z",
+        None,
+        "SELECT 1",
+        "SELECT",
+        1,
+    );
+
+    let response = app
+        .oneshot(
+            Request::get("/api/audit?limit=50&offset=0&sql_type=WITH")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["total"], 1);
+    let rec = &json["records"][0];
+    assert_eq!(rec["sql_type"], "WITH");
+}
+
+#[tokio::test]
+async fn audit_query_filter_by_success() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("audit.db");
+    let state = test_state_with_audit(&db_path);
+    let app = build_router(Arc::clone(&state))
+        .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))));
+
+    insert_audit_row(
+        &db_path,
+        "2026-01-01T00:00:00.000Z",
+        None,
+        "SELECT ok",
+        "SELECT",
+        1,
+    );
+    insert_audit_row(
+        &db_path,
+        "2026-01-02T00:00:00.000Z",
+        None,
+        "SELECT bad",
+        "SELECT",
+        0,
+    );
+
+    let response = app
+        .oneshot(
+            Request::get("/api/audit?limit=50&offset=0&success=false")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["total"], 1);
+    assert_eq!(json["records"][0]["success"], false);
+}
+
+#[tokio::test]
+async fn audit_query_filter_by_file_name_like() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("audit.db");
+    let state = test_state_with_audit(&db_path);
+    let app = build_router(Arc::clone(&state))
+        .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))));
+
+    insert_audit_row(
+        &db_path,
+        "2026-01-01T00:00:00.000Z",
+        Some("models/dim/foo.sql"),
+        "SELECT 1",
+        "SELECT",
+        1,
+    );
+    insert_audit_row(
+        &db_path,
+        "2026-01-02T00:00:00.000Z",
+        Some("other.sql"),
+        "SELECT 2",
+        "SELECT",
+        1,
+    );
+
+    let response = app
+        .oneshot(
+            Request::get("/api/audit?limit=50&offset=0&file_name=dim%2Ffoo")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["total"], 1);
+    assert_eq!(json["records"][0]["file_name"], "models/dim/foo.sql");
+}
+
+#[tokio::test]
+async fn audit_query_filter_by_keyword() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("audit.db");
+    let state = test_state_with_audit(&db_path);
+    let app = build_router(Arc::clone(&state))
+        .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))));
+
+    insert_audit_row(
+        &db_path,
+        "2026-01-01T00:00:00.000Z",
+        None,
+        "SELECT unique_kw_abc FROM t",
+        "SELECT",
+        1,
+    );
+    insert_audit_row(
+        &db_path,
+        "2026-01-02T00:00:00.000Z",
+        None,
+        "SELECT 2",
+        "SELECT",
+        1,
+    );
+
+    let response = app
+        .oneshot(
+            Request::get("/api/audit?limit=50&offset=0&keyword=unique_kw_abc")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["total"], 1);
+    assert_eq!(json["records"][0]["id"], 1);
 }

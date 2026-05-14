@@ -37,6 +37,18 @@ pub struct AuditEntry {
     pub error_msg: Option<String>,
 }
 
+/// Filters for listing audit rows (`GET /api/audit`).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AuditLogListFilters<'a> {
+    pub from: Option<&'a str>,
+    pub to: Option<&'a str>,
+    pub endpoint: Option<&'a str>,
+    pub sql_type: Option<&'a str>,
+    pub success: Option<bool>,
+    pub file_name_filter: Option<&'a str>,
+    pub keyword: Option<&'a str>,
+}
+
 const RESULT_JSON_MAX_BYTES: usize = 1_048_576; // 1 MiB
 
 /// Statement types that carry no lineage value (engine config directives).
@@ -46,8 +58,7 @@ const CONFIG_STMT_TYPES: &[&str] = &["SET", "USE", "RESET"];
 ///
 /// - `stmt_count`:  meaningful statements only — SET/USE/RESET are excluded.
 /// - `table_count`: physical tables and views only — CTE nodes are excluded.
-/// - `sql_type`:    primary statement type of the first meaningful statement
-///                  (INSERT / SELECT / WITH / CREATE / …).
+/// - `sql_type`: primary statement type of the first meaningful statement (INSERT / SELECT / WITH / CREATE / …).
 /// - `has_union`:   detected via edge operation labels AND SQL text scan.
 pub fn extract_audit_flags(
     result: &AnalyzeResult,
@@ -149,8 +160,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_sql_type  ON audit_log(sql_type);
 "#;
 
 /// Migration: add sql_type column to existing databases that pre-date this field.
-const MIGRATE_SQL_TYPE: &str =
-    "ALTER TABLE audit_log ADD COLUMN sql_type TEXT";
+const MIGRATE_SQL_TYPE: &str = "ALTER TABLE audit_log ADD COLUMN sql_type TEXT";
 
 const INSERT_SQL: &str = r#"
 INSERT INTO audit_log (
@@ -190,9 +200,8 @@ impl AuditWriter {
             let conn = rusqlite::Connection::open(&db_path).map_err(|e| {
                 anyhow::anyhow!("Failed to open audit database {}: {}", db_path.display(), e)
             })?;
-            conn.execute_batch(CREATE_TABLE_SQL).map_err(|e| {
-                anyhow::anyhow!("Failed to initialise audit schema: {}", e)
-            })?;
+            conn.execute_batch(CREATE_TABLE_SQL)
+                .map_err(|e| anyhow::anyhow!("Failed to initialise audit schema: {}", e))?;
             // Migrate existing databases: ignore "duplicate column" error
             if let Err(e) = conn.execute_batch(MIGRATE_SQL_TYPE) {
                 let msg = e.to_string();
@@ -267,9 +276,7 @@ impl AuditWriter {
         db_path: &std::path::Path,
         limit: i64,
         offset: i64,
-        from: Option<&str>,
-        to: Option<&str>,
-        endpoint_filter: Option<&str>,
+        filters: AuditLogListFilters<'_>,
     ) -> anyhow::Result<(i64, Vec<serde_json::Value>)> {
         let conn = rusqlite::Connection::open(db_path)?;
 
@@ -277,17 +284,33 @@ impl AuditWriter {
         let mut cond_parts: Vec<&'static str> = Vec::new();
         let mut extra_params: Vec<String> = Vec::new();
 
-        if let Some(f) = from {
+        if let Some(f) = filters.from {
             cond_parts.push("ts >= ?");
             extra_params.push(f.to_string());
         }
-        if let Some(t) = to {
+        if let Some(t) = filters.to {
             cond_parts.push("ts <= ?");
             extra_params.push(t.to_string());
         }
-        if let Some(ep) = endpoint_filter {
+        if let Some(ep) = filters.endpoint {
             cond_parts.push("endpoint = ?");
             extra_params.push(ep.to_string());
+        }
+        if let Some(st) = filters.sql_type {
+            cond_parts.push("sql_type = ?");
+            extra_params.push(st.to_string());
+        }
+        if let Some(s) = filters.success {
+            cond_parts.push("success = ?");
+            extra_params.push(if s { "1".to_string() } else { "0".to_string() });
+        }
+        if let Some(fn_pat) = filters.file_name_filter {
+            cond_parts.push("file_name LIKE ?");
+            extra_params.push(format!("%{fn_pat}%"));
+        }
+        if let Some(kw) = filters.keyword {
+            cond_parts.push("LOWER(sql_text) LIKE LOWER(?)");
+            extra_params.push(format!("%{kw}%"));
         }
 
         let where_clause = if cond_parts.is_empty() {

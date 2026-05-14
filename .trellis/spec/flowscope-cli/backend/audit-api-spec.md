@@ -152,16 +152,20 @@ Truncated to 1,048,576 bytes if oversized. `result_truncated = 1` is set when tr
 **Response omits `sql_text` and `result_json`** to keep list responses small and browser-viewable.
 
 ```
-GET /api/audit?limit=50&offset=0&from=2026-05-01&to=2026-05-31&endpoint=/api/analyze
+GET /api/audit?limit=50&offset=0&from=2026-05-01T00:00:00.000Z&to=2026-05-31T23:59:59.999Z&endpoint=/api/analyze&sql_type=INSERT&success=true&file_name=orders&keyword=MERGE
 ```
 
 | Param | Type | Default | Max | Notes |
 |-------|------|---------|-----|-------|
 | `limit` | int | 50 | 500 | clamped |
 | `offset` | int | 0 | — | |
-| `from` | ISO date | — | — | filters `ts >= from` |
-| `to` | ISO date | — | — | filters `ts <= to` (appends T23:59:59Z) |
+| `from` | ISO 8601 | — | — | filters `ts >= from` |
+| `to` | ISO 8601 | — | — | filters `ts <= to` |
 | `endpoint` | string | — | — | exact match on endpoint field |
+| `sql_type` | string | — | — | exact match on `sql_type` column |
+| `success` | bool | — | — | `true` / `false` query param |
+| `file_name` | string | — | — | substring match: `file_name LIKE %value%` |
+| `keyword` | string | — | — | case-insensitive substring on `sql_text` (list rows still omit `sql_text` in JSON) |
 
 Response:
 ```json
@@ -197,6 +201,22 @@ Returns `404` if id not found. Returns error if audit logging is not enabled.
 ### Audit is disabled when `--audit-log` is not passed
 
 When `AppState.audit = None`, list returns `{ total: 0, records: [] }`. Detail returns 404 with "Audit logging is not enabled".
+
+### `GET /api/config` — `audit_storage`
+
+When serve mode returns configuration JSON, it includes:
+
+```json
+"audit_storage": {
+  "type": "sqlite",
+  "location": "/path/to/audit.db",
+  "enabled": true
+}
+```
+
+- `enabled`: `true` only when `--audit-log` is set **and** the audit writer initialized.
+- `type`: storage backend label (`sqlite` today; reserved for future backends).
+- `location`: absolute path to the SQLite audit file, or `null` when disabled.
 
 ---
 

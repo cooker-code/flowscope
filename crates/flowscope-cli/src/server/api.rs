@@ -16,9 +16,7 @@ use axum::{
 use chrono::SecondsFormat;
 use serde::{Deserialize, Serialize};
 
-use super::audit::{
-    extract_audit_flags, sha256_hex, truncate_result_json, AuditEntry,
-};
+use super::audit::{extract_audit_flags, sha256_hex, truncate_result_json, AuditEntry};
 use super::AppState;
 
 /// Build the API router with all endpoints.
@@ -72,10 +70,19 @@ struct SplitRequest {
 }
 
 #[derive(Serialize)]
+struct AuditStorageResponse {
+    #[serde(rename = "type")]
+    storage_type: Option<String>,
+    location: Option<String>,
+    enabled: bool,
+}
+
+#[derive(Serialize)]
 struct ConfigResponse {
     dialect: String,
     watch_dirs: Vec<String>,
     has_schema: bool,
+    audit_storage: AuditStorageResponse,
     #[cfg(feature = "templating")]
     template_mode: Option<String>,
 }
@@ -133,6 +140,14 @@ struct AuditQueryParams {
     from: Option<String>,
     to: Option<String>,
     endpoint: Option<String>,
+    /// Exact match on `audit_log.sql_type`
+    sql_type: Option<String>,
+    /// Filter by success flag
+    success: Option<bool>,
+    /// Substring match on `file_name`
+    file_name: Option<String>,
+    /// Case-insensitive substring match on `sql_text`
+    keyword: Option<String>,
 }
 
 fn default_audit_limit() -> i64 {
@@ -200,7 +215,11 @@ async fn analyze(
         let dialect = format!("{:?}", state.config.dialect);
         // Combine SQL text for flag detection (files mode joins all file content)
         let combined_sql: String = if let Some(ref files) = payload.files {
-            files.iter().map(|f| f.content.as_str()).collect::<Vec<_>>().join("\n")
+            files
+                .iter()
+                .map(|f| f.content.as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
         } else {
             payload.sql.clone()
         };
@@ -461,7 +480,11 @@ async fn export(
         let client_ip = client_addr.ip().to_string();
         let dialect = format!("{:?}", state.config.dialect);
         let export_combined_sql: String = if let Some(ref files) = payload.files {
-            files.iter().map(|f| f.content.as_str()).collect::<Vec<_>>().join("\n")
+            files
+                .iter()
+                .map(|f| f.content.as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
         } else {
             payload.sql.clone()
         };
@@ -574,6 +597,19 @@ async fn export(
 async fn config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let has_schema = state.schema.read().await.is_some();
 
+    let audit_storage = match &state.config.audit_log_path {
+        Some(p) => AuditStorageResponse {
+            storage_type: Some("sqlite".to_string()),
+            location: Some(p.display().to_string()),
+            enabled: state.audit.is_some(),
+        },
+        None => AuditStorageResponse {
+            storage_type: None,
+            location: None,
+            enabled: false,
+        },
+    };
+
     Json(ConfigResponse {
         dialect: format!("{:?}", state.config.dialect),
         watch_dirs: state
@@ -583,6 +619,7 @@ async fn config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
             .map(|p| p.display().to_string())
             .collect(),
         has_schema,
+        audit_storage,
         #[cfg(feature = "templating")]
         template_mode: state
             .config
@@ -620,16 +657,22 @@ async fn audit_records(
     let from = params.from.clone();
     let to = params.to.clone();
     let endpoint_filter = params.endpoint.clone();
+    let sql_type = params.sql_type.clone().filter(|s| !s.trim().is_empty());
+    let success = params.success;
+    let file_name = params.file_name.clone().filter(|s| !s.trim().is_empty());
+    let keyword = params.keyword.clone().filter(|s| !s.trim().is_empty());
 
     let result = tokio::task::spawn_blocking(move || {
-        super::audit::AuditWriter::query(
-            &audit_path,
-            limit,
-            offset,
-            from.as_deref(),
-            to.as_deref(),
-            endpoint_filter.as_deref(),
-        )
+        let filters = super::audit::AuditLogListFilters {
+            from: from.as_deref(),
+            to: to.as_deref(),
+            endpoint: endpoint_filter.as_deref(),
+            sql_type: sql_type.as_deref(),
+            success,
+            file_name_filter: file_name.as_deref(),
+            keyword: keyword.as_deref(),
+        };
+        super::audit::AuditWriter::query(&audit_path, limit, offset, filters)
     })
     .await
     .map_err(|e| {
@@ -665,22 +708,21 @@ async fn audit_files(
         None => return Ok(Json(Vec::<serde_json::Value>::new())),
     };
 
-    let records = tokio::task::spawn_blocking(move || {
-        super::audit::AuditWriter::query_files(&audit_path)
-    })
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Audit files task error: {e}"),
-        )
-    })?
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Audit files query failed: {e}"),
-        )
-    })?;
+    let records =
+        tokio::task::spawn_blocking(move || super::audit::AuditWriter::query_files(&audit_path))
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Audit files task error: {e}"),
+                )
+            })?
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Audit files query failed: {e}"),
+                )
+            })?;
 
     Ok(Json(records))
 }
@@ -693,20 +735,35 @@ async fn audit_record_detail(
     let audit_path = match state.config.audit_log_path {
         Some(ref p) => p.clone(),
         None => {
-            return Err((StatusCode::NOT_FOUND, "Audit logging is not enabled".to_string()));
+            return Err((
+                StatusCode::NOT_FOUND,
+                "Audit logging is not enabled".to_string(),
+            ));
         }
     };
 
-    let result = tokio::task::spawn_blocking(move || {
-        super::audit::AuditWriter::query_one(&audit_path, id)
-    })
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Query failed: {e}")))?;
+    let result =
+        tokio::task::spawn_blocking(move || super::audit::AuditWriter::query_one(&audit_path, id))
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Task error: {e}"),
+                )
+            })?
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Query failed: {e}"),
+                )
+            })?;
 
     match result {
         Some(record) => Ok(Json(record).into_response()),
-        None => Err((StatusCode::NOT_FOUND, format!("Audit record {id} not found"))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            format!("Audit record {id} not found"),
+        )),
     }
 }
 
