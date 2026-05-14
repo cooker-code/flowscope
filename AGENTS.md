@@ -1,5 +1,7 @@
 # AGENTS.md
 
+> **Claude / Cursor users**: See [`CLAUDE.md`](./CLAUDE.md) for project-specific MANDATORY rules (language, bug handling, frontend protocol, Trellis workflow shortcuts).
+
 ## Scope
 
 This file applies to the entire FlowScope monorepo.
@@ -124,6 +126,41 @@ The `just build-cli-serve` target handles this dependency automatically.
 - Use `Issue` for non-fatal analysis problems (collected and returned alongside results).
 - `flowscope-cli` uses `anyhow::Result` with `Context` for CLI errors.
 - `flowscope-export` and analyzer input use `thiserror::Error` for structured errors.
+
+## Lineage Graph Edge Types
+
+`flowscope-core` emits 5 edge variants (`EdgeType` in
+`crates/flowscope-core/src/types/response.rs`). The choice is part of the
+analyzer ↔ renderer contract — do not invent new types or change emission
+rules without updating both sides and the spec below.
+
+| Variant | JSON | Visual (light) | When emitted |
+|---|---|---|---|
+| `DataFlow` | `data_flow` | Solid grey (`#94A3B8`) | Plain column passthrough (`expression` is `None`). |
+| `Derivation` | `derivation` | Dashed purple (`#8B5CF6`, `6 4`) | Column with any transformation: function, arithmetic, `CASE`, aggregate, `CAST`, etc. (`expression` is `Some`). |
+| `JoinDependency` | `join_dependency` | Dotted green (`#10B981`, `2 2`) | A JOIN operand that contributes NO column to the sink. Carries `join_type` + `join_condition`. |
+| `Ownership` | `ownership` | Not drawn (structural) | `relation → column` containment. Used by the UI for grouping, not as a visible edge. |
+| `CrossStatement` | `cross_statement` | Only in multi-statement views | Cross-file / cross-statement linkage (e.g. dbt `ref(...)`). `statementIds` carries a `[producer, consumer]` pair. |
+
+Key rules:
+
+- `DataFlow` ↔ `Derivation` is decided by `expression.is_some()` at
+  `crates/flowscope-core/src/analyzer/query.rs:1077`. NEVER set an
+  `expression` on a `DataFlow` edge.
+- `JoinDependency` is emitted by `add_join_dependency_edges`
+  (`crates/flowscope-core/src/analyzer/statements.rs:351`) only for
+  tables in `joined_table_info` that do not already reach the sink via
+  `DataFlow`/`Derivation`.
+- Through node-collapse in `analyzer/transform.rs:226`, `Derivation`
+  "wins" over `DataFlow` — once a chain has a transformation, the
+  collapsed edge stays `Derivation`.
+- Frontend renderer reads colors/dasharrays from
+  `packages/react/src/constants.ts` (`COLORS.edges`, `EDGE_STYLES`) and
+  legend labels from `packages/react/src/components/Legend.tsx`. Keep
+  these in sync with the Rust enum.
+
+Full contract, worked examples, invariants, and anti-patterns:
+[`.trellis/spec/flowscope-core/backend/edge-types.md`](./.trellis/spec/flowscope-core/backend/edge-types.md).
 
 ## Code Style (TypeScript)
 

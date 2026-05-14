@@ -10,47 +10,15 @@ This file is intentionally short. `AGENTS.md` is the canonical source of build, 
 
 ---
 
-## Bug Handling During Validation (MANDATORY PROCESS)
+## Bug Handling（MANDATORY）
 
-**When a bug is found during validation/testing, do NOT fix it silently in conversation.**
+**任何 bug，无论大小，必须按以下顺序处理**：
 
-Follow this loop for every bug, no matter how small:
+1. 在当前 Trellis 任务里记录 → 2. 修复 → 3. **立即** `/trellis-break-loop` → 4. `/trellis-update-spec`
 
-```
-发现 bug
-  ↓
-1. 在当前 Trellis 任务里记录（note 或 sub-task）
-  ↓
-2. 修复代码
-  ↓
-3. 立即运行 /trellis-break-loop（趁上下文新鲜）
-   - 根因是什么？（设计缺陷 / 假设错误 / 语义理解偏差）
-   - 为什么规划阶段没发现？
-   - 什么 spec 规则能拦截它？
-  ↓
-4. 运行 /trellis-update-spec
-   - 写"为什么犯这个错"，不只是"做了什么修复"
-   - causal chain（因果链）比修复本身更有价值
-```
+禁止"对话中发现 → 直接修 → 继续聊"——会丢失因果链，下次类似场景仍会犯错。
 
-### 反模式（禁止）
-
-```
-❌ 对话中发现 bug → 直接修 → 继续聊 → 任务结束时统一补 spec
-```
-
-这会导致：
-- 因果链丢失（知道"不要截断"，但不知道"为什么会有截断这个想法"）
-- spec 只有规则没有根因，下次遇到类似但不完全相同的情况仍会犯错
-- Trellis 任务和实际代码变更脱节，无法追溯
-
-### 正确模式
-
-```
-✅ 发现 bug → 暂停 → break-loop → update-spec → 修复 → 继续
-```
-
-即使会话变慢，每次修复都在给未来 AI 会话建立真正可用的记忆。
+完整流程与反模式见 `.claude/skills/trellis-break-loop/SKILL.md` 和 `.claude/skills/trellis-update-spec/SKILL.md`。
 
 ---
 
@@ -65,22 +33,11 @@ Follow this loop for every bug, no matter how small:
 
 凡是前端页面改动，必须在 PRD 中明确以下三点，否则不得开始实现：
 
-**1. 组件文件定位**：精确到文件路径 + 行号（不是"某个地方"）
-**2. API 数据先验证**：血缘图/数据逻辑问题，必须先用 curl 验证 API 返回。
-  - API 返回数据不对 → **先修 Rust 引擎**
-  - API 数据正确但图显示不对 → 才改前端渲染
+1. **组件文件定位**：精确到文件路径 + 行号（不是"某个地方"）。
+2. **API 数据先验证**：血缘/数据逻辑问题先用 curl 验证 API 返回；API 不对 → **先修 Rust 引擎**；API 对、图不对 → 才改前端渲染。
+3. **验证方式**：`agent-browser` 无法可靠点击 Radix UI DropdownMenu 内的 button，需手动 Chrome 验证或 JS 注入。
 
-```bash
-# 标准 API 验证命令（test-sql 目录）
-curl -s -X POST http://localhost:3099/api/analyze \
-  -H 'Content-Type: application/json' \
-  -d "{\"files\":[{\"name\":\"xxx.sql\",\"content\":$(cat test-sql/xxx.sql | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}],\"sql\":\"\"}" \
-  | python3 -c "import json,sys; r=json.load(sys.stdin); print(json.dumps(r['summary'], indent=2))"
-```
-
-**3. 验证方式**：`agent-browser` 无法可靠点击 Radix UI DropdownMenu 内的 button，需手动 Chrome 验证或 JS 注入。
-
-完整规范见：`.trellis/spec/flowscope-app/frontend/ui-change-protocol.md`
+完整规范、curl 模板、验证 SOP 见 `.trellis/spec/flowscope-app/frontend/ui-change-protocol.md`。
 
 ---
 
@@ -93,6 +50,15 @@ curl -s -X POST http://localhost:3099/api/analyze \
 - `sql_type`：第一个有意义语句的类型（INSERT/SELECT/WITH）
 
 完整约定见：`.trellis/spec/flowscope-cli/backend/audit-api-spec.md`
+
+---
+
+## 血缘图边类型（MANDATORY 契约）
+
+5 种 `EdgeType` 是 `flowscope-core` 分析器与 React 渲染器的核心契约。新增/修改边类型必须同步 Rust 枚举 + 前端样式 + spec 三端。
+
+- 完整表格（视觉/触发条件/JSON 值）见 [`AGENTS.md` § Lineage Graph Edge Types](./AGENTS.md#lineage-graph-edge-types)
+- 完整契约、不变量、反模式、worked examples 见 `.trellis/spec/flowscope-core/backend/edge-types.md`
 
 ---
 
