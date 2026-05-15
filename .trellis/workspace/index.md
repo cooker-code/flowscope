@@ -27,7 +27,7 @@ workspace/
 
 | Developer | Last Active | Sessions | Active File |
 |-----------|-------------|----------|-------------|
-| (none yet) | - | - | - |
+| wangliang | 2026-05-15 | 5 | journal-1.md |
 
 ---
 
@@ -122,4 +122,4 @@ Use this template when recording sessions:
 
 ---
 
-**Language**: All documentation must be written in **English**.
+**Language**: All documentation must be written in **中文**.
