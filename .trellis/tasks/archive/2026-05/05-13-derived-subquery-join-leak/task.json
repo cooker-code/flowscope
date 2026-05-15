@@ -1,0 +1,33 @@
+{
+  "id": "derived-subquery-join-leak",
+  "name": "derived-subquery-join-leak",
+  "title": "Derived Subquery JOIN Info Leak",
+  "description": "Backfilled task.json for legacy task originally created via direct file edits (no task.py create). Real implementation work landed 2026-05-13 in commit f390f17.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "wangliang",
+  "assignee": "wangliang",
+  "createdAt": "2026-05-13",
+  "completedAt": "2026-05-15",
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": "f390f17",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "Backfilled metadata. Original work shipped 2026-05-13 via:\n- f390f17 fix(core): save/restore current_join_info across derived subquery\nTask was created by direct file edits (prd.md + implement.md) before task.py create discipline was enforced. archive timestamp reflects backfill date, not real completion date.",
+  "meta": {
+    "backfilled": true,
+    "actualCompletedAt": "2026-05-13",
+    "originalArtifacts": [
+      "prd.md",
+      "implement.md"
+    ]
+  }
+}
