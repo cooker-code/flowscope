@@ -1,0 +1,31 @@
+{
+  "id": "fix-complex-sql-parse",
+  "name": "fix-complex-sql-parse",
+  "title": "修复 6 个 Hive SQL 复杂语法解析失败",
+  "description": "Fix 6 Hive SQL parse failures in 3 PR groups: STRUCT named-field AS, DIV integer division, and INSERT-with-parenthesized-SELECT. PR1 + PR2 shipped as dedicated commits; PR3 absorbed by FlowscopeHiveDialect upgrade.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "wangliang",
+  "assignee": "wangliang",
+  "createdAt": "2026-05-14",
+  "completedAt": "2026-05-15",
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": "753f20c,2c25fe7,1ec1b02",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "Backfilled metadata. All 3 PR groups verified working via stdin smoke test (cargo run -p flowscope-cli -- -d hive):\n- PR1 STRUCT(a AS w) → 0 issues / 3 nodes\n  Commits: 753f20c feat(parser): introduce FlowscopeHiveDialect with STRUCT named-field support; 1ec1b02 Merge PR #1\n- PR2 SELECT x DIV 1000 → 0 issues / 4 nodes\n  Commit: 2c25fe7 feat(parser): support Hive DIV integer division operator\n- PR3 INSERT INTO|OVERWRITE ... PARTITION (...) (SELECT ...) → 0 issues / 6 nodes / 7 edges\n  No dedicated commit. Functionality was absorbed by 753f20c's FlowscopeHiveDialect upgrade (sqlparser dialect now accepts the parenthesized SELECT body natively, so the planned sanitize_hive_parenthesized_insert_select() preprocessor was never needed).\n\nBonus commit not in original PRD: 8b8448c feat(parser): allow OFFSET keyword as table alias in Hive — picked up alongside while iterating the dialect.",
+  "meta": {
+    "backfilled": true,
+    "actualCompletedAt": "2026-05-14",
+    "verification": "stdin smoke test against compiled flowscope-cli on 2026-05-15",
+    "pr3Resolution": "absorbed by FlowscopeHiveDialect upgrade (753f20c); no standalone preprocessor needed"
+  }
+}
