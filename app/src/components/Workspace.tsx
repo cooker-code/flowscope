@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { Share2, Github, ScrollText, Zap } from 'lucide-react';
+import { Share2, Github, ScrollText } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useLineageActions, useLineageState } from '@pondpilot/flowscope-react';
@@ -10,7 +10,6 @@ import type { ImperativePanelHandle } from 'react-resizable-panels';
 
 import { EditorArea } from './EditorArea';
 import { AnalysisView } from './AnalysisView';
-import { QuickAnalyzeDialog } from './QuickAnalyzeDialog';
 import { ProjectSelector } from './ProjectSelector';
 import { ShareDialog } from './ShareDialog';
 import { ExportDialog } from './ExportDialog';
@@ -72,7 +71,6 @@ export function Workspace({ backendReady, error, onRetry, isRetrying }: Workspac
   const [fileSelectorOpen, setFileSelectorOpen] = useState(false);
   const [projectSelectorOpen, setProjectSelectorOpen] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
-  const [quickAnalyzeOpen, setQuickAnalyzeOpen] = useState(false);
   const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
@@ -368,25 +366,6 @@ export function Workspace({ backendReady, error, onRetry, isRetrying }: Workspac
 
         {/* Header Actions */}
         <div className="flex items-center gap-1">
-          {/* Quick Analyze — 任何模式下都可用 */}
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => setQuickAnalyzeOpen(true)}
-                  aria-label="Quick Analyze"
-                >
-                  <Zap className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Quick Analyze — 粘贴 SQL 快速分析</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
 
           {currentProject && (
             <>
@@ -444,8 +423,6 @@ export function Workspace({ backendReady, error, onRetry, isRetrying }: Workspac
         </div>
       </header>
 
-      {/* Quick Analyze Dialog */}
-      <QuickAnalyzeDialog open={quickAnalyzeOpen} onOpenChange={setQuickAnalyzeOpen} />
 
       {/* Share Dialog */}
       {currentProject && (

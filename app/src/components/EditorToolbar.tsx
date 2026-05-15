@@ -12,19 +12,16 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { FileSelector } from './FileSelector';
 import { SqlPreviewCapsule } from './SqlPreviewCapsule';
-import type { RunMode } from '@/lib/project-store';
+import { DIALECT_OPTIONS, isValidDialect } from '@/lib/project-store';
 import type { AnalyzeResult } from '@pondpilot/flowscope-core';
+import type { Dialect } from '@pondpilot/flowscope-core';
 
 export type SqlViewMode = 'template' | 'resolved';
 
 interface EditorToolbarProps {
-  runMode: RunMode;
-  onRunModeChange: (mode: RunMode) => void;
   isAnalyzing: boolean;
   backendReady: boolean;
   onAnalyze: () => void;
-  allFileCount: number;
-  selectedCount: number;
   fileSelectorOpen: boolean;
   onFileSelectorOpenChange: (open: boolean) => void;
   sqlViewMode?: SqlViewMode;
@@ -34,16 +31,20 @@ interface EditorToolbarProps {
   setResultFromCache?: (result: AnalyzeResult) => void;
   /** Audit deep-link: replaces file selector */
   auditId?: string | null;
+  /** In backend (CLI serve) mode the file selector is hidden */
+  isBackendMode?: boolean;
+  /** Active file name shown in backend mode instead of the selector */
+  activeFileName?: string;
+  /** Current SQL dialect */
+  dialect?: Dialect;
+  /** Called when user picks a different dialect */
+  onDialectChange?: (dialect: Dialect) => void;
 }
 
 export function EditorToolbar({
-  runMode,
-  onRunModeChange,
   isAnalyzing,
   backendReady,
   onAnalyze,
-  allFileCount,
-  selectedCount,
   fileSelectorOpen,
   onFileSelectorOpenChange,
   sqlViewMode = 'template',
@@ -52,12 +53,20 @@ export function EditorToolbar({
   hasResolvedSql = false,
   setResultFromCache,
   auditId,
+  isBackendMode = false,
+  activeFileName,
+  dialect,
+  onDialectChange,
 }: EditorToolbarProps) {
   return (
     <div className="flex items-center justify-between px-3 py-2 border-b h-[44px] shrink-0 bg-muted/30 overflow-hidden gap-2">
       <div className="flex items-center gap-2 min-w-0 flex-1">
         {auditId ? (
           <SqlPreviewCapsule auditId={auditId} />
+        ) : isBackendMode ? (
+          <span className="text-xs text-muted-foreground truncate px-1">
+            {activeFileName ?? 'stdin.sql'}
+          </span>
         ) : (
           <FileSelector
             open={fileSelectorOpen}
@@ -132,32 +141,20 @@ export function EditorToolbar({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Run Configuration</DropdownMenuLabel>
+              <DropdownMenuLabel>SQL Dialect</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuRadioGroup
-                value={runMode}
-                onValueChange={(v) => onRunModeChange(v as RunMode)}
+                value={dialect ?? 'generic'}
+                onValueChange={(v) => {
+                  if (isValidDialect(v)) onDialectChange?.(v);
+                }}
               >
-                <DropdownMenuRadioItem value="current" className="text-xs justify-between">
-                  <span>Run Active File Only</span>
-                  <kbd className="ml-4 inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
-                    <span className="text-xs">⌘</span>⇧↵
-                  </kbd>
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="all" className="text-xs">
-                  Run All Files ({allFileCount})
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="custom" className="text-xs">
-                  Run Selected ({selectedCount})
-                </DropdownMenuRadioItem>
+                {DIALECT_OPTIONS.map((opt) => (
+                  <DropdownMenuRadioItem key={opt.value} value={opt.value} className="text-xs">
+                    {opt.label}
+                  </DropdownMenuRadioItem>
+                ))}
               </DropdownMenuRadioGroup>
-              <DropdownMenuSeparator />
-              <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                <kbd className="inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium">
-                  <span className="text-xs">⌘</span>↵
-                </kbd>
-                <span className="ml-2">Run in current mode</span>
-              </div>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

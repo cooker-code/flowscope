@@ -570,6 +570,11 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
 
   const updateFile = useCallback(
     (fileId: string, content: string) => {
+      // In backend mode, edits are stored as in-memory overrides (server files are not touched)
+      if (isBackendMode) {
+        setBackendFileContent(fileId, content);
+        return;
+      }
       if (!activeProjectId) return;
 
       setProjects((prev) =>
@@ -582,7 +587,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
         })
       );
     },
-    [activeProjectId]
+    [activeProjectId, isBackendMode, setBackendFileContent]
   );
 
   const deleteFile = useCallback(

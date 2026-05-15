@@ -56,7 +56,7 @@ export function EditorArea({
   analysis,
   auditId,
 }: EditorAreaProps) {
-  const { currentProject, updateFile, createFile, setRunMode, isReadOnly, isBackendMode } =
+  const { currentProject, updateFile, createFile, setRunMode, setProjectDialect, isBackendMode } =
     useProject();
 
   const theme = useThemeStore((state) => state.theme);
@@ -101,14 +101,14 @@ export function EditorArea({
   useFileNavigation();
 
   useEffect(() => {
-    if (isReadOnly) {
+    if (isBackendMode) {
       return;
     }
 
     if (currentProject && currentProject.files.length === 0) {
       createFile(DEFAULT_FILE_NAMES.SCRATCHPAD);
     }
-  }, [currentProject, createFile, isReadOnly]);
+  }, [currentProject, createFile, isBackendMode]);
 
   // Focus the editor when active file changes (e.g., new file created)
   useEffect(() => {
@@ -290,13 +290,9 @@ export function EditorArea({
   return (
     <div className={cn('flex flex-col h-full bg-background', className)}>
       <EditorToolbar
-        runMode={currentProject.runMode}
-        onRunModeChange={(mode: RunMode) => setRunMode(currentProject.id, mode)}
         isAnalyzing={isAnalyzing}
         backendReady={backendReady}
         onAnalyze={handleAnalyze}
-        allFileCount={allFileCount}
-        selectedCount={selectedCount}
         fileSelectorOpen={fileSelectorOpen}
         onFileSelectorOpenChange={onFileSelectorOpenChange}
         sqlViewMode={sqlViewMode}
@@ -305,6 +301,10 @@ export function EditorArea({
         hasResolvedSql={!!resolvedSql}
         setResultFromCache={setResultFromCache}
         auditId={auditId}
+        isBackendMode={isBackendMode}
+        activeFileName={activeFile.name}
+        dialect={currentProject.dialect}
+        onDialectChange={(d) => setProjectDialect(currentProject.id, d)}
       />
 
       {isActiveFileStale && (
@@ -329,7 +329,7 @@ export function EditorArea({
             value={displayContent}
             onChange={(val) => updateFile(activeFile.id, val)}
             className="h-full text-sm"
-            editable={sqlViewMode === 'template' && !isReadOnly}
+            editable={sqlViewMode === 'template'}
             isDark={isDark}
             highlightedSpan={sqlViewMode === 'template' ? highlightedSpan : null}
             analyzedSourceName={
@@ -338,11 +338,6 @@ export function EditorArea({
             dialect={currentProject.dialect}
           />
         </ErrorBoundary>
-        {isReadOnly && (
-          <div className="absolute top-2 right-5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider bg-muted/80 text-muted-foreground rounded border">
-            Read Only
-          </div>
-        )}
       </div>
     </div>
   );
