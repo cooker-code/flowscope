@@ -179,3 +179,36 @@ yarn dev 时浏览器报 Unexpected token '<', '<!DOCTYPE'... is not valid JSON 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: CLAUDE.md 加 MANDATORY：work commit 后必须跑 /trellis-finish-work
+
+**Date**: 2026-05-15
+**Task**: CLAUDE.md 加 MANDATORY：work commit 后必须跑 /trellis-finish-work
+**Branch**: `master`
+
+### Summary
+
+本会话 7 个 task 全部漏写 journal 的反面教材沉淀为流程纪律：CLAUDE.md 新增『任务收尾（MANDATORY）』红字章节，明确 work commit 落地后必须主动跑 /trellis-finish-work（archive + 写 journal + 更新 workspace index），不得等用户提醒。同时在底部 Trellis 任务流程速查表加一行兜底。规则含判定标准（commit 是否 task 相关 / 多 task 一并归档 / 用户暂缓时如何回应）+ 完整命令文档指针 .cursor/commands/trellis-finish-work.md。这条规则的第一次自我应用就是本 session 自身——doc commit 后按规则补这条 journal 闭环。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bde255a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
