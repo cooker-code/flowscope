@@ -10,9 +10,16 @@ import {
 } from 'react';
 import { useViewStateStore } from './view-state-store';
 
-export type AnalysisTab = 'lineage' | 'hierarchy' | 'matrix' | 'schema' | 'issues';
+export type AnalysisTab = 'lineage' | 'hierarchy' | 'matrix' | 'schema' | 'issues' | 'json';
 
-const VALID_TABS: readonly AnalysisTab[] = ['lineage', 'hierarchy', 'matrix', 'schema', 'issues'];
+const VALID_TABS: readonly AnalysisTab[] = [
+  'lineage',
+  'hierarchy',
+  'matrix',
+  'schema',
+  'issues',
+  'json',
+];
 
 export function isValidTab(tab: string): tab is AnalysisTab {
   return VALID_TABS.includes(tab as AnalysisTab);
@@ -91,10 +98,11 @@ export function NavigationProvider({
   }, [projectId]);
 
   // Wrapper to persist tab changes
+  // JSON tab is a debug tool — not persisted across sessions
   const setActiveTab = useCallback(
     (tab: AnalysisTab) => {
       setActiveTabLocal(tab);
-      if (projectId) {
+      if (projectId && tab !== 'json') {
         setPersistedActiveTab(projectId, tab);
       }
     },

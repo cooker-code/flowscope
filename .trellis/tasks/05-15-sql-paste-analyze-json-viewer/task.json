@@ -1,0 +1,31 @@
+{
+  "id": "sql-paste-analyze-json-viewer",
+  "name": "sql-paste-analyze-json-viewer",
+  "title": "SQL 快速粘贴分析 + JSON 结果查看器",
+  "description": "1) 在 UI 上增加 Quick Analyze 对话框，让用户无需创建项目/文件即可粘贴 SQL 做单条血缘分析；2) 在分析结果面板新增 JSON Tab，展示 /api/analyze 原始返回结构，供用户对照 UI 解析块做调试分析。",
+  "status": "in_progress",
+  "dev_type": "frontend",
+  "scope": "app",
+  "package": "flowscope-app",
+  "priority": "P1",
+  "creator": "wangliang",
+  "assignee": "wangliang",
+  "createdAt": "2026-05-15",
+  "completedAt": null,
+  "branch": "feat/sql-paste-analyze-json-viewer",
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "app/src/components/AnalysisView.tsx",
+    "app/src/components/Workspace.tsx",
+    "app/src/lib/navigation-context.tsx",
+    "app/src/components/QuickAnalyzeDialog.tsx"
+  ],
+  "notes": "",
+  "meta": {}
+}

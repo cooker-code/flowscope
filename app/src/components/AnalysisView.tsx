@@ -8,7 +8,7 @@ import {
   useLineage,
 } from '@pondpilot/flowscope-react';
 import type { AnalyzeResult, SchemaTable } from '@pondpilot/flowscope-core';
-import { Loader2, Settings } from 'lucide-react';
+import { Loader2, Settings, Copy, Check } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { useGlobalShortcuts } from '@/hooks';
@@ -385,6 +385,9 @@ export function AnalysisView({
                 Issues ({summary.issueCount.errors + summary.issueCount.warnings})
               </TabsTrigger>
             )}
+            <TabsTrigger value="json" className="font-mono text-xs">
+              JSON
+            </TabsTrigger>
           </TabsList>
 
           {/* Stats Popover and Actions */}
@@ -524,6 +527,14 @@ export function AnalysisView({
               )}
             </TabsContent>
           )}
+
+          <TabsContent
+            value="json"
+            forceMount
+            className="h-full mt-0 p-0 absolute inset-0 data-[state=inactive]:hidden overflow-hidden"
+          >
+            {mountedTabs.has('json') && <JsonResultView result={result} />}
+          </TabsContent>
         </div>
       </Tabs>
 
@@ -538,6 +549,61 @@ export function AnalysisView({
           isReadOnly={isBackendMode}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * JSON 原始响应查看器：展示 /api/analyze 返回的完整 AnalyzeResult 结构。
+ * 供开发者对照 UI 解析块做调试分析。
+ */
+function JsonResultView({ result }: { result: AnalyzeResult }) {
+  const [copied, setCopied] = useState(false);
+  const jsonText = useMemo(() => JSON.stringify(result, null, 2), [result]);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(jsonText).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* 顶部操作栏 */}
+      <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/10 shrink-0">
+        <div className="text-xs text-muted-foreground font-mono">
+          <span className="font-semibold text-foreground">AnalyzeResult</span>
+          <span className="ml-2 opacity-60">
+            · {result.nodes.length} nodes · {result.edges.length} edges ·{' '}
+            {result.statements.length} statements
+          </span>
+        </div>
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded border bg-background hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+          aria-label="复制 JSON"
+        >
+          {copied ? (
+            <>
+              <Check className="h-3 w-3 text-green-500" />
+              <span className="text-green-600 dark:text-green-400">已复制</span>
+            </>
+          ) : (
+            <>
+              <Copy className="h-3 w-3" />
+              <span>复制</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* JSON 内容 */}
+      <div className="flex-1 overflow-auto">
+        <pre className="p-4 text-xs font-mono leading-relaxed text-foreground/90 whitespace-pre">
+          {jsonText}
+        </pre>
+      </div>
     </div>
   );
 }
