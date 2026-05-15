@@ -1,0 +1,31 @@
+{
+  "id": "fix-hive-sql-parse-errors",
+  "name": "fix-hive-sql-parse-errors",
+  "title": "修复 Hive SQL 批量解析错误",
+  "description": "Eliminate 77 success=false audit records when batch-parsing 931 Hive SQL files. Fix 1 (Hive dialect) was a runtime config change. Fix 2 (preprocess SET/ADD lines) was originally implemented as a Python script then upgraded into the Rust core via 05-14-port-hive-preprocess-to-core, where it became part of the canonical Hive dialect path.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "wangliang",
+  "assignee": "wangliang",
+  "createdAt": "2026-05-14",
+  "completedAt": "2026-05-15",
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": "d61a010",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "Backfilled metadata. PRD asked for two fixes:\n- Fix 1: restart server with --dialect hive — runtime operation, applied same day.\n- Fix 2: preprocess SET / ADD FILE|JAR|ARCHIVE lines before sending to engine.\n\nFix 2 was first implemented in scripts/batch-parse-warehouse.py as a 13-step preprocessing pipeline. That script was later identified as an architectural anti-pattern (real /api/analyze callers got no benefit) and the entire pipeline was ported to Rust under follow-up task 05-14-port-hive-preprocess-to-core. The Rust port lives in crates/flowscope-core/src/hive_preprocess.rs and runs automatically when Dialect::Hive is selected.\n\nReference commit (the architectural upgrade that actually subsumes this task's Fix 2):\n- d61a010 feat(core): port Hive SQL preprocessing into flowscope-core\n\nVerification (post-port): full warehouse rerun reached 100% pass rate via the production /api/analyze path, exceeding the original PRD acceptance bar (success=0 ≤ 20, success=1 ≥ 95%).",
+  "meta": {
+    "backfilled": true,
+    "actualCompletedAt": "2026-05-14",
+    "supersededBy": "05-14-port-hive-preprocess-to-core",
+    "originalScriptDeleted": "scripts/batch-parse-warehouse.py (removed during port)"
+  }
+}
