@@ -1,0 +1,30 @@
+{
+  "id": "matrix-hide-cte",
+  "name": "matrix-hide-cte",
+  "title": "Matrix 隐藏 CTE 开关与传递性依赖补全",
+  "description": "Default-hide CTE rows/columns in MatrixView Tables sub-mode with a toolbar Layers toggle; reconstruct physical-to-physical dependencies via BFS over write cells with viaCtes path capture. Implementation shipped in 2ec9324 (2026-05-14).",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "wangliang",
+  "assignee": "wangliang",
+  "createdAt": "2026-05-14",
+  "completedAt": "2026-05-15",
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": "2ec9324",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "Backfilled commit/title metadata. Original task.json had escaped Unicode in title (\\u9690\\u85cf). Real implementation shipped 2026-05-14 via:\n- 2ec9324 feat(react): hide CTE aliases in matrix view with transitive collapse\nTask was implemented but never went through task.py archive, so status was stuck at 'planning' even after work landed on master.",
+  "meta": {
+    "backfilled": true,
+    "actualCompletedAt": "2026-05-14",
+    "originalTitleBug": "double-escaped unicode (\\u9690\\u85cf)"
+  }
+}
