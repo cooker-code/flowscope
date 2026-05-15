@@ -1,0 +1,33 @@
+{
+  "id": "audit-review-page",
+  "name": "audit-review-page",
+  "title": "Audit log review page + lineage deep link + storage indicator",
+  "description": "Backfilled task.json for legacy task originally created via direct file edits (no task.py create). Real implementation work landed 2026-05-13 in commits c8adcab + 47d9b92.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "wangliang",
+  "assignee": "wangliang",
+  "createdAt": "2026-05-13",
+  "completedAt": "2026-05-15",
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": "c8adcab,47d9b92",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "Backfilled metadata. Original work shipped 2026-05-13 via:\n- 47d9b92 feat(cli): extend /api/audit filters and add audit_storage to /api/config\n- c8adcab feat(app): audit review page + SQL preview capsule + storage indicator\nTask was created by direct file edits (prd.md + implement.md) before task.py create discipline was enforced. archive timestamp reflects backfill date, not real completion date.",
+  "meta": {
+    "backfilled": true,
+    "actualCompletedAt": "2026-05-13",
+    "originalArtifacts": [
+      "prd.md",
+      "implement.md"
+    ]
+  }
+}
