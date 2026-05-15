@@ -22,6 +22,24 @@ This file is intentionally short. `AGENTS.md` is the canonical source of build, 
 
 ---
 
+## 任务收尾（MANDATORY）
+
+**完成 Phase 3.4 的 work commit 后，必须主动调用 `/trellis-finish-work`，不得等用户提醒。**
+
+`/trellis-finish-work` 一条命令完成 Phase 3.5 全部动作：classify dirty → archive task → 写 journal → 更新 workspace index。
+
+禁止"代码 commit 完 → 直接答用户下一个问题"——会让 task 卡在 `in_progress` 状态、journal 空白、跨会话上下文丢失。本仓库 2026-05-13 至 05-15 期间 7 个 task 全部漏写 journal，事后 backfill 才补回，正是这条规则的反面教材。
+
+判定标准：
+
+- 你在本轮里跑过 `git commit` 落了 task 相关的 work commit → 必须接 `/trellis-finish-work`
+- 多个 task 同时完成 → 在 finish-work 的 step 1 一并归档
+- 用户明确说"先别归档" → 听用户的，但要在回复里指出"task 仍 in_progress、journal 未写"
+
+完整 Phase 3.5 步骤见 `.cursor/commands/trellis-finish-work.md`。
+
+---
+
 ## 语言规则（MANDATORY）
 
 **所有回复必须使用中文。** 代码、命令、技术术语保持原文，其余全部中文。
@@ -71,6 +89,7 @@ This file is intentionally short. `AGENTS.md` is the canonical source of build, 
 | 发现 bug | `/trellis-break-loop` | **bug 修复后立即** |
 | 编码完成 | `/trellis-check` | 提交前 |
 | 沉淀经验 | `/trellis-update-spec` | break-loop 之后 |
+| **任务收尾** | **`/trellis-finish-work`** | **work commit 之后立即（archive + 写 journal）** |
 
 ---
 
