@@ -237,7 +237,7 @@ export function EditorArea({
   }, [sqlViewMode, resolvedSql, activeFile?.content]);
 
   const handleAnalyze = useCallback(() => {
-    if (activeFile) {
+    if (activeFile && activeFile.content.trim()) {
       runAnalysis(activeFile.content, activeFile.path);
     }
   }, [activeFile, runAnalysis]);
@@ -305,6 +305,7 @@ export function EditorArea({
         activeFileName={activeFile.name}
         dialect={currentProject.dialect}
         onDialectChange={(d) => setProjectDialect(currentProject.id, d)}
+        hasSqlContent={!!(activeFile?.content?.trim())}
       />
 
       {isActiveFileStale && (

@@ -39,6 +39,8 @@ interface EditorToolbarProps {
   dialect?: Dialect;
   /** Called when user picks a different dialect */
   onDialectChange?: (dialect: Dialect) => void;
+  /** Whether the active file has non-empty SQL content; disables the run button when false */
+  hasSqlContent?: boolean;
 }
 
 export function EditorToolbar({
@@ -57,6 +59,7 @@ export function EditorToolbar({
   activeFileName,
   dialect,
   onDialectChange,
+  hasSqlContent = false,
 }: EditorToolbarProps) {
   return (
     <div className="flex items-center justify-between px-3 py-2 border-b h-[44px] shrink-0 bg-muted/30 overflow-hidden gap-2">
@@ -119,7 +122,7 @@ export function EditorToolbar({
         <div className="flex items-center rounded-full overflow-hidden shadow-xs">
           <Button
             onClick={onAnalyze}
-            disabled={!backendReady || isAnalyzing}
+            disabled={!backendReady || isAnalyzing || !hasSqlContent}
             size="sm"
             className="h-[34px] gap-1.5 bg-brand-blue-500 hover:bg-brand-blue-700 text-white font-medium rounded-none rounded-l-full border-r border-brand-blue-400/30 px-3"
           >
@@ -135,7 +138,7 @@ export function EditorToolbar({
               <Button
                 size="sm"
                 className="h-[34px] px-3 bg-brand-blue-500 hover:bg-brand-blue-700 text-white rounded-none rounded-r-full border-l border-brand-blue-700/30"
-                disabled={!backendReady || isAnalyzing}
+                disabled={!backendReady || isAnalyzing || !hasSqlContent}
               >
                 <ChevronDown className="size-3.5" />
               </Button>

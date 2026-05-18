@@ -54,6 +54,34 @@ The `just build-cli-serve` target handles this dependency automatically.
 - `just cli -- <args>` (run CLI in debug mode).
 - `just cli-release -- <args>` (run CLI in release mode).
 
+### 本地开发完整启动顺序（前端 + 后端）
+
+必须按以下顺序依次启动，**缺少任一步骤页面功能不完整**：
+
+**Step 1 — 启动前端 Vite dev server（端口 3000）**
+
+```bash
+cd app && yarn dev
+```
+
+- 访问地址：`http://localhost:3000/`
+- Vite 将 `/api/*` 请求反向代理到 `http://localhost:3099`
+- 如需修改代理目标：`FLOWSCOPE_API_PROXY=http://localhost:9099 yarn dev`
+
+**Step 2 — 编译并启动后端 CLI serve（端口 3099）**
+
+```bash
+# 首次或代码变更后需重新编译
+cargo build -p flowscope-cli --features serve
+
+# 启动服务（必须带 --audit-log 参数，路径相对于项目根目录）
+./target/debug/flowscope --serve --port 3099 --audit-log data/audit.db
+```
+
+- 后端监听地址：`http://127.0.0.1:3099/`
+- `--audit-log`：指定 SQLite 审计日志文件路径，**启动时必须携带**，否则审计功能不可用
+- `data/audit.db` 目录需提前存在：`mkdir -p data`
+
 ## Lint, Format, Typecheck
 
 - `just lint` (Rust + TypeScript lint).

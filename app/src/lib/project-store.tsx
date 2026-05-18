@@ -283,6 +283,8 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const [backendActiveFileId, setBackendActiveFileId] = useState<string | null>(null);
   const [backendRunMode, setBackendRunMode] = useState<RunMode>('current');
   const [backendSelectedFileIds, setBackendSelectedFileIds] = useState<string[]>([]);
+  // Local dialect override for backend mode (server dialect is read-only, but UI can override for analysis)
+  const [backendDialectOverride, setBackendDialectOverride] = useState<Dialect | null>(null);
 
   useEffect(() => {
     const overrideKeys = Object.keys(backendFileContentOverrides);
@@ -335,6 +337,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       setBackendActiveFileId(null);
       setBackendSelectedFileIds([]);
       setBackendRunMode('current');
+      setBackendDialectOverride(null);
     }
   }, [isBackendMode]);
 
@@ -363,7 +366,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       name: 'Server Files',
       files: [...regularFiles, ...syntheticFiles],
       activeFileId: backendActiveFileId,
-      dialect: backendDialect,
+      dialect: backendDialectOverride ?? backendDialect,
       runMode: backendRunMode,
       selectedFileIds: backendSelectedFileIds,
       schemaSQL: '', // Schema comes from backend
@@ -373,7 +376,8 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     isBackendMode,
     backendFiles,
     backendDialect,
-    backendTemplateMode,
+      backendDialectOverride,
+      backendTemplateMode,
     backendActiveFileId,
     backendRunMode,
     backendSelectedFileIds,
@@ -459,6 +463,10 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setProjectDialect = useCallback((projectId: string, dialect: Dialect) => {
+    if (projectId === BACKEND_PROJECT_ID) {
+      setBackendDialectOverride(dialect);
+      return;
+    }
     setProjects((prev) =>
       prev.map((p) => {
         if (p.id !== projectId) return p;
