@@ -10,6 +10,7 @@ const BODY_SPANS_METADATA_KEY = 'bodySpans';
 const BODY_STATEMENT_IDS_METADATA_KEY = 'bodyStatementIds';
 const BODY_SOURCE_NAMES_METADATA_KEY = 'bodySourceNames';
 const STATEMENT_AGGREGATIONS_METADATA_KEY = 'statementAggregations';
+export const OCCURRENCE_FILTERS_METADATA_KEY = 'occurrenceFilters';
 
 interface OccurrenceEntry {
   span: Span;
@@ -370,6 +371,16 @@ export function scopeNodeToStatement(
   };
 }
 
+/**
+ * Read per-occurrence filters stored in node metadata.
+ * Returns an array indexed by occurrence position, or an empty array if not present.
+ */
+function readOccurrenceFilters(node: Node): NonNullable<Node['filters']>[] {
+  const raw = node.metadata?.[OCCURRENCE_FILTERS_METADATA_KEY];
+  if (!Array.isArray(raw)) return [];
+  return raw as NonNullable<Node['filters']>[];
+}
+
 export function mergeNodesForNavigation(
   existing: Node | null,
   incoming: Node,
@@ -401,6 +412,8 @@ export function mergeNodesForNavigation(
               [BODY_SOURCE_NAMES_METADATA_KEY]: nextBodySourceNames,
             }
           : {}),
+        // Seed occurrence-0 filters for per-occurrence display in TableNode.
+        [OCCURRENCE_FILTERS_METADATA_KEY]: [incoming.filters ?? []],
       },
     };
   }
@@ -413,12 +426,27 @@ export function mergeNodesForNavigation(
   const mergedBodySpans = [...buildBodySpans(existing), ...nextBodySpans];
   const mergedBodySourceNames = [...buildBodySourceNames(existing), ...nextBodySourceNames];
 
+  // Append per-occurrence filters: each incoming statement's filters are stored
+  // at the next occurrence index so TableNode can show only the focused one.
+  const existingOccFilters = readOccurrenceFilters(existing);
+  const mergedOccFilters = [...existingOccFilters, incoming.filters ?? []];
+
+  // Build flat filters as the union of unique expressions across all occurrences.
+  // This is the legacy fallback used by code that doesn't yet read occurrenceFilters.
+  const seen = new Set<string>();
+  const dedupedFilters: NonNullable<Node['filters']> = [];
+  for (const occFilters of mergedOccFilters) {
+    for (const f of occFilters) {
+      if (!seen.has(f.expression)) {
+        seen.add(f.expression);
+        dedupedFilters.push(f);
+      }
+    }
+  }
+
   return {
     ...existing,
-    filters:
-      incoming.filters && incoming.filters.length > 0
-        ? [...(existing.filters || []), ...incoming.filters]
-        : existing.filters,
+    filters: dedupedFilters.length > 0 ? dedupedFilters : existing.filters,
     nameSpans: mergedOccurrenceSpans.length > 0 ? mergedOccurrenceSpans : existing.nameSpans,
     bodySpan: existing.bodySpan ?? incoming.bodySpan,
     metadata: {
@@ -438,6 +466,7 @@ export function mergeNodesForNavigation(
             [BODY_SOURCE_NAMES_METADATA_KEY]: mergedBodySourceNames,
           }
         : {}),
+      [OCCURRENCE_FILTERS_METADATA_KEY]: mergedOccFilters,
     },
   };
 }

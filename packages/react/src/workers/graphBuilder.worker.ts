@@ -30,12 +30,35 @@ import {
   isScriptRelationNode,
   withStatementScope,
 } from '../utils/lineageHelpers';
-import { mergeNodesForNavigation, scopeNodeToStatement } from '../utils/nodeOccurrences';
+import { mergeNodesForNavigation, scopeNodeToStatement, OCCURRENCE_FILTERS_METADATA_KEY } from '../utils/nodeOccurrences';
 import {
   buildConnectedColumnIdSet,
   filterColumnsForColumnLineage,
   EMPTY_CONNECTED_COLUMN_IDS,
 } from '../utils/columnLineageFilter';
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+/**
+ * Deduplicate filter predicates by expression, preserving first occurrence.
+ * See graphBuilders.ts for the full rationale.
+ */
+function deduplicateFilters(
+  filters: FilterPredicate[] | undefined
+): FilterPredicate[] | undefined {
+  if (!filters || filters.length === 0) return filters;
+  const seen = new Set<string>();
+  const result: FilterPredicate[] = [];
+  for (const f of filters) {
+    if (!seen.has(f.expression)) {
+      seen.add(f.expression);
+      result.push(f);
+    }
+  }
+  return result.length === filters.length ? filters : result;
+}
 
 // =============================================================================
 // Types for worker communication (all serializable - no Sets, no functions)
@@ -71,6 +94,7 @@ export interface SerializedTableNodeData extends Record<string, unknown> {
   hiddenColumnCount?: number;
   lineageHiddenColumnCount?: number;
   filters?: FilterPredicate[];
+  occurrenceFilters?: FilterPredicate[][];
   qualifiedName?: string;
   schema?: string;
   database?: string;
@@ -405,7 +429,12 @@ function buildTableNodeData(
     lineageHiddenColumnCount: options.lineageHiddenColumnCount,
     isRecursive: options.isRecursive,
     isBaseTable: options.isBaseTable,
-    filters: node.filters,
+    filters: deduplicateFilters(node.filters),
+    occurrenceFilters: (() => {
+      const raw = node.metadata?.[OCCURRENCE_FILTERS_METADATA_KEY];
+      if (!Array.isArray(raw) || raw.length <= 1) return undefined;
+      return raw as FilterPredicate[][];
+    })(),
     qualifiedName,
     schema: canonical?.schema,
     database: canonical?.catalog,

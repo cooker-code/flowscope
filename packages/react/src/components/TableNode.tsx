@@ -310,6 +310,11 @@ function TableNodeComponent({ id, data, selected }: NodeProps): JSX.Element {
   // Use derived selector to avoid new Set reference on each render
   const isExpanded = useLineageStore((state) => state.expandedTableIds.has(id));
   const showColumnEdges = useLineageStore((state) => state.showColumnEdges);
+  // Track focused occurrence index for nodes with multiple SQL occurrences.
+  // Only meaningful when this node is selected; defaults to 0 otherwise.
+  const focusedOccurrenceIndex = useLineageStore((state) =>
+    state.selectedNodeId === id ? state.focusedOccurrenceIndex : 0
+  );
   const colors = useColors();
   const isDark = useIsDarkMode();
 
@@ -329,6 +334,17 @@ function TableNodeComponent({ id, data, selected }: NodeProps): JSX.Element {
   const isCollapsed = nodeData.isCollapsed;
   // isExpanded is now derived directly from the store selector above
   const hiddenColumnCount = nodeData.hiddenColumnCount || 0;
+
+  // When the same table appears multiple times in the SQL (e.g., self-join or
+  // multi-statement), occurrenceFilters holds per-occurrence filter lists.
+  // Show only the filters relevant to the currently focused occurrence so the
+  // user doesn't see duplicate/combined filters for all occurrences at once.
+  const activeFilters: typeof nodeData.filters =
+    nodeData.occurrenceFilters && nodeData.occurrenceFilters.length > 1
+      ? (nodeData.occurrenceFilters[focusedOccurrenceIndex] ??
+        nodeData.occurrenceFilters[0] ??
+        nodeData.filters)
+      : nodeData.filters;
   const lineageHiddenColumnCount = nodeData.lineageHiddenColumnCount || 0;
   const useScrollableColumnList = !showColumnEdges;
   const shouldVirtualizeColumns =
@@ -749,7 +765,7 @@ function TableNodeComponent({ id, data, selected }: NodeProps): JSX.Element {
           )}
         </div>
       )}
-      {!isCollapsed && nodeData.filters && nodeData.filters.length > 0 && (
+      {!isCollapsed && activeFilters && activeFilters.length > 0 && (
         <div
           style={{
             padding: '6px 12px',
@@ -789,7 +805,7 @@ function TableNodeComponent({ id, data, selected }: NodeProps): JSX.Element {
               Filters
             </span>
           </div>
-          {nodeData.filters.map((filter, index) => (
+          {activeFilters.map((filter, index) => (
             <div
               key={index}
               style={{
@@ -897,6 +913,15 @@ export const TableNode = memo(TableNodeComponent, (prev, next) => {
   if (prevFilters.length !== nextFilters.length) return false;
   for (let i = 0; i < prevFilters.length; i++) {
     if (prevFilters[i].expression !== nextFilters[i].expression) return false;
+  }
+
+  // Check per-occurrence filters (length change is sufficient — expression-level
+  // changes in individual occurrences are captured by the flat `filters` check above).
+  const prevOccFilters = prevData.occurrenceFilters;
+  const nextOccFilters = nextData.occurrenceFilters;
+  if (prevOccFilters !== nextOccFilters) {
+    if (!prevOccFilters || !nextOccFilters) return false;
+    if (prevOccFilters.length !== nextOccFilters.length) return false;
   }
 
   return true;
