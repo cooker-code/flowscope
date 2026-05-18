@@ -423,6 +423,13 @@ export interface TableNodeData extends Record<string, unknown> {
   lineageHiddenColumnCount?: number;
   /** Filter predicates (WHERE/HAVING clauses) affecting this table */
   filters?: FilterPredicate[];
+  /**
+   * Per-occurrence filter predicates.  Index i corresponds to occurrence i
+   * (aligned with OccurrenceCycler's focusedOccurrenceIndex).  When present,
+   * TableNode renders only the focused occurrence's filters instead of the
+   * merged union.  Absent for nodes that appear only once.
+   */
+  occurrenceFilters?: FilterPredicate[][];
   /** Fully qualified name (e.g., "catalog.schema.table") */
   qualifiedName?: string;
   /** Schema name extracted from qualified name */

@@ -9,6 +9,8 @@ import type {
 import { isTableLikeType, nodesInStatement, edgesInStatement } from '@pondpilot/flowscope-core';
 import type { TableNodeData, ColumnNodeInfo, ScriptNodeData } from '../types';
 import { GRAPH_CONFIG, UI_CONSTANTS } from '../constants';
+import type { FilterPredicate } from '@pondpilot/flowscope-core';
+import { OCCURRENCE_FILTERS_METADATA_KEY } from './nodeOccurrences';
 import {
   getCreatedRelationNodeIds,
   OUTPUT_NODE_TYPE,
@@ -204,6 +206,28 @@ function processTableColumns(
 }
 
 /**
+ * Deduplicate filter predicates by expression, preserving first occurrence.
+ *
+ * The Rust core can emit duplicate filters when the same table is referenced
+ * multiple times within a single statement (e.g., self-join or two subqueries
+ * against the same table). Each occurrence contributes its own WHERE predicates
+ * to node.filters, resulting in N identical entries for N references. This
+ * function collapses them to unique expressions for display.
+ */
+function deduplicateFilters(filters: FilterPredicate[] | undefined): FilterPredicate[] | undefined {
+  if (!filters || filters.length === 0) return filters;
+  const seen = new Set<string>();
+  const result: FilterPredicate[] = [];
+  for (const f of filters) {
+    if (!seen.has(f.expression)) {
+      seen.add(f.expression);
+      result.push(f);
+    }
+  }
+  return result.length === filters.length ? filters : result;
+}
+
+/**
  * Base options shared by all node data builder functions.
  */
 interface NodeBuilderOptions {
@@ -254,6 +278,11 @@ function buildTableNodeData(
     ? [canonical.catalog, canonical.schema, canonical.name].filter(Boolean).join('.')
     : node.label;
 
+  const rawOccurrenceFilters = node.metadata?.[OCCURRENCE_FILTERS_METADATA_KEY];
+  const occurrenceFilters = Array.isArray(rawOccurrenceFilters)
+    ? (rawOccurrenceFilters as import('@pondpilot/flowscope-core').FilterPredicate[][])
+    : undefined;
+
   return {
     label: node.label,
     nodeType,
@@ -269,7 +298,8 @@ function buildTableNodeData(
     lineageHiddenColumnCount: options.lineageHiddenColumnCount,
     isRecursive: options.isRecursive,
     isBaseTable: options.isBaseTable,
-    filters: node.filters,
+    filters: deduplicateFilters(node.filters),
+    occurrenceFilters: occurrenceFilters && occurrenceFilters.length > 1 ? occurrenceFilters : undefined,
     qualifiedName,
     schema: canonical?.schema,
     database: canonical?.catalog,
