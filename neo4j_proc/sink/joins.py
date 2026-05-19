@@ -8,11 +8,6 @@ Pass 3 — 表-表 JOIN / UNION 关系聚合写入。
 from __future__ import annotations
 import json
 from collections import defaultdict
-from datetime import datetime, timezone
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _join_roles(join_type: str) -> tuple[str, str]:
@@ -72,7 +67,7 @@ def extract_join_pairs(result: dict) -> list[dict]:
     """
     node_map: dict[str, dict] = {n["id"]: n for n in result["nodes"]}
 
-    # ── ownership_map: child_id → parent_node (M_TABLE / Cte)
+    # ── ownership_map: child_id → parent_node (M_TABLE / CTE)
     ownership_map: dict[str, dict] = {}
     for e in result["edges"]:
         if e["type"] == "ownership":
@@ -231,9 +226,7 @@ def write_joins_with(tx, join_pairs: list[dict], sql_md5: str) -> None:
               j.has_time_join         = $time_j,
               j.has_join_dependency   = $jdep,
               j.sql_md5_list          = [$md5],
-              j.frequency             = 1,
-              j.first_seen_at         = $now,
-              j.last_seen_at          = $now
+              j.frequency             = 1
             ON MATCH SET
               j.frequency             = j.frequency + 1,
               j.join_type_history     = [x IN j.join_type_history + $jt_list WHERE x IS NOT NULL],
@@ -243,7 +236,6 @@ def write_joins_with(tx, join_pairs: list[dict], sql_md5: str) -> None:
                                              ELSE j.sql_md5_list + [$md5] END,
               j.has_non_equi          = j.has_non_equi OR $non_eq,
               j.has_time_join         = j.has_time_join OR $time_j,
-              j.last_seen_at          = $now,
               j.dominant_join_type    = $dominant
             """,
             ldb=left_db, ltbl=left_tbl,
@@ -257,7 +249,7 @@ def write_joins_with(tx, join_pairs: list[dict], sql_md5: str) -> None:
             non_eq=info["has_non_equi"],
             time_j=info["has_time_join"],
             jdep=info["has_join_dep"],
-            md5=sql_md5, now=_now(),
+            md5=sql_md5,
         )
 
 
@@ -325,11 +317,10 @@ def detect_and_write_unions(tx, result: dict, run_id: str, sql_md5: str) -> None
               ug.union_type    = 'union',
               ug.branch_count  = $bc,
               ug.sql_md5       = $md5,
-              ug.run_id        = $rid,
-              ug.first_seen_at = $now
+              ug.run_id        = $rid
             """,
             ugid=ug_id, bc=len(union_branches),
-            md5=sql_md5, rid=run_id, now=_now(),
+            md5=sql_md5, rid=run_id,
         )
 
         # UNION_BRANCH
@@ -340,7 +331,7 @@ def detect_and_write_unions(tx, result: dict, run_id: str, sql_md5: str) -> None
                 MATCH (ug:UnionGroup {id: $ugid})
                 MATCH (br:M_TABLE {db_name: $bdb, table_name: $btbl})
                 MERGE (br)-[r:UNION_BRANCH {index: $idx}]->(ug)
-                ON CREATE SET r.is_first = ($idx = 0)
+                SET r.is_first = ($idx = 0)
                 """,
                 ugid=ug_id, bdb=bdb, btbl=btbl, idx=idx,
             )

@@ -1,6 +1,6 @@
 """
 主流程（新模型）：
-  节点：M_TABLE / M_COL / Cte（移除 Run / Source / Statement / Filter）
+  节点：M_TABLE / M_COL / CTE（移除 Run / Source / Statement / Filter）
   关系：REF_TABLE_COL / REF_COL_LINEAGE / READS_FROM / JOINS_WITH
 
   Pass 1 — 实体写入（merge_table / merge_cte / merge_col）

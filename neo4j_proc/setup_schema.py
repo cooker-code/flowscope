@@ -1,6 +1,6 @@
 """
 初始化 Neo4j 约束 & 索引（幂等，可重复运行）。
-节点：M_TABLE / M_COL / Cte
+节点：M_TABLE / M_COL / CTE
 关系：REF_TABLE_COL / REF_COL_LINEAGE / REF_TEP / READS_FROM / JOINS_WITH
 属性前缀：fs_（原 flowscope_）
 """
@@ -25,9 +25,9 @@ CONSTRAINTS = [
     """CREATE CONSTRAINT mcol_physical_unique IF NOT EXISTS
        FOR (c:M_COL) REQUIRE (c.db_name, c.table_name, c.col_name) IS UNIQUE""",
 
-    # Cte：fs_uid 唯一（= run_id::node_id）
+    # CTE：fs_uid 唯一（= run_id::node_id）
     """CREATE CONSTRAINT cte_fs_uid IF NOT EXISTS
-       FOR (c:Cte) REQUIRE c.fs_uid IS UNIQUE""",
+       FOR (c:CTE) REQUIRE c.fs_uid IS UNIQUE""",
 ]
 
 INDEXES = [
@@ -39,9 +39,9 @@ INDEXES = [
     "CREATE INDEX mcol_fqn     IF NOT EXISTS FOR (c:M_COL) ON (c.fs_fqn)",
     "CREATE INDEX mcol_physical IF NOT EXISTS FOR (c:M_COL) ON (c.db_name, c.table_name, c.col_name)",
 
-    # Cte
-    "CREATE INDEX cte_subkind  IF NOT EXISTS FOR (c:Cte) ON (c.subkind)",
-    "CREATE INDEX cte_run      IF NOT EXISTS FOR (c:Cte) ON (c.run_id)",
+    # CTE
+    "CREATE INDEX cte_subkind  IF NOT EXISTS FOR (c:CTE) ON (c.subkind)",
+    "CREATE INDEX cte_run      IF NOT EXISTS FOR (c:CTE) ON (c.run_id)",
 
     # REF_COL_LINEAGE：字段级血缘（M_COL → M_COL）
     "CREATE INDEX lineage_etype IF NOT EXISTS FOR ()-[r:REF_COL_LINEAGE]-() ON (r.fs_edge_type)",
