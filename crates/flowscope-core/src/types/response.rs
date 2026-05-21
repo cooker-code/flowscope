@@ -8,6 +8,104 @@ use std::sync::Arc;
 use super::common::{Issue, IssueCount, Span, Summary};
 use super::request::ForeignKeyRef;
 
+/// Top-level SQL workload category for consumers that need a coarse grain beyond
+/// per-statement `statementType` strings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SqlType {
+    #[default]
+    Select,
+    Insert,
+    Ddl,
+}
+
+/// Variant of an INSERT statement.
+///
+/// Only meaningful when `AnalyzeResult.sql_type == SqlType::Insert`. Hive-style
+/// `INSERT OVERWRITE TABLE t ...` maps to `Overwrite`; standard `INSERT INTO t ...`
+/// (and `CREATE TABLE AS`) maps to `Into`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum InsertType {
+    Overwrite,
+    Into,
+}
+
+impl SqlType {
+    /// Derive the workload type from analyzed statement metadata.
+    ///
+    /// Priority: `insert` (any statement that writes to a target relation) >
+    /// `ddl` (schema or mutating DDL/DML without INSERT) > `select`.
+    pub fn from_statement_types(statement_types: impl IntoIterator<Item = String>) -> Self {
+        let types: Vec<String> = statement_types.into_iter().collect();
+        if types
+            .iter()
+            .any(|t| matches!(t.as_str(), "INSERT" | "CREATE_TABLE_AS"))
+        {
+            return Self::Insert;
+        }
+        if types.iter().any(|t| statement_type_is_ddl(t)) {
+            return Self::Ddl;
+        }
+        Self::Select
+    }
+}
+
+/// Compact reference to a physical table or view in the lineage graph.
+///
+/// Used by `AnalyzeResult::target_table` / `source_tables` so consumers can
+/// reach the underlying `Node` (via `id`) without re-deriving canonical names.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TableRef {
+    /// Node id matching an entry in `AnalyzeResult.nodes`.
+    pub id: String,
+    /// Short label (table name without schema/catalog).
+    pub label: String,
+    /// Fully qualified display name (`catalog.schema.table`) when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qualified_name: Option<String>,
+    /// Structured canonical identity for cross-statement matching.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canonical_name: Option<CanonicalName>,
+    /// `table` or `view` (never `cte` / `output` / `column`).
+    #[serde(rename = "type")]
+    pub node_type: NodeType,
+}
+
+fn statement_type_is_ddl(statement_type: &str) -> bool {
+    matches!(
+        statement_type,
+        "CREATE_TABLE"
+            | "CREATE_VIEW"
+            | "DROP"
+            | "ALTER_TABLE"
+            | "ALTER_VIEW"
+            | "ALTER_INDEX"
+            | "ALTER_SCHEMA"
+            | "ALTER_ROLE"
+            | "CREATE_INDEX"
+            | "CREATE_SCHEMA"
+            | "CREATE_DATABASE"
+            | "CREATE_ROLE"
+            | "CREATE_FUNCTION"
+            | "CREATE_PROCEDURE"
+            | "CREATE_TRIGGER"
+            | "CREATE_TYPE"
+            | "CREATE_SEQUENCE"
+            | "CREATE_EXTENSION"
+            | "DROP_FUNCTION"
+            | "DROP_PROCEDURE"
+            | "DROP_TRIGGER"
+            | "TRUNCATE"
+            | "MERGE"
+            | "UPDATE"
+            | "DELETE"
+            | "COPY"
+            | "UNLOAD"
+    )
+}
+
 /// The result of analyzing SQL for data lineage.
 ///
 /// Contains a single flat lineage graph spanning all statements, per-statement
@@ -18,8 +116,42 @@ use super::request::ForeignKeyRef;
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AnalyzeResult {
+    /// Coarse workload type: `select`, `insert`, or `ddl`.
+    ///
+    /// `insert` when any analyzed statement writes to a target table (including
+    /// `INSERT` and `CREATE TABLE AS`). `ddl` when schema/mutating statements
+    /// are present without insert. Otherwise `select`.
+    pub sql_type: SqlType,
+
+    /// INSERT variant: `overwrite` (Hive `INSERT OVERWRITE`) or `into`
+    /// (`INSERT INTO`, `CREATE TABLE AS`). `None` for non-insert workloads.
+    ///
+    /// When the workload contains multiple INSERTs (which also triggers
+    /// `MULTIPLE_TARGET_TABLES`), this carries the first statement's variant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub insert_type: Option<InsertType>,
+
+    /// Single physical sink of the workload (the table that gets written to).
+    ///
+    /// Populated when exactly one physical relation receives a `DataFlow` or
+    /// `Derivation` edge. `None` when no sink is detected, or when multiple
+    /// physical sinks are found — in that case a `MULTIPLE_TARGET_TABLES`
+    /// error is appended to `issues` and this field is left empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_table: Option<TableRef>,
+
+    /// Physical source relations consumed by the workload.
+    ///
+    /// Excludes CTEs and the `target_table` itself; only `table` / `view`
+    /// nodes that contribute data downstream are listed. Sorted by qualified
+    /// name for stability.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_tables: Vec<TableRef>,
+
     /// Per-statement metadata (type, span, complexity, resolved SQL).
     /// The graph itself lives in the top-level `nodes` / `edges`.
+    ///
+    /// Hive/session `SET` directives are omitted; they do not participate in lineage.
     pub statements: Vec<StatementMeta>,
 
     /// All nodes in the lineage graph. Nodes shared across statements
@@ -82,6 +214,10 @@ impl AnalyzeResult {
     /// Useful for returning errors from WASM boundary or other entry points.
     pub fn from_error(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
+            sql_type: SqlType::Select,
+            insert_type: None,
+            target_table: None,
+            source_tables: Vec::new(),
             statements: Vec::new(),
             nodes: Vec::new(),
             edges: Vec::new(),
@@ -141,7 +277,7 @@ pub struct StatementMeta {
 ///
 /// Populated during analysis and merged into `AnalyzeResult.nodes` / `.edges`
 /// by `Analyzer::build_result`. Not part of the public API.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct StatementLineage {
     pub statement_index: usize,
     pub statement_type: String,
@@ -152,6 +288,9 @@ pub(crate) struct StatementLineage {
     pub join_count: usize,
     pub complexity_score: u8,
     pub resolved_sql: Option<String>,
+    /// For INSERT statements: whether the statement is `INSERT OVERWRITE` (true)
+    /// or `INSERT INTO` / `CREATE TABLE AS` (false). `None` for non-insert statements.
+    pub insert_type: Option<InsertType>,
 }
 
 impl StatementLineage {
@@ -168,6 +307,7 @@ impl StatementLineage {
             join_count,
             complexity_score,
             resolved_sql,
+            insert_type: _,
         } = self;
         (
             StatementMeta {
@@ -926,6 +1066,10 @@ mod tests {
     #[test]
     fn test_analyze_result_serialization() {
         let result = AnalyzeResult {
+            sql_type: SqlType::Select,
+            insert_type: None,
+            target_table: None,
+            source_tables: Vec::new(),
             statements: vec![StatementMeta {
                 statement_index: 0,
                 statement_type: "SELECT".to_string(),

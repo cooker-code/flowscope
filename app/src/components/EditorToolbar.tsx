@@ -147,7 +147,7 @@ export function EditorToolbar({
               <DropdownMenuLabel>SQL Dialect</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuRadioGroup
-                value={dialect ?? 'generic'}
+                value={dialect ?? 'hive'}
                 onValueChange={(v) => {
                   if (isValidDialect(v)) onDialectChange?.(v);
                 }}

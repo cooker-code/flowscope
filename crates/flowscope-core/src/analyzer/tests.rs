@@ -2,7 +2,7 @@ use super::*;
 use crate::test_utils::{load_schema_fixture, load_sql_fixture};
 use crate::{
     types::{AnalysisOptions, LintConfidence, LintFallbackSource},
-    LintConfig,
+    LintConfig, SqlType,
 };
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -95,6 +95,232 @@ fn test_dml_insert() {
     let request = make_request("INSERT INTO test VALUES (1)");
     let result = analyze(&request);
     assert_eq!(result.statements[0].statement_type, "INSERT");
+}
+
+#[test]
+fn test_insert_type_overwrite_vs_into() {
+    let overwrite_sql = "insert overwrite table dst_tbl select * from src_tbl";
+    let into_sql = "insert into dst_tbl select * from src_tbl";
+
+    let overwrite_result = analyze(&make_request(overwrite_sql));
+    assert_eq!(
+        overwrite_result.insert_type,
+        Some(crate::InsertType::Overwrite)
+    );
+    assert_eq!(overwrite_result.sql_type, SqlType::Insert);
+
+    let into_result = analyze(&make_request(into_sql));
+    assert_eq!(into_result.insert_type, Some(crate::InsertType::Into));
+    assert_eq!(into_result.sql_type, SqlType::Insert);
+}
+
+#[test]
+fn test_insert_type_absent_for_pure_select() {
+    let result = analyze(&make_request("select * from src_tbl"));
+    assert!(result.insert_type.is_none());
+    assert_eq!(result.sql_type, SqlType::Select);
+}
+
+#[test]
+fn test_target_and_source_tables_for_insert_overwrite() {
+    let sql = r"
+set mapreduce.reduce.memory.mb=4096;
+with new_device as (
+    select device_id, user_id
+    from dw_dwd.dwd_eng_device_active_da
+    where dt = '2026-01-01'
+)
+insert overwrite table dw_conan_dwd.dwd_conan_user_order_da partition(dt='2026-01-01')
+select a.device_id, a.user_id, b.reg_tp
+from new_device a
+left join dw_dwd.dwd_site_user_reg_profile_da b on a.user_id = b.userid
+";
+    let request = make_request(sql);
+    let result = analyze(&request);
+
+    let target = result.target_table.as_ref().expect("target table");
+    assert_eq!(
+        target.qualified_name.as_deref(),
+        Some("dw_conan_dwd.dwd_conan_user_order_da")
+    );
+    assert!(matches!(
+        target.node_type,
+        crate::NodeType::Table | crate::NodeType::View
+    ));
+
+    let source_names: Vec<&str> = result
+        .source_tables
+        .iter()
+        .map(|t| t.qualified_name.as_deref().unwrap_or(&t.label))
+        .collect();
+    assert_eq!(
+        source_names,
+        vec![
+            "dw_dwd.dwd_eng_device_active_da",
+            "dw_dwd.dwd_site_user_reg_profile_da",
+        ]
+    );
+    assert!(
+        result.source_tables.iter().all(|t| matches!(
+            t.node_type,
+            crate::NodeType::Table | crate::NodeType::View
+        )),
+        "source_tables must be physical relations, not CTEs"
+    );
+    assert!(result.issues.iter().all(|i| i.code != "MULTIPLE_TARGET_TABLES"));
+}
+
+#[test]
+fn test_multiple_target_tables_emit_error_and_clear_field() {
+    let sql = r"
+insert into dst_a select * from src_x;
+insert into dst_b select * from src_y;
+";
+    let request = make_request(sql);
+    let result = analyze(&request);
+
+    assert!(result.target_table.is_none());
+    assert!(
+        result
+            .issues
+            .iter()
+            .any(|i| i.code == "MULTIPLE_TARGET_TABLES"
+                && matches!(i.severity, crate::Severity::Error)),
+        "expected MULTIPLE_TARGET_TABLES error, got issues = {:?}",
+        result.issues
+    );
+    let source_names: Vec<&str> = result
+        .source_tables
+        .iter()
+        .map(|t| t.qualified_name.as_deref().unwrap_or(&t.label))
+        .collect();
+    assert!(source_names.contains(&"src_x"));
+    assert!(source_names.contains(&"src_y"));
+}
+
+#[test]
+fn test_set_statements_filtered_and_insert_overwrite_classified() {
+    let sql = r"
+set mapreduce.reduce.memory.mb=4096;
+set mapreduce.map.memory.mb=2048;
+with cte as (select 1 as id)
+insert overwrite table dw.tgt partition(dt='2026-01-01')
+select id from cte
+";
+    let request = make_request(sql);
+    let result = analyze(&request);
+
+    assert_eq!(result.sql_type, SqlType::Insert);
+    assert_eq!(result.statements.len(), 1);
+    assert_eq!(result.statements[0].statement_index, 0);
+    assert_eq!(result.statements[0].statement_type, "INSERT");
+    assert!(
+        result
+            .statements
+            .iter()
+            .all(|s| s.statement_type != "SET"),
+        "SET directives should not appear in statements metadata"
+    );
+}
+
+/// Hive scripts often start with `REFRESH TABLE …;`. `sqlparser-rs` cannot
+/// parse this so it must be filtered at the text layer (best-effort path),
+/// otherwise it surfaces as `PARSE_ERROR` and pollutes `issues`.
+#[test]
+fn refresh_directive_filtered_in_hive_without_parse_error() {
+    let sql = "REFRESH TABLE dw_conan_ads.ads_course_user_gift_card_stat_di;\n\
+               INSERT OVERWRITE TABLE dw.tgt SELECT id FROM dw.src";
+    let mut request = make_request(sql);
+    request.dialect = Dialect::Hive;
+    let result = analyze(&request);
+
+    assert_eq!(result.statements.len(), 1, "REFRESH must be dropped");
+    assert_eq!(result.statements[0].statement_type, "INSERT");
+    assert!(
+        result
+            .issues
+            .iter()
+            .all(|i| i.code != issue_codes::PARSE_ERROR),
+        "REFRESH should not produce PARSE_ERROR, got: {:?}",
+        result.issues
+    );
+}
+
+#[test]
+fn use_directive_filtered_in_hive() {
+    let sql = "USE my_db;\nSELECT 1 FROM dw.src";
+    let mut request = make_request(sql);
+    request.dialect = Dialect::Hive;
+    let result = analyze(&request);
+
+    assert_eq!(result.statements.len(), 1);
+    assert_eq!(result.statements[0].statement_type, "SELECT");
+    assert!(
+        result
+            .issues
+            .iter()
+            .all(|i| i.code != issue_codes::PARSE_ERROR),
+        "USE should not produce PARSE_ERROR"
+    );
+}
+
+#[test]
+fn msck_directive_filtered_in_hive() {
+    let sql = "MSCK REPAIR TABLE dw.foo;\nSELECT 1 FROM dw.src";
+    let mut request = make_request(sql);
+    request.dialect = Dialect::Hive;
+    let result = analyze(&request);
+
+    assert_eq!(result.statements.len(), 1);
+    assert_eq!(result.statements[0].statement_type, "SELECT");
+    assert!(
+        result
+            .issues
+            .iter()
+            .all(|i| i.code != issue_codes::PARSE_ERROR),
+        "MSCK should not produce PARSE_ERROR"
+    );
+}
+
+#[test]
+fn directive_filter_is_case_insensitive_and_handles_comments() {
+    let sql = "-- pre-amble\n\
+               refresh table dw.cache;\n\
+               /* setup */ Set mapreduce.reduce.memory.mb=4096;\n\
+               INSERT OVERWRITE TABLE dw.tgt SELECT id FROM dw.src";
+    let mut request = make_request(sql);
+    request.dialect = Dialect::Hive;
+    let result = analyze(&request);
+
+    assert_eq!(result.statements.len(), 1);
+    assert_eq!(result.statements[0].statement_type, "INSERT");
+    assert!(
+        result
+            .issues
+            .iter()
+            .all(|i| i.code != issue_codes::PARSE_ERROR),
+        "lowercase + commented directives should be filtered silently"
+    );
+}
+
+/// REFRESH is *only* whitelisted for Hive. Under Generic dialect it should
+/// still bubble up as a parse error so users notice unintended dialect mix-ups.
+#[test]
+fn refresh_directive_not_filtered_under_generic_dialect() {
+    let sql = "REFRESH TABLE foo; SELECT 1";
+    let mut request = make_request(sql);
+    request.dialect = Dialect::Generic;
+    let result = analyze(&request);
+
+    let has_parse_error = result
+        .issues
+        .iter()
+        .any(|i| i.code == issue_codes::PARSE_ERROR);
+    assert!(
+        has_parse_error,
+        "Generic dialect should not silently drop REFRESH (issues: {:?})",
+        result.issues
+    );
 }
 
 #[test]

@@ -53,7 +53,7 @@ export class FlowScopeHoverProvider implements vscode.HoverProvider {
     if (cached && cached.version === document.version) {
       result = cached.result;
     } else {
-      const dialect = config.get<Dialect>('dialect', 'generic');
+      const dialect = config.get<Dialect>('dialect', 'hive');
       try {
         result = analyzeSql({ sql, dialect });
         this.cachedResults.set(uri, {

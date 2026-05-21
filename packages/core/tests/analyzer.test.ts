@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import type { AnalyzeResult } from '../src/types';
 
 const baseResult: AnalyzeResult = {
+  sqlType: 'select',
   statements: [],
   nodes: [],
   edges: [],
@@ -96,6 +97,6 @@ describe('analyzer', () => {
     const payloadJson = wasmModuleMock.analyze_sql_json.mock.calls[0]?.[0];
     expect(payloadJson).toBeDefined();
     const payload = JSON.parse(payloadJson as string);
-    expect(payload.dialect).toBe('generic');
+    expect(payload.dialect).toBe('hive');
   });
 });

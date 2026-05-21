@@ -8,6 +8,7 @@ function buildResult(): AnalyzeResult {
   // Two nodes: a table with three name occurrences, and a CTE with one. The
   // CTE node lets us cover the "<2 spans" no-op branch.
   return {
+    sqlType: 'select',
     statements: [
       {
         statementIndex: 0,
@@ -55,6 +56,7 @@ function buildResult(): AnalyzeResult {
 
 function buildMultiStatementResult(): AnalyzeResult {
   return {
+    sqlType: 'select',
     statements: [
       {
         statementIndex: 0,
@@ -112,6 +114,7 @@ function buildMultiStatementResult(): AnalyzeResult {
 
 function buildSharedNodeResult(): AnalyzeResult {
   return {
+    sqlType: 'select',
     statements: [
       {
         statementIndex: 0,

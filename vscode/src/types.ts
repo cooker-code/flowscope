@@ -29,7 +29,10 @@ export interface AnalysisOptions {
   enableColumnLineage?: boolean;
 }
 
+export type SqlType = 'select' | 'insert' | 'ddl';
+
 export interface AnalyzeResult {
+  sqlType: SqlType;
   statements: StatementMeta[];
   nodes: Node[];
   edges: Edge[];

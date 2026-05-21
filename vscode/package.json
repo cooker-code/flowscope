@@ -33,7 +33,7 @@
       "properties": {
         "flowscope.dialect": {
           "type": "string",
-          "default": "generic",
+          "default": "hive",
           "enum": [
             "generic",
             "ansi",

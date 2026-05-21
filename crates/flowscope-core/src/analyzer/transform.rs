@@ -352,6 +352,7 @@ mod tests {
             join_count: 0,
             complexity_score: 1,
             resolved_sql: None,
+            insert_type: None,
         };
 
         filter_cte_nodes(&mut lineage);
@@ -385,6 +386,7 @@ mod tests {
             join_count: 0,
             complexity_score: 1,
             resolved_sql: None,
+            insert_type: None,
         };
 
         filter_cte_nodes(&mut lineage);
@@ -421,6 +423,7 @@ mod tests {
             join_count: 0,
             complexity_score: 1,
             resolved_sql: None,
+            insert_type: None,
         };
 
         filter_cte_nodes(&mut lineage);
@@ -456,6 +459,7 @@ mod tests {
             join_count: 0,
             complexity_score: 1,
             resolved_sql: None,
+            insert_type: None,
         };
 
         let original_nodes = lineage.nodes.len();
@@ -484,6 +488,7 @@ mod tests {
             join_count: 0,
             complexity_score: 1,
             resolved_sql: None,
+            insert_type: None,
         };
 
         filter_cte_nodes(&mut lineage);
@@ -521,6 +526,7 @@ mod tests {
             join_count: 0,
             complexity_score: 1,
             resolved_sql: None,
+            insert_type: None,
         };
 
         filter_cte_nodes(&mut lineage);
@@ -586,6 +592,7 @@ mod tests {
             join_count: 0,
             complexity_score: 1,
             resolved_sql: None,
+            insert_type: None,
         };
 
         filter_cte_nodes(&mut lineage);

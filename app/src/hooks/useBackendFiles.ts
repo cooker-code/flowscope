@@ -140,7 +140,7 @@ function sanitizeErrorMessage(message: string): string {
 export function useBackendFiles(enabled: boolean, baseUrl = ''): BackendFilesState {
   const [files, setFiles] = useState<FileSource[] | null>(null);
   const [schema, setSchema] = useState<SchemaMetadata | null>(null);
-  const [dialect, setDialect] = useState<Dialect>('generic');
+  const [dialect, setDialect] = useState<Dialect>('hive');
   const [watchDirs, setWatchDirs] = useState<string[]>([]);
   const [templateMode, setTemplateMode] = useState<TemplateMode>('raw');
   const [loading, setLoading] = useState(false);
@@ -160,7 +160,7 @@ export function useBackendFiles(enabled: boolean, baseUrl = ''): BackendFilesSta
     if (!enabled) {
       setFiles(null);
       setSchema(null);
-      setDialect('generic');
+      setDialect('hive');
       setWatchDirs([]);
       setTemplateMode('raw');
       setAuditFiles([]);
@@ -262,7 +262,7 @@ export function useBackendFiles(enabled: boolean, baseUrl = ''): BackendFilesSta
         if (isFatalError || consecutiveErrorsRef.current >= MAX_CONSECUTIVE_ERRORS) {
           setFiles(null);
           setSchema(null);
-          setDialect('generic');
+          setDialect('hive');
           setWatchDirs([]);
           setTemplateMode('raw');
           setAuditFiles([]);

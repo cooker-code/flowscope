@@ -27,6 +27,7 @@ mod input;
 mod query;
 pub(crate) mod schema_registry;
 mod select_analyzer;
+mod skip_directives;
 mod statements;
 mod transform;
 pub mod visitor;
@@ -352,9 +353,16 @@ impl<'a> Analyzer<'a> {
 
         self.run_lint_documents(&all_statements);
 
-        // Analyze all statements
+        // Analyze all statements (skip session/admin directives — no lineage).
+        // See `skip_directives` for the single-source-of-truth whitelist; this
+        // catches AST variants that `sqlparser` recognises (notably `SET`,
+        // `USE`, `ANALYZE`). Directives `sqlparser` cannot parse (e.g.
+        // `REFRESH`, `MSCK`) are already filtered at the text layer inside
+        // `parse_statement_ranges_best_effort` and never reach this loop.
+        let dialect = self.request.dialect;
+        let mut lineage_statement_index = 0usize;
         for (
-            index,
+            parse_index,
             StatementInput {
                 statement,
                 source_name,
@@ -367,10 +375,14 @@ impl<'a> Analyzer<'a> {
             },
         ) in all_statements.into_iter().enumerate()
         {
+            if skip_directives::is_skippable_statement(&statement, dialect) {
+                continue;
+            }
             #[cfg(feature = "tracing")]
             let _stmt_span = info_span!(
                 "analyze_statement",
-                index,
+                index = lineage_statement_index,
+                parse_index,
                 source = source_name.as_deref().map_or("inline", String::as_str),
                 stmt_type = ?statement
             )
@@ -394,7 +406,7 @@ impl<'a> Analyzer<'a> {
 
             let source_name_owned = source_name.as_deref().map(String::from);
             let result = self.analyze_statement(
-                index,
+                lineage_statement_index,
                 &statement,
                 source_name_owned,
                 StatementSource {
@@ -409,10 +421,12 @@ impl<'a> Analyzer<'a> {
             match result {
                 Ok(lineage) => {
                     self.statement_lineages.push(lineage);
+                    lineage_statement_index += 1;
                 }
                 Err(e) => {
                     self.issues.push(
-                        Issue::error(issue_codes::PARSE_ERROR, e.to_string()).with_statement(index),
+                        Issue::error(issue_codes::PARSE_ERROR, e.to_string())
+                            .with_statement(parse_index),
                     );
                 }
             }

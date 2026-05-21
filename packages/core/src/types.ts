@@ -252,7 +252,7 @@ export interface StatementSplitRequest {
    * SQL dialect (optional; reserved for future dialect-specific splitting).
    *
    * The current implementation uses a universal tokenizer that handles common SQL
-   * constructs (strings, comments, dollar-quoting) across all dialects. Defaults to 'generic'.
+   * constructs (strings, comments, dollar-quoting) across all dialects. Defaults to 'hive'.
    */
   dialect?: Dialect;
   /**
@@ -389,10 +389,53 @@ export interface StatementSplitResult {
  * consumers can filter down to a single statement or aggregate across all of
  * them without maintaining parallel collections.
  */
+/** Coarse SQL workload category derived from analyzed statements. */
+export type SqlType = 'select' | 'insert' | 'ddl';
+
+/** Variant of an INSERT statement: Hive `INSERT OVERWRITE` vs standard `INSERT INTO`. */
+export type InsertType = 'overwrite' | 'into';
+
+/** Compact reference to a physical table/view node. */
+export interface TableRef {
+  /** Node id matching an entry in `AnalyzeResult.nodes`. */
+  id: string;
+  /** Short label (table name without schema/catalog). */
+  label: string;
+  /** Fully qualified display name (`catalog.schema.table`) when known. */
+  qualifiedName?: string;
+  /** Structured canonical identity for cross-statement matching. */
+  canonicalName?: CanonicalName;
+  /** `table` or `view` — never `cte` / `output` / `column`. */
+  type: NodeType;
+}
+
 export interface AnalyzeResult {
+  /**
+   * Coarse workload type: `select`, `insert`, or `ddl`.
+   * `insert` when any statement writes to a target table; `ddl` for schema/mutating
+   * statements without insert; otherwise `select`.
+   */
+  sqlType: SqlType;
+  /**
+   * INSERT variant: `overwrite` (Hive) or `into` (`INSERT INTO`, `CREATE TABLE AS`).
+   * `undefined` for non-insert workloads.
+   */
+  insertType?: InsertType;
+  /**
+   * Single physical sink (the table that gets written to).
+   * `undefined` when no sink is detected or multiple sinks were found — in that
+   * case a `MULTIPLE_TARGET_TABLES` error is appended to `issues`.
+   */
+  targetTable?: TableRef;
+  /**
+   * Physical source relations (`table` / `view`) consumed by the workload.
+   * Excludes CTEs and the `targetTable` itself.
+   */
+  sourceTables?: TableRef[];
   /**
    * Per-statement metadata (type, span, complexity, resolved SQL).
    * The graph itself lives in the top-level `nodes` / `edges`.
+   * Hive/session `SET` directives are omitted.
    */
   statements: StatementMeta[];
   /**

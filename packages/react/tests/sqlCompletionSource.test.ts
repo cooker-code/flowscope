@@ -107,14 +107,14 @@ describe('createSqlCompletionSource', () => {
     expect(result).toBeNull();
   });
 
-  it('defaults to the generic dialect when no accessor is provided', async () => {
+  it('defaults to the hive dialect when no accessor is provided', async () => {
     completionItemsMock.mockResolvedValue(engineResult());
     const source = createSqlCompletionSource();
 
     await source(contextAt('SELECT ', 7));
 
     expect(completionItemsMock).toHaveBeenCalledWith(
-      expect.objectContaining({ dialect: 'generic' })
+      expect.objectContaining({ dialect: 'hive' })
     );
   });
 

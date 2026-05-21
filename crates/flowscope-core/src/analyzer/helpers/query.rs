@@ -2,6 +2,11 @@ use sqlparser::ast::{self as ast, Expr, Query, SetExpr};
 
 /// Classify the type of a query
 pub fn classify_query_type(query: &Query) -> String {
+    // `WITH ... INSERT OVERWRITE TABLE t SELECT ...` is parsed as Query { with, body: Insert }.
+    // The sink is the INSERT target, so report INSERT rather than WITH.
+    if matches!(query.body.as_ref(), SetExpr::Insert(_)) {
+        return "INSERT".to_string();
+    }
     if query.with.is_some() {
         "WITH".to_string()
     } else {

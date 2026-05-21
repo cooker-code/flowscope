@@ -13,7 +13,7 @@ import {
 import { mapCompletionItem } from './mapCompletionItem';
 
 export interface SqlCompletionSourceOptions {
-  /** SQL dialect driving keyword/function filtering. Defaults to 'generic'. */
+  /** SQL dialect driving keyword/function filtering. Defaults to 'hive'. */
   getDialect?: () => Dialect;
   /** Optional schema catalog passed through to the engine for column resolution. */
   getSchema?: () => SchemaMetadata | undefined;
@@ -73,7 +73,7 @@ export function createSqlCompletionSource(
     const requestId = ++requestCounter;
     const sql = context.state.doc.toString();
     const cursorOffset = context.pos;
-    const dialect = getDialect?.() ?? 'generic';
+    const dialect = getDialect?.() ?? 'hive';
     const schema = getSchema?.();
 
     try {

@@ -1,9 +1,9 @@
 use super::helpers::{generate_node_id, parse_canonical_name};
 use super::Analyzer;
 use crate::types::{
-    Edge, EdgeType, IssueCount, Node, NodeType, ResolvedColumnSchema, ResolvedSchemaMetadata,
-    ResolvedSchemaTable, Span, StatementMeta, Summary, STATEMENT_AGGREGATIONS_METADATA_KEY,
-    STATEMENT_FILTERS_METADATA_KEY,
+    issue_codes, Edge, EdgeType, Issue, IssueCount, Node, NodeType, ResolvedColumnSchema,
+    ResolvedSchemaMetadata, ResolvedSchemaTable, Span, SqlType, StatementMeta, Summary, TableRef,
+    STATEMENT_AGGREGATIONS_METADATA_KEY, STATEMENT_FILTERS_METADATA_KEY,
 };
 use serde_json::{Map as JsonMap, Value};
 use std::collections::hash_map::DefaultHasher;
@@ -44,16 +44,39 @@ impl<'a> Analyzer<'a> {
             self.statement_lineages.clone()
         };
 
+        let sql_type = SqlType::from_statement_types(
+            statement_lineages
+                .iter()
+                .map(|l| l.statement_type.clone()),
+        );
         let (statements, mut nodes, edges) = self.flatten_lineages(statement_lineages);
         self.apply_descriptions(&mut nodes, &edges);
         let summary = self.build_summary(&nodes);
         let resolved_schema = self.build_resolved_schema();
 
+        let mut extra_issues: Vec<Issue> = Vec::new();
+        let (target_table, source_tables) =
+            classify_physical_tables(&nodes, &edges, &mut extra_issues);
+
+        // First INSERT statement's variant wins; multi-insert workloads also
+        // emit MULTIPLE_TARGET_TABLES via classify_physical_tables.
+        let insert_type = self
+            .statement_lineages
+            .iter()
+            .find_map(|l| l.insert_type);
+
+        let mut issues = self.issues.clone();
+        issues.extend(extra_issues);
+
         crate::AnalyzeResult {
+            sql_type,
+            insert_type,
+            target_table,
+            source_tables,
             statements,
             nodes,
             edges,
-            issues: self.issues.clone(),
+            issues,
             summary,
             resolved_schema,
         }
@@ -359,6 +382,111 @@ impl<'a> Analyzer<'a> {
             has_errors: error_count > 0,
         }
     }
+}
+
+/// Identify the workload's physical sink and sources from the flattened graph.
+///
+/// Rules:
+/// - A physical table/view is a **sink** when at least one of its columns
+///   receives a `DataFlow` or `Derivation` edge, or the table node itself
+///   receives such an edge (e.g. table-level INSERT without column lineage).
+/// - CTEs (`NodeType::Cte`), virtual `Output` nodes, and columns are excluded.
+/// - When multiple physical sinks are detected, emit a
+///   `MULTIPLE_TARGET_TABLES` error and leave `target_table` empty so callers
+///   don't silently pick the wrong one.
+/// - `source_tables` contains every physical table/view that is not the sink,
+///   sorted by qualified name (or label as a fallback) for stable output.
+fn classify_physical_tables(
+    nodes: &[Node],
+    edges: &[Edge],
+    issues: &mut Vec<Issue>,
+) -> (Option<TableRef>, Vec<TableRef>) {
+    // Map node-id -> owning physical table node-id (via Ownership edges).
+    let mut column_owner: HashMap<&str, &str> = HashMap::new();
+    for edge in edges {
+        if matches!(edge.edge_type, EdgeType::Ownership) {
+            column_owner.insert(edge.to.as_ref(), edge.from.as_ref());
+        }
+    }
+
+    let physical_ids: HashSet<&str> = nodes
+        .iter()
+        .filter(|n| n.node_type.is_table_or_view())
+        .map(|n| n.id.as_ref())
+        .collect();
+
+    let mut sink_ids: HashSet<&str> = HashSet::new();
+    for edge in edges {
+        if !matches!(edge.edge_type, EdgeType::DataFlow | EdgeType::Derivation) {
+            continue;
+        }
+        let to_id = edge.to.as_ref();
+        let candidate = if physical_ids.contains(to_id) {
+            Some(to_id)
+        } else {
+            column_owner
+                .get(to_id)
+                .copied()
+                .filter(|owner| physical_ids.contains(*owner))
+        };
+        if let Some(id) = candidate {
+            sink_ids.insert(id);
+        }
+    }
+
+    let to_ref = |node: &Node| TableRef {
+        id: node.id.to_string(),
+        label: node.label.to_string(),
+        qualified_name: node.qualified_name.as_ref().map(|s| s.to_string()),
+        canonical_name: node.canonical_name.clone(),
+        node_type: node.node_type,
+    };
+
+    let mut sinks: Vec<&Node> = nodes
+        .iter()
+        .filter(|n| sink_ids.contains(n.id.as_ref()))
+        .collect();
+    sinks.sort_by(|a, b| sort_key(a).cmp(&sort_key(b)));
+
+    let target_table = match sinks.len() {
+        0 => None,
+        1 => Some(to_ref(sinks[0])),
+        _ => {
+            let names: Vec<String> = sinks
+                .iter()
+                .map(|n| {
+                    n.qualified_name
+                        .as_deref()
+                        .unwrap_or(n.label.as_ref())
+                        .to_string()
+                })
+                .collect();
+            issues.push(Issue::error(
+                issue_codes::MULTIPLE_TARGET_TABLES,
+                format!(
+                    "Workload writes to multiple physical tables ({}); expected exactly one target",
+                    names.join(", ")
+                ),
+            ));
+            None
+        }
+    };
+
+    let mut source_nodes: Vec<&Node> = nodes
+        .iter()
+        .filter(|n| n.node_type.is_table_or_view() && !sink_ids.contains(n.id.as_ref()))
+        .collect();
+    source_nodes.sort_by(|a, b| sort_key(a).cmp(&sort_key(b)));
+    let source_tables: Vec<TableRef> = source_nodes.into_iter().map(to_ref).collect();
+
+    (target_table, source_tables)
+}
+
+fn sort_key(node: &Node) -> String {
+    node.qualified_name
+        .as_deref()
+        .map(str::to_string)
+        .unwrap_or_else(|| node.label.to_string())
 }
 
 /// Mutable state threaded through the flattening pipeline.
@@ -1019,6 +1147,7 @@ mod tests {
             join_count: 1,
             complexity_score: 1,
             resolved_sql: None,
+            insert_type: None,
         };
 
         let stmt_two = StatementLineage {
@@ -1046,6 +1175,7 @@ mod tests {
             join_count: 1,
             complexity_score: 1,
             resolved_sql: None,
+            insert_type: None,
         };
 
         let (_statements, _nodes, edges) = analyzer.flatten_lineages(vec![stmt_one, stmt_two]);
@@ -1086,6 +1216,7 @@ mod tests {
             join_count: 0,
             complexity_score: 1,
             resolved_sql: None,
+            insert_type: None,
         };
         let stmt_two = StatementLineage {
             statement_index: 1,
@@ -1101,6 +1232,7 @@ mod tests {
             join_count: 0,
             complexity_score: 1,
             resolved_sql: None,
+            insert_type: None,
         };
 
         let (_statements, nodes, _edges) = analyzer.flatten_lineages(vec![stmt_one, stmt_two]);
@@ -1167,6 +1299,7 @@ mod tests {
             join_count: 0,
             complexity_score: 1,
             resolved_sql: None,
+            insert_type: None,
         };
         let stmt_two = StatementLineage {
             statement_index: 1,
@@ -1185,6 +1318,7 @@ mod tests {
             join_count: 0,
             complexity_score: 1,
             resolved_sql: None,
+            insert_type: None,
         };
 
         let (_statements, nodes, _edges) = analyzer.flatten_lineages(vec![stmt_one, stmt_two]);
@@ -1241,6 +1375,7 @@ mod tests {
             join_count: 0,
             complexity_score: 1,
             resolved_sql: None,
+            insert_type: None,
         };
         let stmt_two = StatementLineage {
             statement_index: 1,
@@ -1258,6 +1393,7 @@ mod tests {
             join_count: 0,
             complexity_score: 1,
             resolved_sql: None,
+            insert_type: None,
         };
 
         let (_statements, nodes, _edges) = analyzer.flatten_lineages(vec![stmt_one, stmt_two]);

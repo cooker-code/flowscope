@@ -116,12 +116,12 @@ const VALID_DIALECTS: readonly Dialect[] = [
 ];
 
 function resolveDialect(config: vscode.WorkspaceConfiguration): Dialect {
-  const raw = config.get<string>('dialect', 'generic');
+  const raw = config.get<string>('dialect', 'hive');
   if ((VALID_DIALECTS as readonly string[]).includes(raw)) {
     return raw as Dialect;
   }
-  console.warn(`[FlowScope] unknown dialect "${raw}" in settings; falling back to "generic".`);
-  return 'generic';
+  console.warn(`[FlowScope] unknown dialect "${raw}" in settings; falling back to "hive".`);
+  return 'hive';
 }
 
 const VSCODE_KIND_BY_FLOWSCOPE_KIND: Record<

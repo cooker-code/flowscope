@@ -6,6 +6,7 @@ CREATE TABLE _meta (key TEXT PRIMARY KEY, value TEXT);
 INSERT INTO _meta (key, value) VALUES ('version', '0.1.0');`;
 
 const baseResult: AnalyzeResult = {
+  sqlType: 'select',
   statements: [
     {
       statementIndex: 0,
@@ -88,6 +89,7 @@ describe('exportToDuckDbSql', () => {
 
   it('handles empty result gracefully', async () => {
     const emptyResult: AnalyzeResult = {
+      sqlType: 'select',
       statements: [],
       nodes: [],
       edges: [],

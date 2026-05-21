@@ -16,7 +16,6 @@ import { EditorToolbar } from './EditorToolbar';
 import type { SqlViewMode } from './EditorToolbar';
 import { ErrorBoundary } from './ErrorBoundary';
 import { DEFAULT_FILE_NAMES } from '@/lib/constants';
-import type { RunMode } from '@/lib/project-store';
 import type { AnalyzeResult } from '@pondpilot/flowscope-core';
 
 interface EditorAnalysisState {
@@ -282,8 +281,6 @@ export function EditorArea({
     );
   }
 
-  const allFileCount = currentProject.files.filter((f) => f.name.endsWith('.sql')).length;
-  const selectedCount = currentProject.selectedFileIds?.length || 0;
   const activePath = activeFile.path || activeFile.name;
   const isActiveFileStale = stalePaths.has(activePath);
 

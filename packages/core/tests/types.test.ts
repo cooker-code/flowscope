@@ -41,6 +41,7 @@ describe('Types', () => {
   describe('AnalyzeResult', () => {
     it('should have correct structure', () => {
       const result: AnalyzeResult = {
+        sqlType: 'select',
         statements: [],
         nodes: [],
         edges: [],

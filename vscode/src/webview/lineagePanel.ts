@@ -107,7 +107,7 @@ export class LineagePanel {
     }
 
     const config = vscode.workspace.getConfiguration('flowscope');
-    const dialect = config.get<Dialect>('dialect', 'generic');
+    const dialect = config.get<Dialect>('dialect', 'hive');
 
     try {
       const result = analyzeSql({ sql, dialect });

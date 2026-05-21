@@ -310,7 +310,7 @@ export interface SqlViewProps {
   analyzedSourceName?: string;
   /**
    * SQL dialect used when the built-in completion source is active. Defaults
-   * to `'generic'`. Only consulted while `editable` is true.
+   * to `'hive'`. Only consulted while `editable` is true.
    */
   dialect?: Dialect;
   /**

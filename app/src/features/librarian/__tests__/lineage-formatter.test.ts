@@ -5,6 +5,7 @@ import { formatLineage } from '../services/lineage-formatter';
 
 function makeResult(overrides: Partial<AnalyzeResult> = {}): AnalyzeResult {
   return {
+    sqlType: 'select',
     statements: [],
     nodes: [],
     edges: [],

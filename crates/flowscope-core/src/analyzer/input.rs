@@ -480,6 +480,14 @@ fn parse_statement_ranges_best_effort<'a>(
 
         let statement_sql = &source_sql_ref[range.clone()];
 
+        // Drop whitelisted session/admin directives (SET / REFRESH / USE /
+        // MSCK / ANALYZE for Hive). They carry no lineage value; some are
+        // unparseable by `sqlparser` and would otherwise surface as
+        // PARSE_ERROR issues. Whitelist lives in `skip_directives`.
+        if super::skip_directives::is_skippable_directive(statement_sql, ctx.dialect) {
+            continue;
+        }
+
         match parse_sql_with_dialect_output(statement_sql, ctx.dialect) {
             Ok(parsed_output) => {
                 let parser_fallback_used = parsed_output.parser_fallback_used;

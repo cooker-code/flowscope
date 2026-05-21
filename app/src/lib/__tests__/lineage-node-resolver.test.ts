@@ -20,6 +20,7 @@ function makeResult(nodes: TestNode[]): AnalyzeResult {
   // resolver actually reads (`nodes`); the rest of `AnalyzeResult` is
   // irrelevant here.
   return {
+    sqlType: 'select',
     nodes,
     edges: [],
     statements: [],

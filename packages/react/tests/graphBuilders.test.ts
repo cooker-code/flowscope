@@ -39,6 +39,7 @@ function toResult(statements: TestStatement[]): AnalyzeResult {
   }
 
   return {
+    sqlType: 'select',
     statements: meta,
     nodes,
     edges,
@@ -245,6 +246,7 @@ describe('mergeAnalyzeResult', () => {
 
   it('does not duplicate occurrences when the flat result already shares a node across statements', () => {
     const result: AnalyzeResult = {
+      sqlType: 'select',
       statements: [
         {
           statementIndex: 0,

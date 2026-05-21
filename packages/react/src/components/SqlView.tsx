@@ -262,7 +262,7 @@ export function SqlView({
   const completionExtension = useMemo(() => {
     if (!editable || disableCompletion) return null;
     const source = createSqlCompletionSource({
-      getDialect: () => dialectRef.current ?? 'generic',
+      getDialect: () => dialectRef.current ?? 'hive',
       getSchema: () => schemaRef.current,
       onError: (error) => {
         const handler = onCompletionErrorRef.current;

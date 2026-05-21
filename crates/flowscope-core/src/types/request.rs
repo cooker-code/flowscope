@@ -90,13 +90,13 @@ pub struct FileSource {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Dialect {
-    #[default]
     Generic,
     Ansi,
     Bigquery,
     Clickhouse,
     Databricks,
     Duckdb,
+    #[default]
     Hive,
     Mssql,
     Mysql,

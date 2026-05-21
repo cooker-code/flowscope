@@ -319,7 +319,7 @@ export async function splitStatements(
   // Validate SQL input (allow empty - Rust returns empty array for empty SQL)
   validateSqlInput(request.sql, true);
 
-  // Dialect is optional for splitStatements (defaults to 'generic' in Rust)
+  // Dialect is optional for splitStatements (defaults to 'hive' in Rust)
   // but if provided, it must be valid
   if (request.dialect !== undefined) {
     validateDialect(request.dialect);
@@ -341,12 +341,12 @@ export async function splitStatements(
  * Convenience function to analyze SQL with minimal options.
  *
  * @param sql - The SQL to analyze
- * @param dialect - The SQL dialect (defaults to 'generic')
+ * @param dialect - The SQL dialect (defaults to 'hive')
  * @returns The analysis result
  */
 export async function analyzeSimple(
   sql: string,
-  dialect: Dialect = 'generic'
+  dialect: Dialect = 'hive'
 ): Promise<AnalyzeResult> {
   return analyzeSql({ sql, dialect });
 }

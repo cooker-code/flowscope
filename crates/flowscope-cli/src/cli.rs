@@ -14,7 +14,7 @@ pub struct Args {
     pub files: Vec<PathBuf>,
 
     /// SQL dialect
-    #[arg(short, long, default_value = "generic", value_enum)]
+    #[arg(short, long, default_value = "hive", value_enum)]
     pub dialect: DialectArg,
 
     /// Output format
@@ -277,7 +277,7 @@ mod tests {
     fn test_parse_minimal_args() {
         let args = Args::parse_from(["flowscope", "test.sql"]);
         assert_eq!(args.files.len(), 1);
-        assert_eq!(args.dialect, DialectArg::Generic);
+        assert_eq!(args.dialect, DialectArg::Hive);
         assert_eq!(args.format, OutputFormat::Table);
         assert_eq!(args.project_name, "lineage");
         assert!(args.export_schema.is_none());

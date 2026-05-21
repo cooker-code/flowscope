@@ -63,7 +63,7 @@ export function analyzeSql(request: AnalyzeRequest): AnalyzeResult {
 /**
  * Convenience function to analyze SQL with minimal options.
  */
-export function analyzeSimple(sql: string, dialect: Dialect = 'generic'): AnalyzeResult {
+export function analyzeSimple(sql: string, dialect: Dialect = 'hive'): AnalyzeResult {
   return analyzeSql({ sql, dialect });
 }
 

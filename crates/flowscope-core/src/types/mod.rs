@@ -34,7 +34,8 @@ pub use request::{
 #[cfg(feature = "templating")]
 pub use request::{TemplateConfig, TemplateError, TemplateMode};
 pub use response::{
-    AggregationInfo, AnalyzeResult, CanonicalName, ConstraintType, Edge, EdgeType,
+    AggregationInfo, AnalyzeResult, CanonicalName, ConstraintType, Edge, EdgeType, InsertType,
+    SqlType, TableRef,
     FilterClauseType, FilterPredicate, JoinType, Node, NodeType, ResolutionSource,
     ResolvedColumnSchema, ResolvedSchemaMetadata, ResolvedSchemaTable, SchemaOrigin, StatementMeta,
     StatementSplitResult, TableConstraintInfo, STATEMENT_AGGREGATIONS_METADATA_KEY,

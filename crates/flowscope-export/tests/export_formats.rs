@@ -1,7 +1,7 @@
 use duckdb::Connection;
 use flowscope_core::{
     analyze, AggregationInfo, AnalyzeRequest, AnalyzeResult, Dialect, FilterClauseType,
-    FilterPredicate, Issue, Node, NodeType, Span, StatementMeta, Summary,
+    FilterPredicate, Issue, Node, NodeType, Span, SqlType, StatementMeta, Summary,
 };
 use flowscope_export::{
     export_csv_bundle, export_html, export_json, export_mermaid, export_sql, export_xlsx,
@@ -142,6 +142,7 @@ fn sql_export_preserves_statement_scoped_filters_and_aggregations() {
     );
 
     let result = AnalyzeResult {
+        sql_type: SqlType::Select,
         statements: vec![
             StatementMeta {
                 statement_index: 0,
@@ -239,6 +240,7 @@ fn sql_export_reindexes_statement_references_and_preserves_occurrence_spans() {
     column_metadata.insert("occurrenceStatementIds".to_string(), json!([7, 7]));
 
     let result = AnalyzeResult {
+        sql_type: SqlType::Select,
         statements: vec![StatementMeta {
             statement_index: 7,
             statement_type: "SELECT".to_string(),

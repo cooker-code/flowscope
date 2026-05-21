@@ -185,7 +185,7 @@ const loadProjectsFromStorage = (): Project[] => {
       const parsed = JSON.parse(saved);
       return parsed.map((p: Partial<Project>) => ({
         ...p,
-        dialect: p.dialect || 'generic',
+        dialect: p.dialect || 'hive',
         runMode: p.runMode || 'all',
         selectedFileIds: p.selectedFileIds || [],
         schemaSQL: p.schemaSQL || '', // Default to empty string for older projects
@@ -416,7 +416,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
         name: validatedName,
         files: [],
         activeFileId: null,
-        dialect: 'generic',
+        dialect: 'hive',
         runMode: 'all',
         selectedFileIds: [],
         schemaSQL: '',

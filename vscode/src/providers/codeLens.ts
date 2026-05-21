@@ -61,7 +61,7 @@ export class FlowScopeCodeLensProvider implements vscode.CodeLensProvider {
       return [];
     }
 
-    const dialect = config.get<Dialect>('dialect', 'generic');
+    const dialect = config.get<Dialect>('dialect', 'hive');
 
     try {
       const result = analyzeSql({ sql, dialect });

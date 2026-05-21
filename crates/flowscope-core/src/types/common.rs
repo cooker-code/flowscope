@@ -342,6 +342,7 @@ pub mod issue_codes {
     pub const SCHEMA_CONFLICT: &str = "SCHEMA_CONFLICT";
     pub const TEMPLATE_ERROR: &str = "TEMPLATE_ERROR";
     pub const TYPE_MISMATCH: &str = "TYPE_MISMATCH";
+    pub const MULTIPLE_TARGET_TABLES: &str = "MULTIPLE_TARGET_TABLES";
 
     // Lint rules — ambiguity
     pub const LINT_AM_001: &str = "LINT_AM_001";

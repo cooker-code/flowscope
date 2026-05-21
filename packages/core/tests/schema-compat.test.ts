@@ -50,6 +50,7 @@ describe('API schema compatibility', () => {
     expect(validate).toBeDefined();
 
     const result: AnalyzeResult = {
+      sqlType: 'select',
       statements: [
         {
           statementIndex: 0,
@@ -86,6 +87,7 @@ describe('API schema compatibility', () => {
     expect(validate).toBeDefined();
 
     const result: AnalyzeResult = {
+      sqlType: 'select',
       statements: [
         {
           statementIndex: 0,

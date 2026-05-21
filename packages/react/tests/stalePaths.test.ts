@@ -6,6 +6,7 @@ import { createLineageStore, type LineageState } from '../src/store';
 
 function buildResult(): AnalyzeResult {
   return {
+    sqlType: 'select',
     statements: [
       {
         statementIndex: 0,

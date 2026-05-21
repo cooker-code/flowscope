@@ -39,6 +39,7 @@ function toResult(statements: TestStatement[]): AnalyzeResult {
   }
 
   return {
+    sqlType: 'select',
     statements: meta,
     nodes,
     edges,
@@ -686,6 +687,7 @@ const dep = (
 describe('extractCteItemKeys', () => {
   it('returns the matrix-key for every CTE node, prefering qualifiedName', () => {
     const result: AnalyzeResult = {
+      sqlType: 'select',
       statements: [],
       nodes: [
         { id: 'n1', type: 'cte', label: 'a', qualifiedName: 'script1.a' } as Node,

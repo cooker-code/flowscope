@@ -29,6 +29,9 @@ pub use types::{
     AnalyzeRequest,
     // Response types
     AnalyzeResult,
+    InsertType,
+    SqlType,
+    TableRef,
     CanonicalName,
     CaseSensitivity,
     ColumnSchema,

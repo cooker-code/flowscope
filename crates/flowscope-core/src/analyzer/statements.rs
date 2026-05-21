@@ -93,6 +93,7 @@ impl<'a> Analyzer<'a> {
             resolved_sql,
         } = source;
         let mut ctx = StatementContext::new(index);
+        let mut insert_type: Option<crate::types::InsertType> = None;
 
         let statement_type = match statement {
             Statement::Query(query) => {
@@ -157,6 +158,11 @@ impl<'a> Analyzer<'a> {
                         });
                         self.tracker
                             .record_produced(&canonical, ctx.statement_index);
+                        insert_type = Some(if insert.overwrite {
+                            crate::types::InsertType::Overwrite
+                        } else {
+                            crate::types::InsertType::Into
+                        });
                         Some(target_id)
                     } else {
                         ctx.ensure_output_node_with_model(None);
@@ -168,11 +174,17 @@ impl<'a> Analyzer<'a> {
                 classify_query_type(query)
             }
             Statement::Insert(insert) => {
+                insert_type = Some(if insert.overwrite {
+                    crate::types::InsertType::Overwrite
+                } else {
+                    crate::types::InsertType::Into
+                });
                 self.analyze_insert(&mut ctx, insert);
                 "INSERT".to_string()
             }
             Statement::CreateTable(create) => {
                 if let Some(query) = &create.query {
+                    insert_type = Some(crate::types::InsertType::Into);
                     self.analyze_create_table_as(&mut ctx, &create.name, query, create.temporary);
                     "CREATE_TABLE_AS".to_string()
                 } else {
@@ -345,6 +357,7 @@ impl<'a> Analyzer<'a> {
             join_count,
             complexity_score,
             resolved_sql,
+            insert_type,
         })
     }
 
