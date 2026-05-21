@@ -1,0 +1,11 @@
+{
+  "id": "05-18-fix-duplicate-filters-multi-occurrence",
+  "title": "fix: TableNode FILTERS 区域对同一 statement 内多次引用的表显示重复 filter",
+  "status": "done",
+  "package": "packages/react",
+  "createdAt": "2026-05-18",
+  "completedAt": "2026-05-18",
+  "commit": "9c5fccf",
+  "pr": "https://github.com/cooker-code/flowscope/pull/2",
+  "issue": "https://github.com/pondpilot/flowscope/issues/44"
+}

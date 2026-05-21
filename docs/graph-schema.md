@@ -18,18 +18,40 @@
 
 ---
 
-## 节点（4 种）
+## 节点 / 关系总览
 
-```
-M_TABLE     — 物理表 / 视图
-M_COL       — 列（物理列 + 派生列两种形态）
-CTE         — CTE / 内联子查询（中间计算层）
-UnionGroup  — UNION 分支汇聚节点（仅 SQL 含 UNION/UNION ALL 时产生）
-```
+> 整张血缘图共有 **5 种节点** 和 **7 种关系**。下面两张总览表先给出全景，后续章节再分别展开属性细节。
 
-> 由外部元数据补全的额外节点（`Metric` / `MetricDomain`）以及额外关系（`REF_TABLE` / `REF_COL` / `SOURCED_FROM` / `MATERIALIZED_IN` / `BELONGS_TO` / `GOVERNED_BY` / `DERIVED_FROM`），以及 `M_TABLE` / `M_COL` / 已有关系上的非 `fs_` 扩展属性，见下文 [元数据补全层](#元数据补全层节点关系的非-fs_-属性)。
+### 节点总览（5 种）
+
+| 名称 | 解释 | 数据来源 |
+|---|---|---|
+| `M_TABLE` | 物理表 / 视图（任何 SQL 引用过即创建） | SQL 解析 |
+| `M_COL` | 列（物理列 + 派生列两种形态） | SQL 解析 |
+| `CTE` | CTE / 内联子查询（字段级血缘的中间计算层） | SQL 解析 |
+| `UnionGroup` | UNION / UNION ALL 分支汇聚节点（分支表 ≥ 2 时为避免 C(N,2) 边数爆炸而引入的中介节点） | 自生成（SQL 解析推导） |
+| `ExportTarget` | 调度系统导出作业终点（仅 SELECT、无 INSERT/CREATE 仓内写入目标，导出到 MySQL/Kafka/文件等仓外目的地） | SQL 解析（占位） + 调度元数据（确认/补全） |
+
+### 关系总览（7 种）
+
+| 名称 | 端点 | 解释 | 数据来源 |
+|---|---|---|---|
+| `REF_TABLE_COL` | (`M_TABLE` / `CTE` / `ExportTarget`) → (`M_COL`) | 列归属（声明该列属于哪个容器） | SQL 解析 |
+| `REF_COL_LINEAGE` | (`M_COL`) → (`M_COL`) | 字段级血缘（列到列，含 `data_flow` / `derivation`） | SQL 解析 |
+| `REF_TEP` | (`M_TABLE` / `CTE`) → (`CTE`) | 读取进 CTE，边上携带"该步直接施加的过滤条件" | SQL 解析 |
+| `READS_FROM` | (下游 `M_TABLE` / `ExportTarget`) → (上游 `M_TABLE`) | 表级血缘（穿透 CTE，下游主力关系） | SQL 解析（下游为 `ExportTarget` 时由调度元数据补全确认） |
+| `JOINS_WITH` | (`M_TABLE`) → (`M_TABLE`) | JOIN 关系（跨 SQL 累计 `frequency`） | SQL 解析 |
+| `UNION_BRANCH` | (`M_TABLE`) → (`UnionGroup`) | UNION 分支输入 | 自生成（SQL 解析推导） |
+| `UNION_PRODUCES` | (`UnionGroup`) → (`M_TABLE`) | UNION 合并输出到物理表 | 自生成（SQL 解析推导） |
+
+> **数据来源约定**：
+> - `SQL 解析` —— 由 FlowScope SQL 解析直接生成，写入属性带 `fs_` 前缀；
+> - `自生成` —— 解析逻辑根据语义额外推导出的中介节点 / 关系（不直接对应一段 SQL 文本）；
+> - `调度元数据` —— 由外部调度系统补全或升级，写入属性**不带** `fs_` 前缀（与"元数据补全层"约定一致）。
 
 ---
+
+## 节点详解
 
 ### M_TABLE
 
@@ -120,26 +142,61 @@ UnionGroup  — UNION 分支汇聚节点（仅 SQL 含 UNION/UNION ALL 时产生
 
 ---
 
-## 关系（7 种）
+### ExportTarget
+
+**唯一键**（双阶段，分两步落地）：
+- **占位阶段（SQL 解析）**：`fs_uid`（= `run_id::node_id`）—— 解析时无法确认是否真为导出作业，先建占位节点
+- **确认阶段（调度元数据补全）**：`(scheduler, task_id)` —— 调度系统确认该 SQL 文件是导出作业后，将占位节点合并/升级为确认节点
+
+**语义**：调度系统中以 SELECT 终止、且没有明确仓内写入目标（无 `INSERT INTO` / `CREATE TABLE AS` 等）的导出作业终点，最终结果导出到仓外目的地（MySQL、Kafka、HTTP、文件等）。
+
+> SQL 解析阶段**无法判定**一个孤立的 SELECT 究竟是临时查询还是导出作业；只有在补充调度元数据后才能确认。**未被调度元数据确认的 `fs_status = pending` 占位节点应在血缘可视化中默认隐藏**，避免 ad-hoc SELECT 污染图谱。
+
+| 属性 | 类型 | 来源 | 适用阶段 | 说明 |
+|---|---|---|---|---|
+| `fs_uid` | String | SQL 解析 | 占位 / 确认 | 占位节点全局唯一标识：`run_id::node_id` |
+| `fs_kind` | String | SQL 解析 | 占位 / 确认 | 固定值 `export_target` |
+| `fs_status` | String | SQL 解析 / 调度元数据 | 占位 / 确认 | `pending`（解析占位，未确认）或 `confirmed`（调度元数据已确认） |
+| `sql_md5` | String | SQL 解析 | 占位 / 确认 | 来源 SQL 内容 MD5 |
+| `sql_path` | String | SQL 解析 | 占位 / 确认 | 来源 SQL 文件路径 |
+| `scheduler` | String | 调度元数据 | 确认 | 调度系统名，如 `airflow` / `dolphinscheduler` / `crontab` |
+| `task_id` | String | 调度元数据 | 确认 | 调度任务 ID（与 `scheduler` 组成确认阶段唯一键） |
+| `task_name` | String | 调度元数据 | 确认 | 调度任务名（人类可读） |
+| `target_type` | String | 调度元数据 | 确认 | 导出目标类型：`mysql` / `kafka` / `http` / `file` / `oss` 等 |
+| `target_location` | String | 调度元数据 | 确认 | 目标位置：MySQL FQN（`db.table`）/ Kafka topic / 文件路径 / URL |
+| `owner` | String | 调度元数据 | 确认 | 业务渠道 |
+| `ctime` / `utime` | DateTime | 调度元数据 | 确认 | 见 [时间属性统一约定](#时间属性统一约定mandatory) |
+
+**配套关系**（详见下文关系详解）：
+
+| 关系 | 端点 | 作用 |
+|---|---|---|
+| `READS_FROM` | (`ExportTarget`) → (`M_TABLE`) | 复用表级血缘关系，标记导出作业读取了哪些上游物理表 |
+| `REF_TABLE_COL` | (`ExportTarget`) → (`M_COL`) | 声明导出作业的输出列（以派生列形态存储） |
+| `REF_COL_LINEAGE` | (上游 `M_COL`) → (`ExportTarget` 的输出 `M_COL`) | 字段级血缘的终点 |
+
+---
+
+## 关系详解
+
+> **属性前缀约定**：FlowScope SQL 解析写入的属性统一使用 `fs_` 前缀；调度元数据 / 元数据补全写入的属性**不带** `fs_` 前缀，详见后文"元数据补全层"。
 
 ```
-(M_TABLE/CTE) ──[REF_TABLE_COL]──> (M_COL)         列归属
-(M_COL)       ──[REF_COL_LINEAGE]─> (M_COL)        字段级血缘（纯列到列）
-(M_TABLE/CTE) ──[REF_TEP]─────────> (CTE)          读取进 CTE（含直接过滤条件）
-(M_TABLE)     ──[READS_FROM]──────> (M_TABLE)      表级血缘（穿透 CTE）
-(M_TABLE)     ──[JOINS_WITH]──────> (M_TABLE)      JOIN 关系
-(M_TABLE)     ──[UNION_BRANCH]────> (UnionGroup)   UNION 分支输入
-(UnionGroup)  ──[UNION_PRODUCES]──> (M_TABLE)      UNION 产出输出表
+(M_TABLE/CTE/ExportTarget) ──[REF_TABLE_COL]──> (M_COL)         列归属
+(M_COL)                    ──[REF_COL_LINEAGE]─> (M_COL)        字段级血缘（纯列到列）
+(M_TABLE/CTE)              ──[REF_TEP]─────────> (CTE)          读取进 CTE（含直接过滤条件）
+(M_TABLE/ExportTarget)     ──[READS_FROM]──────> (M_TABLE)      表级血缘（穿透 CTE）
+(M_TABLE)                  ──[JOINS_WITH]──────> (M_TABLE)      JOIN 关系
+(M_TABLE)                  ──[UNION_BRANCH]────> (UnionGroup)   UNION 分支输入
+(UnionGroup)               ──[UNION_PRODUCES]──> (M_TABLE)      UNION 产出输出表
 ```
-
-> **属性前缀约定**：FlowScope 解析写入的 fs 属性统一使用 `fs_` 前缀，与外部元数据补全字段区分。
 
 ---
 
 ### REF_TABLE_COL（列归属）
 
-- **方向**：`(M_TABLE 或 CTE) → (M_COL)`
-- **语义**：声明哪张表或 CTE 拥有这个列
+- **方向**：`(M_TABLE / CTE / ExportTarget) → (M_COL)`
+- **语义**：声明哪个容器（物理表、CTE 或导出作业）拥有这个列。`ExportTarget` 作为 src 时，dst 为该导出作业的输出列（派生列形态）
 - **MERGE 键**：`(src_node, dst_node)` 自然唯一
 
 FlowScope SQL 解析层**不会**在此关系上写入任何属性（关系存在性即代表"列归属"）。
@@ -156,6 +213,7 @@ FlowScope SQL 解析层**不会**在此关系上写入任何属性（关系存�
 
 - **方向**：`(M_COL) → (M_COL)`
 - **语义**：列到列的字段级血缘。两端**必须都是 M_COL**，容器级依赖由 REF_TEP / READS_FROM 负责。`data_flow` 为纯透传，`derivation` 表示有计算转换
+- **终点扩展**：当下游容器为 `ExportTarget` 时，dst 为 `ExportTarget` 通过 `REF_TABLE_COL` 持有的派生列形态 `M_COL`，无需引入新节点类型
 - **MERGE 键**：`(src_col, dst_col, sql_md5, fs_edge_type)`
 
 | 属性 | 类型 | 说明 |
@@ -187,9 +245,11 @@ FlowScope SQL 解析层**不会**在此关系上写入任何属性（关系存�
 
 ### READS_FROM（表级血缘）
 
-- **方向**：`(下游 M_TABLE) → (上游 M_TABLE)`
-- **语义**：下游表依赖上游表。**CTE 链路被完全穿透**，只在物理表之间建边，是血缘统计和影响分析的主力关系
-- **MERGE 键**：`(dst_table, src_table, sql_md5)`
+- **方向**：`(下游 M_TABLE / ExportTarget) → (上游 M_TABLE)`
+- **语义**：下游容器依赖上游物理表。**CTE 链路被完全穿透**，只在物理表 / 导出作业之间建边，是血缘统计和影响分析的主力关系
+  - 下游为 `M_TABLE`：标准的表 → 表血缘（最常见）
+  - 下游为 `ExportTarget`：导出作业读取的上游表；占位阶段即可建立，调度元数据确认后语义升级为"确认的导出依赖"
+- **MERGE 键**：`(dst_node, src_table, sql_md5)`（`dst_node` 可为 `M_TABLE` 或 `ExportTarget`）
 
 | 属性 | 类型 | 说明 |
 |---|---|---|
@@ -467,9 +527,46 @@ ORDER BY c.col_name
 
 ---
 
+### 场景十一：导出作业 — 某物理表被哪些导出作业消费
+
+> 使用节点：`ExportTarget`；关系：`READS_FROM`（下游为 `ExportTarget`，仅看已被调度元数据确认的）
+
+```cypher
+// dwd_conan_user_order_da 被哪些导出作业拉到仓外（MySQL/Kafka/文件）？
+MATCH (et:ExportTarget {fs_status: "confirmed"})
+      -[:READS_FROM]->(src:M_TABLE {table_name: "dwd_conan_user_order_da"})
+RETURN et.scheduler         AS scheduler,
+       et.task_name         AS task_name,
+       et.target_type       AS target_type,
+       et.target_location   AS target_location,
+       et.owner             AS owner
+ORDER BY et.scheduler, et.task_name
+```
+
+> 默认过滤 `fs_status = "confirmed"` 排除尚未被调度元数据确认的占位节点（ad-hoc SELECT）。
+
+---
+
+### 场景十二：导出作业 — 某导出作业的字段级血缘
+
+> 使用关系：`REF_TABLE_COL` + `REF_COL_LINEAGE`
+
+```cypher
+// 导出作业 task_id="export_user_order_to_mysql" 的每个输出列各自来自哪些上游列？
+MATCH (et:ExportTarget {scheduler: "airflow", task_id: "export_user_order_to_mysql"})
+      -[:REF_TABLE_COL]->(out:M_COL)
+OPTIONAL MATCH (src:M_COL)-[r:REF_COL_LINEAGE*1..8]->(out)
+WHERE src.table_name IS NOT NULL          // 只看可定位到物理表的源列
+RETURN out.col_name                                                   AS export_col,
+       collect(DISTINCT src.db_name + "." + src.table_name + "." + src.col_name) AS source_cols
+ORDER BY out.col_name
+```
+
+---
+
 ## 元数据补全层（节点/关系的非 `fs_` 属性）
 
-> 上文（"节点 4 种" / "关系 7 种"）描述的是 FlowScope SQL 解析层写入的属性（统一带 `fs_` 前缀）。
+> 上文（"节点详解 / 关系详解"）描述的是 FlowScope SQL 解析层写入的属性（统一带 `fs_` 前缀）。
 > 本章节列出**所有由外部源补全到同一批节点/关系上的属性**，以及仅存在于元数据层、不参与 SQL 解析的额外节点（`Metric` / `MetricDomain`）和额外关系。
 > 数据来自直接读取生产 Neo4j 实例（统计基数：`M_TABLE` 4748、`M_COL` 97397、`REF_TABLE_COL` 97398、`REF_COL_LINEAGE` 92987、`REF_COL` 8669、`REF_TABLE` 8267、`MATERIALIZED_IN` 153、`BELONGS_TO` 23、`SOURCED_FROM` 14、`GOVERNED_BY` 4、`DERIVED_FROM` 3）。
 
@@ -483,18 +580,6 @@ ORDER BY c.col_name
 |---|---|---|---|---|
 | `ctime` | 首次写入时间，**不可变** | `created_time` | ISO-8601 String（UTC，如 `2025-12-08T13:13:11.491Z`） | `ON CREATE SET n.ctime = datetime()` |
 | `utime` | 最近一次修改时间，**每次 MERGE 必须刷新** | `updated_time` | ISO-8601 String | `ON CREATE / ON MATCH SET n.utime = datetime()` |
-
-**当前数据现状与缺口**：
-
-| 实体 | `ctime` 覆盖率 | `utime` 覆盖率 | 缺口 |
-|---|---|---|---|
-| `M_TABLE` / `M_COL` | 100% | 100% | ✅ |
-| `REF_TABLE_COL` | 100% | 81.2% | 需回填 18.8% 的 `utime` |
-| `REF_COL_LINEAGE` | 100% | 99.2% | 需回填 0.8% |
-| `REF_COL` / `REF_TABLE` | 100% | 100% / 55.0% | `REF_TABLE` 需回填 45% 的 `utime` |
-| `Metric` / `MetricDomain` | 100% | 0% | **节点缺 `utime`，元数据写入器需补齐** |
-| `MATERIALIZED_IN` / `SOURCED_FROM` / `GOVERNED_BY` / `DERIVED_FROM` | 100% | 0% | **关系缺 `utime`，需补齐** |
-| `BELONGS_TO` | 0% | 0% | **关系当前无任何属性，需按约定补齐两个时间戳** |
 
 > 物理层名 `created_time` / `updated_time` 与文档标准名 `ctime` / `utime` 是同一字段的两种写法；当前查询 / 写入仍走长名以保持向后兼容，后续统一迁移期间应**双写**两种名字直至所有消费方切换完毕。
 
@@ -518,8 +603,6 @@ ORDER BY c.col_name
 | `business_domain` | String | 95.3% | 平台标注 | 业务域：斑马AI课 / 斑马百科 / 斑马AI口语课 / 斑马硬件 …… |
 | `table_embedding` | List\<Float\>(768) | 86.2% | LLM | 表名+注释的语义向量（768 维），用于向量召回 / 表搜索 |
 | `partition_key` | String | 85.5% | Hive Metastore | 分区键，如 `dt` / `hour,dt` / `scene,dt` |
-| `is_union_sql` | Integer (0/1) | 67.6% | FlowScope 回写 | 该表的产出 SQL 是否含 UNION |
-| `max_part` | String (date) | 55.9% | 调度系统 | 当前最大可用分区值 |
 | `task_sql_md5` | String | 51.7% | 调度系统 | 产出该表的 SQL 文件 MD5 |
 | `task_name` | String | 48.6% | 调度系统 | 产出任务名（如 `dimEngMentorInfoDa.php`） |
 | `table_ai_try` | String | 48.9% | LLM | LLM 反推的"主表 / 关联表 / 过滤条件"摘要 |
@@ -527,18 +610,10 @@ ORDER BY c.col_name
 | `db_type` | String | 1.9% | 平台 | 库类型，仅 Doris 库节点有值（`doris`） |
 | `uuid` | String | 1.8% | Doris 平台 | Doris 平台表 UUID |
 | `primary_key` | String | 1.8% | Doris DDL | 主键列表，如 `` `platform`, `accountId`, `ts` `` |
-| `theme` | String | 1.8% | Doris 平台 | Doris 平台主题分类（如 `账户数据` / `广告`） |
-| `ds_task_unique_key` | String | 0.4% | 数据集成 | `{project_id}_{flow_id}_{record_id}` |
-| `project_id` | Integer | 0.4% | 数据集成 | 数据集成项目 ID |
-| `flow_id` | Integer | 0.4% | 数据集成 | 数据集成流 ID |
-| `record_id` | String | 0.4% | 数据集成 | 数据集成任务记录 ID |
 
 ---
 
 ### M_COL 扩展属性
-
-基于 97397 个节点统计。
-
 | 属性 | 类型 | 覆盖率 | 来源 | 说明 |
 |---|---|---|---|---|
 | `ctime` / `utime` | DateTime | 100% / 100% | 元数据同步 | 见统一约定 |
@@ -557,272 +632,3 @@ ORDER BY c.col_name
 > Hive 来源用 `col_comment`、Doris 来源用 `comment`，目前未做合并。查询时应 `coalesce(c.col_comment, c.comment) AS comment`。
 
 ---
-
-### Metric（指标节点）
-
-**唯一键**：`id`（如 `metric_attend_finish_ratio`）
-**语义**：业务指标（KPI）定义。通过 `SOURCED_FROM` 关联源列、`MATERIALIZED_IN` 关联落地表、`BELONGS_TO` 归属指标域、`DERIVED_FROM` 表达派生关系。
-**当前实例数**：15
-
-| 属性 | 类型 | 覆盖率 | 说明 |
-|---|---|---|---|
-| `ctime` / `utime` | DateTime | 100% / **0%** | `utime` 缺失，写入侧需补 |
-| `id` | String | 100% | 指标全局 ID，如 `metric_attend_finish_ratio` |
-| `name` | String | 100% | 指标英文名，如 `attend_finish_ratio` |
-| `display_name` | String | 100% | 指标中文名，如 `到课完课率` |
-| `metric_type` | String | 100% | `ratio` / `count` / `amount` 等 |
-| `status` | String | 100% | 生命周期：`active` / `deprecated` |
-| `grain` | String | 100% | 时间粒度，逗号分隔，如 `day,week` |
-| `col_pattern` | String | 100% | 物理列名匹配模式（与 `name` 多数情况一致） |
-| `business_domain` | String | 100% | 业务域，可多值逗号分隔，如 `斑马AI课,斑马百科` |
-| `theme_domain` | String | 100% | 主题域 |
-| `numerator_hint` | String | 13.3% | 比率指标的分子列名提示 |
-| `denominator_hint` | String | 13.3% | 比率指标的分母列名提示 |
-
----
-
-### MetricDomain（指标域节点）
-
-**唯一键**：`id`（如 `md_ai_order`）
-**语义**：指标的业务域分组。通过 `GOVERNED_BY` 关联其覆盖的物理表。
-**当前实例数**：8
-
-| 属性 | 类型 | 覆盖率 | 说明 |
-|---|---|---|---|
-| `ctime` / `utime` | DateTime | 100% / **0%** | `utime` 缺失，写入侧需补 |
-| `id` | String | 100% | 域 ID |
-| `display_name` | String | 100% | 中文名，如 `AI课-订单域` / `AI课-学习报告域` |
-| `business_domain` | String | 100% | 业务域 |
-| `theme_domain` | String | 100% | 主题域 |
-
----
-
-### REF_TABLE_COL（列归属）扩展属性
-
-SQL 解析层不写属性；下列字段由外部元数据流程写入。
-
-| 属性 | 类型 | 覆盖率 | 说明 |
-|---|---|---|---|
-| `ctime` / `utime` | DateTime | 100% / 81.2% | `utime` 部分缺失 |
-| `db_name` / `table_name` / `col_name` | String | 2.3%（仅 Doris） | 关系端点信息冗余存储 |
-| `db_type` | String | 2.3% | `doris` |
-
----
-
-### REF_COL_LINEAGE（字段血缘）扩展属性
-
-| 属性 | 类型 | 覆盖率 | 说明 |
-|---|---|---|---|
-| `ctime` / `utime` | DateTime | 100% / 99.2% | |
-| `join_type` | String | 100% | 固定值 `column_lineage`（元数据来源边的标记） |
-| `relationship_type` | String | 100% | 固定值 `field_lineage` |
-| `source_trunc` | String | 73.2% | 转换表达式（截断版），如 `direct_mapping` / `cast(id as string)` |
-| `sql_md5` | String | 99.2% | 来源 SQL 标识 |
-| `source_db_type` / `target_db_type` | String | 0.8% | 跨 Hive / Doris 血缘时记录两端库类型 |
-| `ds_task_unique_key` | String | 0.8% | 数据集成任务唯一键 |
-
----
-
-### REF_COL（M_COL → M_COL，列级 JOIN）
-
-> 物理列级 JOIN 关系。与表级 `JOINS_WITH` 平行，但细化到具体 JOIN Key 列对。
-> 当前实例数：8669
-
-| 属性 | 类型 | 覆盖率 | 说明 |
-|---|---|---|---|
-| `ctime` / `utime` | DateTime | 100% / 100% | |
-| `join_type` | String | 100% | `left` / `inner` / `full` / `full_outer` |
-| `time_join` | Integer (0/1) | 100% | 是否含时间范围 JOIN |
-| `non_equi_join` | Integer (0/1) | 100% | 是否含非等值条件 |
-| `source_trunc` | String | 55.6% | 左侧 JOIN 表达式（截断） |
-| `target_trunc` | String | 54.1% | 右侧 JOIN 表达式（截断） |
-| `sql_md5` | String | 98.3% | 来源 SQL |
-| `source_db_type` / `target_db_type` / `ds_task_unique_key` | String | 1.7% | 跨库 JOIN 元数据 |
-
----
-
-### REF_TABLE（M_TABLE → M_TABLE，表级引用）
-
-> 表级粗粒度血缘 / 引用关系，与 `READS_FROM` 互为补充：`READS_FROM` 来自 FlowScope SQL 解析，`REF_TABLE` 来自外部元数据补全。
-> 当前实例数：8267
-
-| 属性 | 类型 | 覆盖率 | 说明 |
-|---|---|---|---|
-| `ctime` / `utime` | DateTime | 100% / 55.0% | `utime` 缺口需回填 |
-| `ref_type` | String | 99.2% | 固定值 `REF_TABLE` |
-| `is_primary` | Integer (0/1) | 99.2% | source 表是否为下游主表（参与 SELECT 主体而非 JOIN 副表） |
-| `source_db_type` / `target_db_type` | String | 0.8% | 跨库引用 |
-| `is_primary_table` | Integer (0/1) | 0.8% | Doris 版字段，与 `is_primary` 同义 |
-| `source_db_name` / `source_table_name` / `target_db_name` / `target_table_name` | String | 0.8% | 端点信息冗余 |
-
----
-
-### MATERIALIZED_IN（Metric → M_TABLE）
-
-> 指标在哪张物理表落地，并指明落地列。
-> 当前实例数：153
-
-| 属性 | 类型 | 覆盖率 | 说明 |
-|---|---|---|---|
-| `ctime` / `utime` | DateTime | 100% / **0%** | |
-| `col_name` | String | 100% | 物化列名，如 `attend_cnt` / `new_refund_amount` |
-| `col_type` | String | 100% | 物化列类型，如 `int` / `bigint` / `double` |
-
----
-
-### SOURCED_FROM（Metric → M_COL）
-
-> 指标的计算源列。
-> 当前实例数：14
-
-| 属性 | 类型 | 覆盖率 | 说明 |
-|---|---|---|---|
-| `ctime` / `utime` | DateTime | 100% / **0%** | |
-| `is_primary` | Boolean | 100% | 是否主源列（区分主源列与提示源列） |
-
----
-
-### BELONGS_TO（Metric → MetricDomain）
-
-> 指标归属到指标域。
-> 当前实例数：23；**当前关系无任何属性**，需按约定补 `ctime` / `utime`。
-
-| 属性 | 类型 | 覆盖率 | 说明 |
-|---|---|---|---|
-| `ctime` / `utime` | DateTime | **0% / 0%** | 写入侧需补齐 |
-
----
-
-### GOVERNED_BY（MetricDomain → M_TABLE）
-
-> 指标域覆盖了哪些物理表，并统计该域在表中的指标命中数。
-> 当前实例数：4
-
-| 属性 | 类型 | 覆盖率 | 说明 |
-|---|---|---|---|
-| `ctime` / `utime` | DateTime | 100% / **0%** | |
-| `metric_coverage` | Integer | 100% | 该 MetricDomain 在此表上覆盖的指标数 |
-
----
-
-### DERIVED_FROM（Metric → Metric）
-
-> 派生指标依赖原子指标，并给出计算公式与角色。
-> 当前实例数：3
-
-| 属性 | 类型 | 覆盖率 | 说明 |
-|---|---|---|---|
-| `ctime` / `utime` | DateTime | 100% / **0%** | |
-| `role` | String | 100% | `numerator` / `denominator` / `denominator_proxy` |
-| `formula` | String | 100% | 计算公式，如 `attend_and_finish_cnt / attend_cnt` |
-| `note` | String | 33.3% | 备注说明 |
-
----
-
-### 元数据层节点 / 关系拓扑速查
-
-```
-Metric ──[:BELONGS_TO]────────> MetricDomain ──[:GOVERNED_BY]──> M_TABLE
-   │                                                                ▲
-   ├──[:SOURCED_FROM]────────> M_COL                                 │
-   ├──[:MATERIALIZED_IN]─────> M_TABLE ──────────────────────────────┘
-   └──[:DERIVED_FROM]────────> Metric （派生指标 → 原子指标）
-
-M_TABLE ──[:REF_TABLE]───────> M_TABLE      （元数据层表级引用，与 READS_FROM 并列）
-M_COL   ──[:REF_COL]─────────> M_COL        （元数据层列级 JOIN，与 JOINS_WITH 并列）
-```
-
----
-
-### 常用查询场景（元数据层）
-
-**场景 A — 按归属人查表**：
-
-```cypher
-MATCH (t:M_TABLE {owner: "zhangyuanbj02"})
-RETURN t.db_name + "." + t.table_name AS fqn,
-       t.theme_domain                 AS theme,
-       t.business_domain              AS biz,
-       t.task_name                    AS task,
-       t.utime                        AS last_updated
-ORDER BY t.utime DESC
-```
-
-**场景 B — 某指标在哪张表落地、用了哪些源列**：
-
-```cypher
-MATCH (m:Metric {id: "metric_attend_finish_ratio"})
-OPTIONAL MATCH (m)-[mat:MATERIALIZED_IN]->(t:M_TABLE)
-OPTIONAL MATCH (m)-[src:SOURCED_FROM]->(c:M_COL)
-RETURN m.display_name                              AS metric,
-       collect(DISTINCT t.db_name + "." + t.table_name + "." + mat.col_name) AS materialized_cols,
-       collect(DISTINCT c.db_name + "." + c.table_name + "." + c.col_name)   AS source_cols
-```
-
-**场景 C — 派生指标的公式 & 依赖原子指标**：
-
-```cypher
-MATCH (derived:Metric)-[d:DERIVED_FROM]->(atom:Metric)
-RETURN derived.display_name AS metric,
-       d.role               AS role,
-       d.formula            AS formula,
-       atom.display_name    AS depends_on
-ORDER BY derived.display_name
-```
-
-**场景 D — 指标域对物理表的覆盖度**：
-
-```cypher
-MATCH (md:MetricDomain)-[g:GOVERNED_BY]->(t:M_TABLE)
-RETURN md.display_name                AS metric_domain,
-       t.db_name + "." + t.table_name AS table_fqn,
-       g.metric_coverage              AS covered_metric_count
-ORDER BY g.metric_coverage DESC
-```
-
----
-
-## 数据写入流程
-
-```
-SQL 文件
-  │
-  ▼
-preprocess_sql()        — 去掉 SET/ADD 指令，替换 Hive 变量 ${var}
-  │
-  ▼
-FlowScope /api/analyze  — 解析 SQL，返回 AnalyzeResult JSON（nodes + edges）
-  │
-  ├── Pass 1: 实体写入
-  │     merge_table()     → M_TABLE
-  │     merge_cte()       → CTE
-  │     merge_col()       → M_COL
-  │
-  ├── Pass 2: 基础关系
-  │     write_ownership() → REF_TABLE_COL（列归属）
-  │     write_lineage()   → REF_COL_LINEAGE（纯 M_COL→M_COL）
-  │     write_ref_tep()   → REF_TEP（M_TABLE/CTE → CTE，含直接过滤）
-  │                       + 多轮传播 upstream_filters_json 到 CTE 节点
-  │     write_reads_from()→ READS_FROM（穿透 CTE，M_TABLE→M_TABLE）
-  │
-  └── Pass 3: 聚合关系
-        write_joins_with()          → JOINS_WITH
-        detect_and_write_unions()   → UnionGroup + UNION_BRANCH + UNION_PRODUCES（如有 UNION）
-```
-
----
-
-## 边界说明
-
-FlowScope 只负责 **SQL 解析**，不存储表的元数据（字段类型、注释、分区信息等）。
-元数据需通过独立流程写入相同的 `M_TABLE` / `M_COL` 节点（无 `fs_` 前缀）。
-
-| 来源 | 属性前缀 | 示例 |
-|---|---|---|
-| FlowScope SQL 解析 | `fs_` | `fs_kind`、`fs_expr`、`fs_uid`、`fs_fqn`、`fs_res_src` |
-| 外部元数据补全 | 无前缀 | `owner`、`editor`、`col_type`、`col_comment`、`theme_domain`、`business_domain`、`table_embedding`、`ctime` / `utime`（详见 [元数据补全层](#元数据补全层节点关系的非-fs_-属性)） |
-
-**前缀约定的两类例外**（结构性字段，不带 `fs_` 前缀但属 FlowScope 写入）：
-
-1. **唯一键字段**：`db_name` / `table_name` / `col_name` —— 作为 `M_TABLE` / `M_COL` 的复合唯一键直接使用，命中索引和约束更友好。
-2. **CTE / UnionGroup / 关系上的结构性属性**：`label`、`subkind`、`run_id`、`occurrence_count`、`upstream_filters_*`、`body_span_*`、`decl_span_*`（CTE）、`id`、`union_type`、`branch_count`、`sql_md5`（UnionGroup），以及 `filters_json` / `filters_count` / `sql_md5` / `sql_path`（关系边）—— 这些字段是 FlowScope 私有命名空间，外部元数据流程不应占用。

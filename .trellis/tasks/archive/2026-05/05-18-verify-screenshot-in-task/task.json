@@ -1,0 +1,28 @@
+{
+  "id": "verify-screenshot-in-task",
+  "name": "verify-screenshot-in-task",
+  "title": "验证 Trellis task PRD 是否支持图片嵌入",
+  "description": "测试在 task PRD 中嵌入截图，验证 Cursor IDE 是否能正确渲染 markdown 中的本地图片引用",
+  "status": "completed",
+  "dev_type": "test",
+  "scope": "trellis",
+  "package": null,
+  "priority": "P3",
+  "creator": "wangliang",
+  "assignee": "wangliang",
+  "createdAt": "2026-05-18",
+  "completedAt": "2026-05-18",
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/tasks/archive/2026-05/05-18-verify-screenshot-in-task/screenshot-example.png"
+  ],
+  "notes": "验证结论：task PRD 支持嵌入本地图片（相对路径 markdown 语法）",
+  "meta": {}
+}

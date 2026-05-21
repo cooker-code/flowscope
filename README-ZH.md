@@ -188,3 +188,5 @@ curl -s http://localhost:3099/api/audit/1 | python3 -m json.tool
 - CLI serve 的 `--dialect` 是全局的，影响所有 `/api/analyze` 请求；WASM 模式下 dialect 每个项目独立
 - debug binary（`target/debug/flowscope`）**不包含** serve 功能，必须用 `target/release/flowscope`
 - 前端改动后，若只用 Vite dev + CLI serve 组合，不需要重新编译 binary；若用生产一体模式则需要重新 embed
+
+https://upload.zhenguanyu.com/h5/
