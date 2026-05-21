@@ -82,6 +82,23 @@ cargo build -p flowscope-cli --features serve
 - `--audit-log`：指定 SQLite 审计日志文件路径，**启动时必须携带**，否则审计功能不可用
 - `data/audit.db` 目录需提前存在：`mkdir -p data`
 
+### 生产打包发布（UI + CLI 一致性 + 上传 H5 CDN）
+
+**说"打包发布"就按 `docs/release-workflow.md` 走，不要临时拼步骤。** 核心顺序：
+
+1. `just regression-sql` 真实 SQL 头部字段回归
+2. `cd app && yarn build` 产出 `app/dist/`（前端唯一来源）
+3. `cp -R app/dist/. crates/flowscope-cli/embedded-app/` 同步到 CLI 嵌入目录
+4. `cargo zigbuild --target x86_64-unknown-linux-gnu.2.17 --target-dir target-zigbuild -p flowscope-cli --features serve --release`
+5. `(cd app/dist && zip -qr "../../flowscope-h5-$(date +%Y%m%d-%H%M).zip" .)` 打包前端
+6. `./scripts/upload-h5.sh` 自动上传到 `upload.zhenguanyu.com` 并打印 CDN URL（含 sha256 校验）
+7. `scp target-zigbuild/x86_64-unknown-linux-gnu/release/flowscope` 到 Neo4j 服务器
+
+> **不要装 `wasm-pack`**：生产分析在 CLI serve 后端跑，前端走 REST，不需要 WASM 重新打包。
+> **不要用 `cargo build` 或 `cross build` 替代 zigbuild**：服务器 glibc 2.17，会跑不起来（详见 `docs/build-for-neo4j-server.md`）。
+
+完整流程、验证、回滚、错误对照表见 [`docs/release-workflow.md`](./docs/release-workflow.md)。
+
 ## Lint, Format, Typecheck
 
 - `just lint` (Rust + TypeScript lint).
@@ -105,6 +122,8 @@ cargo build -p flowscope-cli --features serve
 - `just test-cli-serve` (CLI tests with serve feature, builds app first).
 - `just test-lineage` (`cargo test -p flowscope-core --test lineage_engine`).
 - `just test-lineage-verbose` (same test with `--nocapture`).
+- `just regression-sql` (build release CLI + run `test-sql/*.sql` regression: headline-field assertions for `sqlType`/`insertType`/`targetTable`/`sourceTables`/`statementTypes`/`errorCount`, pinned in `test-sql/.regression-expect.json`).
+- `just regression-sql-fast` (same regression, skip rebuild — for SQL fixture iteration).
 - `just check-schema` (Rust schema guard + TS schema compatibility).
 - `just coverage` (generate HTML coverage report in `coverage/`, requires `cargo-llvm-cov`).
 - `just coverage-lcov` (generate LCOV file at `lcov.info` for CI/Codecov).
@@ -254,6 +273,21 @@ Use a single repo tag for each release (`vX.Y.Z`) and align Rust workspace + npm
 - The demo app (`app/`) and VS Code webview (`vscode/webview-ui/`) currently define no tests.
 - For full CI parity, `just check` runs formatting checks, lint, typecheck, and schema checks.
 
+## Trellis 任务流程速查
+
+| 阶段 | 工具 | 时机 |
+|------|------|------|
+| 恢复任务 | `/trellis-continue` | 新会话开始 / 中断后续做（自动路由到正确 phase） |
+| 需求不清晰 | `/trellis-brainstorm` | 规划前 |
+| 开始编码前 | `/trellis-before-dev` | 每次切换 package 时 |
+| 发现 bug | `/trellis-break-loop` | **bug 修复后立即** |
+| 编码完成 | `/trellis-check` | 提交前 |
+| 沉淀经验 | `/trellis-update-spec` | break-loop 之后 |
+| **任务收尾** | **`/trellis-finish-work`** | **work commit 之后立即（archive + 写 journal）** |
+| 架构定制 | `/trellis-meta` | 修改 `.trellis/`、platform hooks、skills、commands 时 |
+
+---
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
@@ -297,3 +331,25 @@ This project is indexed by GitNexus as **flowscope** (16558 symbols, 37905 relat
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
+
+<!-- TRELLIS:START -->
+# Trellis Instructions
+
+These instructions are for AI assistants working in this project.
+
+This project is managed by Trellis. The working knowledge you need lives under `.trellis/`:
+
+- `.trellis/workflow.md` — development phases, when to create tasks, skill routing
+- `.trellis/spec/` — package- and layer-scoped coding guidelines (read before writing code in a given layer)
+- `.trellis/workspace/` — per-developer journals and session traces
+- `.trellis/tasks/` — active and archived tasks (PRDs, research, jsonl context)
+
+If a Trellis command is available on your platform (e.g. `/trellis:finish-work`, `/trellis:continue`), prefer it over manual steps. Not every platform exposes every command.
+
+If you're using Codex or another agent-capable tool, additional project-scoped helpers may live in:
+- `.agents/skills/` — reusable Trellis skills
+- `.codex/agents/` — optional custom subagents
+
+Managed by Trellis. Edits outside this block are preserved; edits inside may be overwritten by a future `trellis update`.
+
+<!-- TRELLIS:END -->

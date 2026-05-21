@@ -1,0 +1,81 @@
+{
+  "_comment": [
+    "Pinned expectations for the regression suite. Keys are the SQL file name",
+    "(under test-sql/). Allowed fields per file:",
+    "  sqlType (string)         - 'select' | 'insert' | 'ddl'",
+    "  insertType (string|null) - 'overwrite' | 'into' | null",
+    "  targetTable (string)     - qualified physical table written to",
+    "  sourceCount (int)        - number of physical sources (CTEs excluded)",
+    "  sources (array<string>)  - qualified physical source tables, order-insensitive",
+    "  statementTypes (array)   - ordered list of statementType strings after directive filtering",
+    "  errorCount (int)         - must be 0 to call the script 'clean'",
+    "  warningCount (int)       - tolerated >0 but visible in output",
+    "",
+    "Files not listed here only run the soft 'no errors + at least 1 statement' check.",
+    "Drop a new SQL into test-sql/ and the regression picks it up automatically."
+  ],
+  "ads_course_user_gift_card_stat_di.sql": {
+    "sqlType": "insert",
+    "insertType": "overwrite",
+    "targetTable": "dw_conan_ads.ads_course_user_gift_card_stat_di",
+    "sourceCount": 2,
+    "sources": [
+      "dw_conan_ods.ods_eng_frog_di_hour",
+      "dw_dwd.dwd_eng_frog_di"
+    ],
+    "statementTypes": [
+      "INSERT"
+    ],
+    "errorCount": 0
+  },
+  "dwd_conan_user_order_da.sql": {
+    "sqlType": "insert",
+    "insertType": "overwrite",
+    "targetTable": "dw_conan_dwd.dwd_conan_user_order_da",
+    "sourceCount": 5,
+    "statementTypes": [
+      "INSERT"
+    ],
+    "errorCount": 0
+  },
+  "dwd_conan_referral_frog_di.sql": {
+    "sqlType": "insert",
+    "insertType": "overwrite",
+    "targetTable": "dw_conan_dwd.dwd_conan_referral_frog_di",
+    "sourceCount": 1,
+    "statementTypes": [
+      "INSERT"
+    ],
+    "errorCount": 0
+  },
+  "dwd_eng_chapter_quiz_question_report_ext_desc_all.sql": {
+    "sqlType": "insert",
+    "insertType": "overwrite",
+    "targetTable": "dw_dwd.dwd_eng_chapter_quiz_question_report_ext_desc_all",
+    "sourceCount": 7,
+    "statementTypes": [
+      "INSERT"
+    ],
+    "errorCount": 0
+  },
+  "dwd_eng_frog_user_devices_detail_chapter_finish_da.sql": {
+    "sqlType": "insert",
+    "insertType": "overwrite",
+    "targetTable": "dw_dwd.dwd_eng_frog_user_devices_detail_chapter_finish_da",
+    "sourceCount": 2,
+    "statementTypes": [
+      "INSERT"
+    ],
+    "errorCount": 0
+  },
+  "dwd_eng_shendu_user_feature_di.sql": {
+    "sqlType": "insert",
+    "insertType": "overwrite",
+    "targetTable": "dw_conan_dwd.dwd_eng_shendu_user_feature_di",
+    "sourceCount": 7,
+    "statementTypes": [
+      "INSERT"
+    ],
+    "errorCount": 0
+  }
+}

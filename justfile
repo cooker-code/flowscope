@@ -259,6 +259,25 @@ test-lineage-filter PATTERN:
 test-core:
     cargo test -p flowscope-core
 
+# Regression: run release CLI against every SQL in test-sql/ and verify
+# headline fields (sqlType / insertType / targetTable / sourceTables /
+# statementTypes) plus issues-clean invariant. Pinned expectations live in
+# `test-sql/.regression-expect.json`. Drop a new SQL into `test-sql/` and
+# it joins the suite automatically.
+regression-sql: build-cli
+    python3 ./scripts/regression-test-sql.py
+
+# Same as regression-sql but does not rebuild the CLI (uses whatever is in
+# target/release or target/debug). Use when iterating on the SQL fixtures.
+regression-sql-fast:
+    python3 ./scripts/regression-test-sql.py
+
+# Upload an H5 frontend zip to upload.zhenguanyu.com and print the CDN URL.
+# If FILE is omitted, picks the newest `flowscope-h5-*.zip` in repo root.
+# Verifies sha256 against the remote copy before returning.
+upload-h5 FILE="":
+    ./scripts/upload-h5.sh {{FILE}}
+
 # Run TypeScript tests
 test-ts:
     yarn test:ts

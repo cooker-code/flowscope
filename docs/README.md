@@ -8,6 +8,13 @@ This folder contains the canonical documentation for FlowScope. The public API a
 
 FlowScope code is released under Apache-2.0 unless stated otherwise. The `app/` directory uses the O'Saasy License; see `app/LICENSE`.
 
+### Release & Deployment
+
+- `release-workflow.md`
+  **打包发布 SOP**：UI 与 CLI 一致性原理、`cargo zigbuild` 标准流程、上传 `https://upload.zhenguanyu.com/h5/`、Neo4j 服务器部署、回滚与排错。说"打包发布"就走这份。
+- `build-for-neo4j-server.md`
+  `cargo-zigbuild` 方案的背景与深度排错（必读一次）。
+
 ### Core References
 
 - `architecture-overview.md`
