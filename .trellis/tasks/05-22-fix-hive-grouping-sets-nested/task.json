@@ -3,7 +3,7 @@
   "name": "fix-hive-grouping-sets-nested",
   "title": "修复 GROUPING SETS 多级嵌套预处理",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

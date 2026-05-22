@@ -660,17 +660,152 @@ fn fix_orphan_as(input: &str) -> String {
 
 // ─── Step 13: GROUP BY GROUPING SETS/CUBE/ROLLUP → GROUP BY 1 ─────────────────
 
-fn grouping_sets_re() -> &'static Regex {
+/// Head-only matcher: `group by grouping sets` plus the immediately-following
+/// `(`. The matched span ends *after* the open paren so `m.end() - 1` points
+/// at the open paren byte that drives the character-level paren counter.
+///
+/// The regex deliberately matches *only* the head — it does not try to
+/// balance nested parens. `regex` lacks PCRE recursion, so any fixed-depth
+/// regex would silently miss deeper nesting (e.g. `set` bodies containing
+/// `date_sub(next_day(...), 7)` produce 2+ levels). Counting in code is O(n)
+/// and supports arbitrary nesting.
+fn grouping_sets_head_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
-    R.get_or_init(|| {
-        Regex::new(r"(?is)group\s+by\s+grouping\s+sets\s*\((?:[^()]|\([^()]*\))*\)").unwrap()
-    })
+    R.get_or_init(|| Regex::new(r"(?is)group\s+by\s+grouping\s+sets\s*\(").unwrap())
+}
+
+/// Starting from a `(` at `open_idx`, find the matching `)` index while
+/// skipping single-quoted string bodies, line comments (`-- ... \n`) and
+/// block comments (`/* ... */`). Returns `None` on unbalanced input.
+fn find_matching_paren(bytes: &[u8], open_idx: usize) -> Option<usize> {
+    debug_assert_eq!(bytes[open_idx], b'(');
+    let n = bytes.len();
+    let mut depth: i32 = 0;
+    let mut i = open_idx;
+    while i < n {
+        let ch = bytes[i];
+        if ch == b'\'' {
+            i += 1;
+            while i < n {
+                let c2 = bytes[i];
+                if c2 == b'\\' && i + 1 < n {
+                    i += 2;
+                    continue;
+                }
+                i += 1;
+                if c2 == b'\'' {
+                    break;
+                }
+            }
+            continue;
+        }
+        if ch == b'-' && i + 1 < n && bytes[i + 1] == b'-' {
+            match find_byte(&bytes[i..], b'\n') {
+                Some(j) => i += j,
+                None => return None,
+            }
+            continue;
+        }
+        if ch == b'/' && i + 1 < n && bytes[i + 1] == b'*' {
+            match find_substr(&bytes[i + 2..], b"*/") {
+                Some(j) => i = i + 2 + j + 2,
+                None => return None,
+            }
+            continue;
+        }
+        if ch == b'(' {
+            depth += 1;
+            i += 1;
+            continue;
+        }
+        if ch == b')' {
+            depth -= 1;
+            if depth == 0 {
+                return Some(i);
+            }
+            i += 1;
+            continue;
+        }
+        i += 1;
+    }
+    None
 }
 
 fn rewrite_grouping_sets(input: &str) -> String {
-    grouping_sets_re()
-        .replace_all(input, "GROUP BY 1")
-        .into_owned()
+    let re = grouping_sets_head_re();
+    let bytes = input.as_bytes();
+    let n = bytes.len();
+    let mut out = String::with_capacity(input.len());
+    let mut i: usize = 0;
+
+    while i < n {
+        let ch = bytes[i];
+
+        if ch == b'\'' {
+            out.push('\'');
+            i += 1;
+            while i < n {
+                let c2 = bytes[i];
+                if c2 == b'\\' && i + 1 < n {
+                    out.push_str(&input[i..i + 2]);
+                    i += 2;
+                    continue;
+                }
+                out.push(c2 as char);
+                i += 1;
+                if c2 == b'\'' {
+                    break;
+                }
+            }
+            continue;
+        }
+
+        if ch == b'-' && i + 1 < n && bytes[i + 1] == b'-' {
+            match find_byte(&bytes[i..], b'\n') {
+                Some(j) => {
+                    out.push_str(&input[i..i + j]);
+                    i += j;
+                }
+                None => {
+                    out.push_str(&input[i..]);
+                    return out;
+                }
+            }
+            continue;
+        }
+
+        if ch == b'/' && i + 1 < n && bytes[i + 1] == b'*' {
+            match find_substr(&bytes[i + 2..], b"*/") {
+                Some(j) => {
+                    let end = i + 2 + j + 2;
+                    out.push_str(&input[i..end]);
+                    i = end;
+                }
+                None => {
+                    out.push_str(&input[i..]);
+                    return out;
+                }
+            }
+            continue;
+        }
+
+        if ch == b'g' || ch == b'G' {
+            if let Some(m) = re.find(&input[i..]) {
+                if m.start() == 0 {
+                    let abs_open_paren = i + m.end() - 1;
+                    if let Some(close_idx) = find_matching_paren(bytes, abs_open_paren) {
+                        out.push_str("GROUP BY 1");
+                        i = close_idx + 1;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        out.push(ch as char);
+        i += 1;
+    }
+    out
 }
 
 // ─── Unit tests ───────────────────────────────────────────────────────────────
@@ -931,6 +1066,64 @@ mod tests {
         let out = rewrite_grouping_sets(input);
         assert!(out.to_lowercase().contains("group by 1"));
         assert!(!out.to_lowercase().contains("grouping sets"));
+    }
+
+    #[test]
+    fn grouping_sets_two_level_nested() {
+        // set 内含函数调用 date_sub(...) 产生 2 级括号嵌套
+        let s = "select a from t group by grouping sets ((date_sub(x,1), b), (b), (date_sub(x,1)))";
+        let out = rewrite_grouping_sets(s);
+        assert!(!out.to_lowercase().contains("grouping sets"));
+        assert!(out.contains("GROUP BY 1"));
+    }
+
+    #[test]
+    fn grouping_sets_three_level_nested() {
+        let s = "select a from t group by grouping sets ((coalesce(f(g(x)), 1), b))";
+        let out = rewrite_grouping_sets(s);
+        assert!(!out.to_lowercase().contains("grouping sets"));
+        assert!(out.contains("GROUP BY 1"));
+    }
+
+    #[test]
+    fn grouping_sets_simple_one_level_still_works() {
+        // 防回归：原 1 级 regex 能覆盖的场景仍 OK
+        let s = "select a from t group by grouping sets ((a, b), (a))";
+        let out = rewrite_grouping_sets(s);
+        assert!(out.contains("GROUP BY 1"));
+        assert!(!out.to_lowercase().contains("grouping sets"));
+    }
+
+    #[test]
+    fn grouping_sets_inside_string_literal_not_touched() {
+        // 防误伤：字符串字面值里出现 grouping sets 文本不能被替换
+        let s = "select 'group by grouping sets (a)' from t";
+        let out = rewrite_grouping_sets(s);
+        assert_eq!(out, s);
+    }
+
+    #[test]
+    fn grouping_sets_multiple_occurrences_in_one_sql() {
+        let s = "select 1 from t group by grouping sets ((a,(b))) ; \
+                 select 2 from u group by grouping sets ((c,(d)))";
+        let out = rewrite_grouping_sets(s);
+        assert_eq!(out.matches("GROUP BY 1").count(), 2);
+        assert!(!out.to_lowercase().contains("grouping sets"));
+    }
+
+    #[test]
+    fn grouping_sets_inside_line_comment_not_touched() {
+        let s = "select 1 -- group by grouping sets (a)\nfrom t";
+        let out = rewrite_grouping_sets(s);
+        assert_eq!(out, s);
+    }
+
+    #[test]
+    fn grouping_sets_unbalanced_paren_keeps_input() {
+        // 保守降级：括号不平衡 → 不替换，保留原文（不能 panic 或死循环）
+        let s = "select 1 from t group by grouping sets ((a, b)";
+        let out = rewrite_grouping_sets(s);
+        assert!(out.to_lowercase().contains("grouping sets"));
     }
 
     // Full pipeline smoke
