@@ -29,9 +29,6 @@ pub use types::{
     AnalyzeRequest,
     // Response types
     AnalyzeResult,
-    InsertType,
-    SqlType,
-    TableRef,
     CanonicalName,
     CaseSensitivity,
     ColumnSchema,
@@ -50,6 +47,7 @@ pub use types::{
     FilterClauseType,
     FilterPredicate,
     ForeignKeyRef,
+    InsertType,
     Issue,
     IssueAutofix,
     IssueAutofixApplicability,
@@ -70,11 +68,13 @@ pub use types::{
     SchemaTable,
     Severity,
     Span,
+    SqlType,
     StatementMeta,
     StatementSplitRequest,
     StatementSplitResult,
     Summary,
     TableConstraintInfo,
+    TableRef,
 };
 
 // Re-export template types when the templating feature is enabled

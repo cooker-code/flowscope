@@ -161,13 +161,16 @@ left join dw_dwd.dwd_site_user_reg_profile_da b on a.user_id = b.userid
         ]
     );
     assert!(
-        result.source_tables.iter().all(|t| matches!(
-            t.node_type,
-            crate::NodeType::Table | crate::NodeType::View
-        )),
+        result
+            .source_tables
+            .iter()
+            .all(|t| matches!(t.node_type, crate::NodeType::Table | crate::NodeType::View)),
         "source_tables must be physical relations, not CTEs"
     );
-    assert!(result.issues.iter().all(|i| i.code != "MULTIPLE_TARGET_TABLES"));
+    assert!(result
+        .issues
+        .iter()
+        .all(|i| i.code != "MULTIPLE_TARGET_TABLES"));
 }
 
 #[test]
@@ -215,10 +218,7 @@ select id from cte
     assert_eq!(result.statements[0].statement_index, 0);
     assert_eq!(result.statements[0].statement_type, "INSERT");
     assert!(
-        result
-            .statements
-            .iter()
-            .all(|s| s.statement_type != "SET"),
+        result.statements.iter().all(|s| s.statement_type != "SET"),
         "SET directives should not appear in statements metadata"
     );
 }

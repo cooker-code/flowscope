@@ -29,7 +29,11 @@ fn warehouse_corpus_passes_hive_pipeline() {
         return;
     };
     let root = PathBuf::from(dir);
-    assert!(root.is_dir(), "FLOWSCOPE_HIVE_CORPUS_DIR is not a directory: {}", root.display());
+    assert!(
+        root.is_dir(),
+        "FLOWSCOPE_HIVE_CORPUS_DIR is not a directory: {}",
+        root.display()
+    );
 
     let mut files = Vec::new();
     collect_sql_files(&root, &mut files);
@@ -98,7 +102,11 @@ fn warehouse_corpus_passes_hive_pipeline() {
         eprintln!("first {} failures:", failures.len().min(20));
         for (path, msg) in failures.iter().take(20) {
             let rel = path.strip_prefix(&root).unwrap_or(path);
-            let m = if msg.len() > 120 { &msg[..120] } else { msg.as_str() };
+            let m = if msg.len() > 120 {
+                &msg[..120]
+            } else {
+                msg.as_str()
+            };
             eprintln!("  {} :: {}", rel.display(), m);
         }
     }

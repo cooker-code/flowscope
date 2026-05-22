@@ -34,12 +34,11 @@ pub use request::{
 #[cfg(feature = "templating")]
 pub use request::{TemplateConfig, TemplateError, TemplateMode};
 pub use response::{
-    AggregationInfo, AnalyzeResult, CanonicalName, ConstraintType, Edge, EdgeType, InsertType,
-    SqlType, TableRef,
-    FilterClauseType, FilterPredicate, JoinType, Node, NodeType, ResolutionSource,
-    ResolvedColumnSchema, ResolvedSchemaMetadata, ResolvedSchemaTable, SchemaOrigin, StatementMeta,
-    StatementSplitResult, TableConstraintInfo, STATEMENT_AGGREGATIONS_METADATA_KEY,
-    STATEMENT_FILTERS_METADATA_KEY,
+    AggregationInfo, AnalyzeResult, CanonicalName, ConstraintType, Edge, EdgeType,
+    FilterClauseType, FilterPredicate, InsertType, JoinType, Node, NodeType, ResolutionSource,
+    ResolvedColumnSchema, ResolvedSchemaMetadata, ResolvedSchemaTable, SchemaOrigin, SqlType,
+    StatementMeta, StatementSplitResult, TableConstraintInfo, TableRef,
+    STATEMENT_AGGREGATIONS_METADATA_KEY, STATEMENT_FILTERS_METADATA_KEY,
 };
 // Crate-internal intermediate used during analysis; not exposed to API consumers.
 pub(crate) use response::StatementLineage;

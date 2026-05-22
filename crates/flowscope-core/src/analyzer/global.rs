@@ -45,9 +45,7 @@ impl<'a> Analyzer<'a> {
         };
 
         let sql_type = SqlType::from_statement_types(
-            statement_lineages
-                .iter()
-                .map(|l| l.statement_type.clone()),
+            statement_lineages.iter().map(|l| l.statement_type.clone()),
         );
         let (statements, mut nodes, edges) = self.flatten_lineages(statement_lineages);
         self.apply_descriptions(&mut nodes, &edges);
@@ -60,10 +58,7 @@ impl<'a> Analyzer<'a> {
 
         // First INSERT statement's variant wins; multi-insert workloads also
         // emit MULTIPLE_TARGET_TABLES via classify_physical_tables.
-        let insert_type = self
-            .statement_lineages
-            .iter()
-            .find_map(|l| l.insert_type);
+        let insert_type = self.statement_lineages.iter().find_map(|l| l.insert_type);
 
         let mut issues = self.issues.clone();
         issues.extend(extra_issues);

@@ -60,9 +60,7 @@ pub(crate) fn is_skippable_directive(snippet: &str, dialect: Dialect) -> bool {
         return false;
     };
     let upper = first_keyword.to_ascii_uppercase();
-    default_skip_keywords(dialect)
-        .iter()
-        .any(|kw| *kw == upper)
+    default_skip_keywords(dialect).iter().any(|kw| *kw == upper)
 }
 
 /// Returns `true` when a parsed AST statement matches a skippable directive
@@ -174,14 +172,8 @@ mod tests {
 
     #[test]
     fn first_keyword_skips_block_comment() {
-        assert_eq!(
-            first_keyword("/* note */ SET x = 1"),
-            Some("SET")
-        );
-        assert_eq!(
-            first_keyword("/* a */ /* b */\n  USE my_db"),
-            Some("USE")
-        );
+        assert_eq!(first_keyword("/* note */ SET x = 1"), Some("SET"));
+        assert_eq!(first_keyword("/* a */ /* b */\n  USE my_db"), Some("USE"));
     }
 
     #[test]
