@@ -184,25 +184,7 @@ LT02 缩进规则**专项**对比 workbench（`sql-corpus-parity-report.py` 的�
 
 ---
 
-## 五、一次性业务工具
-
-### `xlsx_to_schema.py`
-
-把客户/上游给的 Excel 元数据文件（列：`SCHEMA` / `TABLE_NAME` / `COLUMN_NAME` / 可选 `DATA_TYPE`）转成 FlowScope 用的 `SchemaMetadata` JSON。
-
-**没有自动入口**，需要时手动跑：
-
-```bash
-pip install openpyxl
-python scripts/xlsx_to_schema.py metadata.xlsx -o oracle_schema.json
-python scripts/xlsx_to_schema.py metadata.xlsx --upper   # 强制列名大写
-```
-
-> 此脚本一个月没人调用过，但属于业务工具不是开发冗余，**保留**。如果将来一直不用了再删。
-
----
-
-## 六、加新脚本的约定
+## 五、加新脚本的约定
 
 1. **文件名**：日常 = `kebab-case`，Python 偶有 `snake_case` 历史遗留可保留
 2. **shebang**：bash → `#!/usr/bin/env bash` + `set -euo pipefail`；Python → `#!/usr/bin/env python3`
@@ -214,9 +196,10 @@ python scripts/xlsx_to_schema.py metadata.xlsx --upper   # 强制列名大写
 
 ---
 
-## 七、变更记录
+## 六、变更记录
 
 | 日期 | 变更 | 原因 |
 |---|---|---|
-| 2026-05-22 | 创建本 README | 全量梳理 12 个脚本，标明用途/入口/引用方，避免再次出现"误删后查不到"的事故 |
+| 2026-05-22 | 创建本 README | 全量梳理 11 个脚本，标明用途/入口/引用方，避免再次出现"误删后查不到"的事故 |
 | 2026-05-22 | 恢复 `serve-restart.sh` / `serve-stop.sh` | 之前未 commit 被误删，从 agent transcript 完整恢复 |
+| 2026-05-22 | 删除 `xlsx_to_schema.py` | 业务上确认不再需要，无任何自动引用 |
