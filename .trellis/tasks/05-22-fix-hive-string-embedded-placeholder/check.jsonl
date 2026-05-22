@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/flowscope-core/backend/hive-compat-preprocess.md", "reason": "校验改动与 Step 1 既有约束（顺序、idempotent）一致"}
+{"file": ".trellis/spec/flowscope-core/backend/quality-guidelines.md", "reason": "校验单测覆盖 + lint + fmt"}

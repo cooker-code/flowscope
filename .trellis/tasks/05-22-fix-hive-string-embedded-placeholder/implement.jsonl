@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/flowscope-core/backend/hive-compat-preprocess.md", "reason": "Step 1 占位符替换的权威 spec；本 child 改 substitute_placeholders 必须遵循其顺序约束"}
+{"file": ".trellis/spec/flowscope-core/backend/quality-guidelines.md", "reason": "单测命名 + 正例 + 防误伤负例约定"}
+{"file": ".trellis/tasks/05-22-fix-hive-preprocess-3-parse-bugs/prd.md", "reason": "父任务统筹 PRD，了解本 child 与其他 child 的边界（regression-expect / spec 更新由父任务收口）"}

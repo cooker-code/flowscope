@@ -63,58 +63,118 @@ pub fn preprocess(input: &str) -> String {
 
 // ─── Step 1: Placeholder substitution ─────────────────────────────────────────
 
-fn ph_re_triple_sq() -> &'static Regex {
-    static R: OnceLock<Regex> = OnceLock::new();
-    R.get_or_init(|| Regex::new(r"'\{\{\{[^}]*\}\}\}'").unwrap())
-}
-fn ph_re_triple_dq() -> &'static Regex {
-    static R: OnceLock<Regex> = OnceLock::new();
-    R.get_or_init(|| Regex::new(r#""\{\{\{[^}]*\}\}\}""#).unwrap())
-}
 fn ph_re_triple_bare() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| Regex::new(r"\{\{\{[^}]*\}\}\}").unwrap())
 }
-fn ph_re_double_sq() -> &'static Regex {
-    static R: OnceLock<Regex> = OnceLock::new();
-    R.get_or_init(|| Regex::new(r"'\{\{[^}]*\}\}'").unwrap())
-}
-fn ph_re_double_dq() -> &'static Regex {
-    static R: OnceLock<Regex> = OnceLock::new();
-    R.get_or_init(|| Regex::new(r#""\{\{[^}]*\}\}""#).unwrap())
-}
 fn ph_re_double_bare() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| Regex::new(r"\{\{[^}]*\}\}").unwrap())
-}
-fn ph_re_dollar_sq() -> &'static Regex {
-    static R: OnceLock<Regex> = OnceLock::new();
-    R.get_or_init(|| Regex::new(r"'\$\{[^}]*\}'").unwrap())
-}
-fn ph_re_dollar_dq() -> &'static Regex {
-    static R: OnceLock<Regex> = OnceLock::new();
-    R.get_or_init(|| Regex::new(r#""\$\{[^}]*\}""#).unwrap())
 }
 fn ph_re_dollar_bare() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| Regex::new(r"\$\{[^}]*\}").unwrap())
 }
 
+/// Apply the three bare-form placeholder regexes to a pending **code-only**
+/// buffer accumulated by `substitute_placeholders`, then append the rewritten
+/// text to `out` and clear the buffer. Triple must run before double — with
+/// the opposite order `{{{x}}}` would be misread as `{{x}}` plus a stray
+/// `{`/`}` pair and break downstream SQL.
+fn flush_pending_with_bare_regex(out: &mut String, pending: &mut String) {
+    if pending.is_empty() {
+        return;
+    }
+    let s = ph_re_triple_bare().replace_all(pending, "'__ph__'");
+    let s = ph_re_double_bare().replace_all(&s, "'__ph__'");
+    let s = ph_re_dollar_bare().replace_all(&s, "'__ph__'");
+    out.push_str(&s);
+    pending.clear();
+}
+
 /// `{{{var}}}` / `{{var}}` / `${var}` → `'__ph__'`.
 ///
-/// Triple-brace must be processed before double-brace, otherwise `{{{var}}}`
-/// becomes `'__ph__'}` (a stray `}` leaks out and breaks downstream SQL).
+/// Single-pass character-level scan over three contexts:
+///   - line comments  (`-- ... \n`)         → kept verbatim
+///   - block comments (`/* ... */`)         → kept verbatim
+///   - string literals (`'...'` / `"..."`)  → if the body contains any
+///     placeholder marker (`{{{` / `{{` / `${`), the entire literal (quotes
+///     included) is replaced with `'__ph__'`; otherwise kept verbatim
+///   - code text (everything else)          → accumulated into a pending
+///     buffer and flushed through the three bare-form regexes whenever the
+///     scanner enters a comment/string segment or finishes
+///
+/// Keeping the bare-regex pass strictly inside the pending code buffer is the
+/// invariant that closes both prior leak vectors:
+///   - v1 cross-string regex over-match (`'__ph__'__ph__'`)
+///   - v2 bare-regex leaking into comment bodies (`-- ''__ph__''`)
+///
+/// See `.trellis/tasks/05-22-fix-hive-string-embedded-placeholder/design.md`
+/// for the full v1/v2 failure record.
 fn substitute_placeholders(input: &str) -> String {
-    let s = ph_re_triple_sq().replace_all(input, "'__ph__'");
-    let s = ph_re_triple_dq().replace_all(&s, "'__ph__'");
-    let s = ph_re_triple_bare().replace_all(&s, "'__ph__'");
-    let s = ph_re_double_sq().replace_all(&s, "'__ph__'");
-    let s = ph_re_double_dq().replace_all(&s, "'__ph__'");
-    let s = ph_re_double_bare().replace_all(&s, "'__ph__'");
-    let s = ph_re_dollar_sq().replace_all(&s, "'__ph__'");
-    let s = ph_re_dollar_dq().replace_all(&s, "'__ph__'");
-    let s = ph_re_dollar_bare().replace_all(&s, "'__ph__'");
-    s.into_owned()
+    let bytes = input.as_bytes();
+    let n = bytes.len();
+    let mut out = String::with_capacity(n);
+    let mut pending = String::new();
+    let mut i = 0;
+    while i < n {
+        let ch = bytes[i];
+
+        if ch == b'-' && i + 1 < n && bytes[i + 1] == b'-' {
+            flush_pending_with_bare_regex(&mut out, &mut pending);
+            let end = input[i..].find('\n').map(|p| i + p).unwrap_or(n);
+            out.push_str(&input[i..end]);
+            i = end;
+            continue;
+        }
+
+        if ch == b'/' && i + 1 < n && bytes[i + 1] == b'*' {
+            flush_pending_with_bare_regex(&mut out, &mut pending);
+            let end = input[i + 2..]
+                .find("*/")
+                .map(|p| i + 2 + p + 2)
+                .unwrap_or(n);
+            out.push_str(&input[i..end]);
+            i = end;
+            continue;
+        }
+
+        if ch == b'\'' || ch == b'"' {
+            flush_pending_with_bare_regex(&mut out, &mut pending);
+            let quote = ch;
+            let start = i;
+            let mut j = i + 1;
+            while j < n {
+                if bytes[j] == b'\\' && j + 1 < n {
+                    j += 2;
+                    continue;
+                }
+                if bytes[j] == quote {
+                    break;
+                }
+                j += 1;
+            }
+            if j < n {
+                let body = &input[start + 1..j];
+                if body.contains("{{{") || body.contains("{{") || body.contains("${") {
+                    out.push_str("'__ph__'");
+                } else {
+                    out.push_str(&input[start..=j]);
+                }
+                i = j + 1;
+            } else {
+                // Unterminated literal — keep the remainder verbatim.
+                out.push_str(&input[start..]);
+                break;
+            }
+            continue;
+        }
+
+        pending.push(ch as char);
+        i += 1;
+    }
+    flush_pending_with_bare_regex(&mut out, &mut pending);
+    out
 }
 
 // ─── Step 2: Line-level filter ────────────────────────────────────────────────
@@ -635,6 +695,62 @@ mod tests {
         // {{{var}}} must not leave stray `}` behind
         let out = substitute_placeholders("{{{a}}}");
         assert_eq!(out, "'__ph__'");
+    }
+
+    #[test]
+    fn placeholder_triple_embedded_in_single_quoted() {
+        let out = substitute_placeholders("and name like '%{{{spuname}}}%'");
+        assert_eq!(out, "and name like '__ph__'");
+    }
+
+    #[test]
+    fn placeholder_multiple_embedded_in_single_string() {
+        let out = substitute_placeholders("like '%{{{a}}}%{{{b}}}%'");
+        assert_eq!(out, "like '__ph__'");
+    }
+
+    #[test]
+    fn placeholder_double_brace_embedded_in_dq() {
+        let out = substitute_placeholders(r#"x = "v_{{var}}_end""#);
+        assert_eq!(out, r#"x = '__ph__'"#);
+    }
+
+    #[test]
+    fn placeholder_dollar_embedded_in_single_quoted() {
+        let out = substitute_placeholders("path = '/tmp/${ds}/log'");
+        assert_eq!(out, "path = '__ph__'");
+    }
+
+    #[test]
+    fn placeholder_no_var_string_untouched() {
+        let out = substitute_placeholders("like '%abc%'");
+        assert_eq!(out, "like '%abc%'");
+    }
+
+    #[test]
+    fn placeholder_pure_quoted_form_still_works() {
+        let out = substitute_placeholders("x = '{{{a}}}'");
+        assert_eq!(out, "x = '__ph__'");
+    }
+
+    #[test]
+    fn placeholder_in_line_comment_not_replaced() {
+        let input = "select 1 -- '${a}' is comment\nfrom t";
+        let out = substitute_placeholders(input);
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn placeholder_bare_outside_string_replaced() {
+        let out = substitute_placeholders("partition (dt=${dt})");
+        assert_eq!(out, "partition (dt='__ph__')");
+    }
+
+    #[test]
+    fn placeholder_in_block_comment_not_replaced() {
+        let input = "select 1 /* '${a}' inside block */ from t";
+        let out = substitute_placeholders(input);
+        assert_eq!(out, input);
     }
 
     // Step 2
