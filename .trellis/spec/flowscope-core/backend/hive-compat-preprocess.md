@@ -45,6 +45,20 @@ parse 通过率提升到 **99.96%+**（warehouse corpus 5105 文件实测 100% �
 
 **关键顺序**：三重 → 双重 → 单 `$`。反过来会让 `{{{x}}}` 变成 `'__ph__'}`，多漏一个 `}` 破坏后续 SQL。
 
+**实现要求：单次字符级扫描器统一处理三种上下文**（与 Step 6 / Step 12.5 / Step 13 同形）：
+
+- 行注释 `-- ... \n` / 块注释 `/* ... */`：整段保留，**不替换**注释里的占位符
+- 字符串字面量 `'...'` / `"..."`：body 含 `{{{` / `{{` / `${` 任一 marker 即整段替换为
+  `'__ph__'`；否则保留原文
+- 其余 code 段：累积到 pending buffer，进入注释/字符串前 + 扫描结束时通过三个 bare-regex
+  （triple → double → dollar 顺序）一次性替换
+
+**为什么不能用纯 regex 链**：regex 无法区分字符串边界（`[^']*` 不知道哪个 `'` 是闭合
+引号），多次"修复"会形如 `'%{{{x}}}%'` → `'%'__ph__'%'`，破坏字符串边界让 parser
+错位到任意位置。完整 v1（6 个 embedded regex 跨字符串吞噬）+ v2（字符级 + bare regex
+两阶段，Phase 2 不感知注释）失败记录见
+`.trellis/tasks/archive/2026-05/05-22-fix-hive-string-embedded-placeholder/design.md`。
+
 ### Step 2 — 行级 Hive 指令过滤
 
 匹配并清空（保持行号）：
@@ -68,6 +82,21 @@ parse 通过率提升到 **99.96%+**（warehouse corpus 5105 文件实测 100% �
 
 Hive `TRANSFORM(...) USING 'python s.py' AS (x, y)` 是脚本调用，parser 无法理解。
 正则一并匹配 `USING 'string'` 加可选的 `AS (col_list)`，整段删除。
+
+### Step 4.5 — 内联多列 AS 解构改写
+
+Hive UDTF 内联形态 `<func>(<args>) AS (c1, c2, ...)`（如
+`POSEXPLODE(split(s, ',')) AS (pos, val)`、`JSON_TUPLE(j, 'a', 'b') AS (a, b)`、
+任意自定义 UDTF）parser 不支持。改写为 `NULL AS c1, NULL AS c2, ...` 占位，**保留每个
+列别名**（下游 `t.<col>` 引用仍可解析）。
+
+**识别规则：按语法形态识别，不依赖函数名白名单**。任意 `\b<IDENT>\s*\(<args>\)\s+AS\s*\(<col_list>\)`
+形态都改写。关键边界是 `AS` 紧跟 `(` —— 这是 Hive 表函数内联多列别名的唯一无歧义标记，
+普通 UDF 单别名（`f(x) as y`）/ `cast(x AS bigint) as y` / `LATERAL VIEW posexplode(x) t as a, b`
+形态都不会落入此模式。
+
+**arg 列表支持 1 级嵌套**（足够 `split('__ph__', ',')`）。更深嵌套（极少见）走 fallthrough；
+未来如出现真实 corpus hit，参考 Step 13 改写为字符级括号计数即可。
 
 ### Step 5 — 数组/Map 下标去除
 
@@ -149,6 +178,19 @@ CROSS/ON/WHEN/ELSE/END/AND/OR/THEN）之前删除 AS。删除时只删 AS 两字
 Hive 高级 GROUP BY 扩展 parser 不支持。替换为 `GROUP BY 1` 保留语义骨架。
 血缘提取不依赖具体 GROUP BY 列。
 
+**实现要求：字符级括号计数，不再用 regex 平衡嵌套**：
+
+- `grouping_sets_head_re()` 只匹配头部 `(?is)group\s+by\s+grouping\s+sets\s*\(`
+- `find_matching_paren(bytes, open_idx)` 字符级逐字节扫描，遇到单引号字符串体 / 行注释 /
+  块注释整段跳过，遇到 `(` 加深、`)` 减深，深度归零返回闭合位置
+- 替换段为字面量 `GROUP BY 1`；括号不平衡则保守降级（保留原文 + cursor 推进 1 字节，
+  不死循环不 panic）
+
+**为什么不再用 regex**：`regex` crate 不支持 PCRE 递归，任何 `\([^()]*\)` / `\((?:[^()]|\([^()]*\))*\)`
+形态都是硬编码深度上限。生产 SQL 出现 `grouping sets ((date_sub(x, 1), b), ...)` 这种
+2 级嵌套（set 内含函数调用）就会漏匹配。char-level paren counting 是 O(n) 单次扫描，
+支持任意嵌套深度。CUBE / ROLLUP 形态保留原 regex（一级嵌套足够）。
+
 ---
 
 ## 已知设计权衡
@@ -196,11 +238,17 @@ pub fn analyze(request: &AnalyzeRequest) -> AnalyzeResult {
 `crates/flowscope-core/src/hive_preprocess.rs` 的 `#[cfg(test)] mod tests`
 覆盖了每个 step 的正例 + 关键防误伤负例：
 
-- placeholders_triple_before_double
+- placeholders_triple_before_double / placeholder_triple_embedded_in_single_quoted /
+  placeholder_in_line_comment_not_replaced / placeholder_in_block_comment_not_replaced
 - ddl_stmt_filter_handles_leading_comments / multiline_set
 - double_quote_skips_inside_single_quoted_string / line_comment
+- inline_multi_col_as_posexplode_two_col / inline_multi_col_as_custom_udtf_no_whitelist /
+  inline_multi_col_as_cast_with_inner_as_not_touched /
+  inline_multi_col_as_lateral_view_form_not_touched
 - auto_split_does_not_break_with_insert / with_cube
 - orphan_as_preserves_legitimate_alias / skips_inside_comment
+- grouping_sets_two_level_nested / grouping_sets_inside_string_literal_not_touched /
+  grouping_sets_inside_line_comment_not_touched / grouping_sets_unbalanced_paren_keeps_input
 - full_pipeline_smoke
 
 `cargo test -p flowscope-core --lib hive_preprocess::tests`

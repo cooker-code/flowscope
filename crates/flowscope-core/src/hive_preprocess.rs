@@ -16,6 +16,7 @@
 //! - Step 2:  Line-level filter: `SET key=val`, `ADD FILE/JAR/ARCHIVE`
 //! - Step 3:  Statement-level DDL filter: `CREATE/ALTER/DROP TABLE`, `CREATE TEMPORARY MACRO`, multi-line `SET`
 //! - Step 4:  `TRANSFORM USING 'script' [AS (cols)]` removal
+//! - Step 4.5: Inline multi-col AS destructuring (`<func>(...) AS (c1, c2, ...)` → `NULL AS c1, NULL AS c2, ...`)
 //! - Step 5:  Array/map index `arr[n]` / `func()[n]` / `map['k']` → drop subscript
 //! - Step 6:  Double-quoted string literal `"..."` → `'...'` (context-aware)
 //! - Step 7:  Backslash escape strip inside single-quoted strings
@@ -49,6 +50,7 @@ pub fn preprocess(input: &str) -> String {
     let s = filter_lines(&s);
     let s = filter_ddl_statements(&s);
     let s = rewrite_transform_using(&s);
+    let s = rewrite_inline_multi_col_as(&s);
     let s = rewrite_array_index(&s);
     let s = rewrite_double_quote_strings(&s);
     let s = strip_backslash_in_strings(&s);
@@ -181,9 +183,7 @@ fn substitute_placeholders(input: &str) -> String {
 
 fn skip_line_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
-    R.get_or_init(|| {
-        Regex::new(r"(?i)^\s*(set\s+[\w.]+\s*=|add\s+(file|jar|archive)\s+)").unwrap()
-    })
+    R.get_or_init(|| Regex::new(r"(?i)^\s*(set\s+[\w.]+\s*=|add\s+(file|jar|archive)\s+)").unwrap())
 }
 
 /// Drop Hive engine directives (one-line `SET key=val`, `ADD FILE/JAR/ARCHIVE`).
@@ -264,13 +264,55 @@ fn filter_ddl_statements(input: &str) -> String {
 
 fn transform_using_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
-    R.get_or_init(|| {
-        Regex::new(r"(?is)USING\s+'[^']*'(\s*AS\s*\(\s*[\w,\s]+\s*\))?").unwrap()
-    })
+    R.get_or_init(|| Regex::new(r"(?is)USING\s+'[^']*'(\s*AS\s*\(\s*[\w,\s]+\s*\))?").unwrap())
 }
 
 fn rewrite_transform_using(input: &str) -> String {
     transform_using_re().replace_all(input, "").into_owned()
+}
+
+// ─── Step 4.5: Inline multi-col AS destructuring ──────────────────────────────
+
+/// Identify `<func>(<args>) AS (<col_list>)` and rewrite as
+/// `NULL AS <c1>, NULL AS <c2>, ...`.
+///
+/// Recognizes by **syntax shape only** — the literal `AS (` after a function
+/// call is the unambiguous Hive UDTF inline multi-col alias marker (covers
+/// POSEXPLODE, EXPLODE, INLINE, STACK, JSON_TUPLE, PARSE_URL_TUPLE and any
+/// user-defined UDTF without a name allowlist). Preserves every column alias
+/// so downstream `t.<col>` references still resolve.
+///
+/// Function arg list supports 1 level of nested parens (enough for
+/// `SPLIT('__ph__', ',')` and similar). Deeper nesting falls through; see
+/// Step 13 char-counting solution for the upgrade path if a corpus hit
+/// ever requires it.
+///
+/// Does **not** affect:
+/// - `<func>(<args>) AS <single_alias>` — scalar UDF, `AS` not followed by `(`
+/// - `cast(x AS bigint) AS y` — outer `AS` followed by identifier, not `(`
+/// - `LATERAL VIEW <UDTF>(...) <table_alias> AS <col>, ...` — sqlparser native
+/// - `(select 1) t(c)` — identifier preceded by `)`, not a function ident
+fn inline_multi_col_as_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?is)\b([A-Za-z_][A-Za-z0-9_]*)\s*\((?:[^()]|\([^()]*\))*\)\s+AS\s*\(\s*([\w][\w\s,]*?)\s*\)",
+        )
+        .unwrap()
+    })
+}
+
+fn rewrite_inline_multi_col_as(input: &str) -> String {
+    inline_multi_col_as_re()
+        .replace_all(input, |caps: &regex::Captures| {
+            let col_list = &caps[2];
+            col_list
+                .split(',')
+                .map(|c| format!("NULL AS {}", c.trim()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .into_owned()
 }
 
 // ─── Step 5: Array/map index removal ──────────────────────────────────────────
@@ -364,7 +406,10 @@ fn rewrite_double_quote_strings(input: &str) -> String {
                 out.push_str(&input[i..]);
                 return out;
             }
-            let safe: String = inner.chars().map(|c| if c == '\'' { '_' } else { c }).collect();
+            let safe: String = inner
+                .chars()
+                .map(|c| if c == '\'' { '_' } else { c })
+                .collect();
             out.push('\'');
             out.push_str(&safe);
             out.push('\'');
@@ -385,9 +430,7 @@ fn find_substr(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() {
         return Some(0);
     }
-    haystack
-        .windows(needle.len())
-        .position(|w| w == needle)
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 // ─── Step 7: Backslash escape strip inside single-quoted strings ──────────────
@@ -407,15 +450,14 @@ fn strip_backslash_in_strings(input: &str) -> String {
         .replace_all(input, |caps: &regex::Captures<'_>| {
             let matched = &caps[0];
             let inner = &matched[1..matched.len() - 1];
-            let rewritten =
-                backslash_escape_re().replace_all(inner, |c: &regex::Captures<'_>| {
-                    let ch = &c[1];
-                    if ch == "'" || ch == "\"" {
-                        "_".to_string()
-                    } else {
-                        ch.to_string()
-                    }
-                });
+            let rewritten = backslash_escape_re().replace_all(inner, |c: &regex::Captures<'_>| {
+                let ch = &c[1];
+                if ch == "'" || ch == "\"" {
+                    "_".to_string()
+                } else {
+                    ch.to_string()
+                }
+            });
             format!("'{}'", rewritten)
         })
         .into_owned()
@@ -442,9 +484,7 @@ fn add_missing_comma_between_strings(input: &str) -> String {
 
 fn cte_missing_as_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
-    R.get_or_init(|| {
-        Regex::new(r"(?i)(,\s*)(\w+)(\s*\n\s*)(\(\s*select)").unwrap()
-    })
+    R.get_or_init(|| Regex::new(r"(?i)(,\s*)(\w+)(\s*\n\s*)(\(\s*select)").unwrap())
 }
 
 fn fix_cte_missing_as(input: &str) -> String {
@@ -574,9 +614,8 @@ fn rewrite_hive_not_in(input: &str) -> String {
 // ─── Step 12.5: Orphan `AS` followed by clause keyword → drop AS ──────────────
 
 const AS_CLAUSE_KEYWORDS: &[&str] = &[
-    "from", "where", "group", "order", "having", "limit", "union", "join",
-    "left", "right", "inner", "cross", "on", "when", "else", "end", "and",
-    "or", "then",
+    "from", "where", "group", "order", "having", "limit", "union", "join", "left", "right",
+    "inner", "cross", "on", "when", "else", "end", "and", "or", "then",
 ];
 
 /// Hive sometimes tolerates `case ... end as\nfrom ...` (AS with no alias).
@@ -631,10 +670,8 @@ fn fix_orphan_as(input: &str) -> String {
         let is_as = (bytes[i] == b'A' || bytes[i] == b'a')
             && i + 1 < n
             && (bytes[i + 1] == b'S' || bytes[i + 1] == b's')
-            && (i == 0
-                || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_'))
-            && (i + 2 >= n
-                || !(bytes[i + 2].is_ascii_alphanumeric() || bytes[i + 2] == b'_'));
+            && (i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_'))
+            && (i + 2 >= n || !(bytes[i + 2].is_ascii_alphanumeric() || bytes[i + 2] == b'_'));
         if is_as {
             let mut j = i + 2;
             while j < n && matches!(bytes[j], b' ' | b'\t' | b'\r' | b'\n') {
@@ -899,7 +936,8 @@ mod tests {
     // Step 3
     #[test]
     fn ddl_stmt_filter() {
-        let s = "create table t (a int) stored as orc; select 1; drop table t; insert into u select 1";
+        let s =
+            "create table t (a int) stored as orc; select 1; drop table t; insert into u select 1";
         let out = filter_ddl_statements(s);
         // CREATE TABLE and DROP TABLE dropped
         assert!(!out.to_lowercase().contains("create table"));
@@ -1030,8 +1068,14 @@ mod tests {
     // Step 12
     #[test]
     fn bang_in_to_not_in() {
-        assert_eq!(rewrite_hive_not_in("where a ! in ('x')"), "where a NOT IN ('x')");
-        assert_eq!(rewrite_hive_not_in("where a !IN ('x')"), "where a NOT IN ('x')");
+        assert_eq!(
+            rewrite_hive_not_in("where a ! in ('x')"),
+            "where a NOT IN ('x')"
+        );
+        assert_eq!(
+            rewrite_hive_not_in("where a !IN ('x')"),
+            "where a NOT IN ('x')"
+        );
     }
 
     // Step 12.5
@@ -1057,6 +1101,76 @@ mod tests {
         let input = "-- ,count(*) as \n\nfrom t";
         let out = fix_orphan_as(input);
         assert!(out.contains("-- ,count(*) as"));
+    }
+
+    // Step 4.5
+    #[test]
+    fn inline_multi_col_as_posexplode_two_col() {
+        let s = "select POSEXPLODE(split('__ph__', ',')) as (pos, hw_val) from t";
+        let out = rewrite_inline_multi_col_as(s);
+        assert!(out.contains("NULL AS pos"));
+        assert!(out.contains("NULL AS hw_val"));
+        assert!(!out.to_lowercase().contains("posexplode"));
+    }
+
+    #[test]
+    fn inline_multi_col_as_explode_single_col_in_parens() {
+        let s = "select EXPLODE(arr) as (val) from t";
+        let out = rewrite_inline_multi_col_as(s);
+        assert!(out.contains("NULL AS val"));
+        assert!(!out.to_lowercase().contains("explode"));
+    }
+
+    #[test]
+    fn inline_multi_col_as_custom_udtf_no_whitelist() {
+        // 证明不依赖白名单：任意函数名出现 AS (col_list) 都改写
+        let s = "select my_custom_udtf(a, b) as (x, y, z) from t";
+        let out = rewrite_inline_multi_col_as(s);
+        assert!(out.contains("NULL AS x"));
+        assert!(out.contains("NULL AS y"));
+        assert!(out.contains("NULL AS z"));
+        assert!(!out.contains("my_custom_udtf"));
+    }
+
+    #[test]
+    fn inline_multi_col_as_scalar_function_with_single_alias_not_touched() {
+        // 防误伤：AS 后跟标识符（非 `(`）— 普通 UDF 单别名
+        let s = "select my_udf(x) as y from t";
+        let out = rewrite_inline_multi_col_as(s);
+        assert_eq!(out, s);
+    }
+
+    #[test]
+    fn inline_multi_col_as_cast_with_inner_as_not_touched() {
+        // 防误伤：cast 内嵌 AS，外层 `as y` 后是标识符不是 `(`
+        let s = "select cast(x as bigint) as y from t";
+        let out = rewrite_inline_multi_col_as(s);
+        assert_eq!(out, s);
+    }
+
+    #[test]
+    fn inline_multi_col_as_lateral_view_form_not_touched() {
+        // 防误伤：LATERAL VIEW 形态 — `)` 与 `AS` 之间夹了 table_alias
+        let s = "lateral view posexplode(x) t as pos, val";
+        let out = rewrite_inline_multi_col_as(s);
+        assert_eq!(out, s);
+    }
+
+    #[test]
+    fn inline_multi_col_as_subquery_alias_not_touched() {
+        // 防误伤：子查询别名 — `)` 与 `(` 之间是标识符 `t`，不是函数调用 ident
+        let s = "from (select 1) t(c)";
+        let out = rewrite_inline_multi_col_as(s);
+        assert_eq!(out, s);
+    }
+
+    #[test]
+    fn inline_multi_col_as_handles_whitespace_in_col_list() {
+        let s = "select foo(x) as (  a  ,  b  ,  c  ) from t";
+        let out = rewrite_inline_multi_col_as(s);
+        assert!(out.contains("NULL AS a"));
+        assert!(out.contains("NULL AS b"));
+        assert!(out.contains("NULL AS c"));
     }
 
     // Step 13

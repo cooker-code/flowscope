@@ -14,6 +14,50 @@
     "Files not listed here only run the soft 'no errors + at least 1 statement' check.",
     "Drop a new SQL into test-sql/ and the regression picks it up automatically."
   ],
+  "29209.sql": {
+    "sqlType": "select",
+    "sourceCount": 4,
+    "sources": [
+      "dw_conan_ads.ads_oral_season_user_week_info_new_da",
+      "dw_conan_dwd.dwd_oral_season_user_lesson_ticket_info_da",
+      "dw_conan_dwd.dwd_oral_user_mission_finish_data_da",
+      "temp.oral_finish_target_info"
+    ],
+    "statementTypes": [
+      "WITH"
+    ],
+    "errorCount": 0
+  },
+  "29463.sql": {
+    "sqlType": "select",
+    "sourceCount": 4,
+    "sources": [
+      "dw_conan_ads.ads_course_season_user_class_week_all_info_da",
+      "dw_conan_ads.ads_service_try_double_user_quality_detail_da",
+      "dw_conan_dwd.dwd_growth_redeem_code_detail_da",
+      "dw_dwd.dwd_eng_frog_di"
+    ],
+    "statementTypes": [
+      "SELECT"
+    ],
+    "errorCount": 0
+  },
+  "30907.sql": {
+    "sqlType": "select",
+    "sourceCount": 6,
+    "sources": [
+      "dw_conan_dim.dim_conan_user_pedia_user_da",
+      "dw_conan_dwd.dwd_pedia_derivative_order_info_da",
+      "dw_conan_ods.ods_conan_fenbi_weixin_app_profile_da",
+      "dw_conan_ods.ods_conan_pedia_growth_user_pre_order_record_da",
+      "dw_ods.ods_dora_emon_customer_customer_da_da",
+      "dw_ori.conan_mentor_work_efficiency_teacher_user_class_relation_da"
+    ],
+    "statementTypes": [
+      "SELECT"
+    ],
+    "errorCount": 0
+  },
   "ads_course_user_gift_card_stat_di.sql": {
     "sqlType": "insert",
     "insertType": "overwrite",

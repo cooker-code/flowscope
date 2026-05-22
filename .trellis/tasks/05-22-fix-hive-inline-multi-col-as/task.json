@@ -3,7 +3,7 @@
   "name": "fix-hive-inline-multi-col-as",
   "title": "修复 inline 多列 AS 解构语法预处理",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,
