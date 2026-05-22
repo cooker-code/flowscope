@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/flowscope-core/backend/hive-compat-preprocess.md", "reason": "校验改动与 Step 13 既有约束（idempotent、字符串/注释跳过）一致"}
+{"file": ".trellis/spec/flowscope-core/backend/quality-guidelines.md", "reason": "校验单测覆盖（嵌套深度梯度 + 防误伤 + 不平衡边界） + lint + fmt"}

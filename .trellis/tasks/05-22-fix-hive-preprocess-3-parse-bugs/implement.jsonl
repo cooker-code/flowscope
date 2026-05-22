@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/flowscope-core/backend/index.md", "reason": "flowscope-core backend 总入口（layered analyzer 规约、quality 标准）"}
+{"file": ".trellis/spec/flowscope-core/backend/hive-compat-preprocess.md", "reason": "13-step 管道权威 spec；本任务在 Step 1 / Step 4 / Step 13 上增量扩展，spec 也要同步更新"}
+{"file": ".trellis/spec/flowscope-core/backend/error-handling.md", "reason": "确认新逻辑不要随意抛 ParseError；保持 idempotent"}
+{"file": ".trellis/spec/flowscope-core/backend/quality-guidelines.md", "reason": "代码质量与单测约定（每个 step 1 正例 + 1 防误伤负例）"}

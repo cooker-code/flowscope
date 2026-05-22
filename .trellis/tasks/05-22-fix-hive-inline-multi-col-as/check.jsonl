@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/flowscope-core/backend/hive-compat-preprocess.md", "reason": "校验新增 Step 4.5 与既有管道契约一致；不引入 UDTF 白名单"}
+{"file": ".trellis/spec/flowscope-core/backend/quality-guidelines.md", "reason": "校验单测覆盖（多 col / 单 col / 自定义函数 / 防误伤 4 种边界）+ lint + fmt"}

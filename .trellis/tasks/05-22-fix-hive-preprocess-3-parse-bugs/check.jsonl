@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/flowscope-core/backend/index.md", "reason": "Quality Check 入口；引用了 backend 通用质量基线"}
+{"file": ".trellis/spec/flowscope-core/backend/hive-compat-preprocess.md", "reason": "校验本次修复是否与 13-step 管道契约一致、是否同步更新了 spec 描述"}
+{"file": ".trellis/spec/flowscope-core/backend/quality-guidelines.md", "reason": "校验单测命名 / lint / fmt / 边界覆盖是否达标"}
+{"file": ".trellis/spec/flowscope-core/backend/error-handling.md", "reason": "校验未引入新 ParseError 路径、预处理仍 idempotent"}
