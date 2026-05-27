@@ -119,10 +119,16 @@ fn substitute_placeholders(input: &str) -> String {
     let mut out = String::with_capacity(n);
     let mut pending = String::new();
     let mut i = 0;
+    // Tracks open `{` count. When > 0 we are inside a {{ }} or {{{ }}} placeholder
+    // and must NOT enter string-literal or comment mode — quotes and `--`/`/*` inside
+    // a placeholder body are part of the placeholder expression, not SQL syntax.
+    let mut brace_depth: u32 = 0;
+
     while i < n {
         let ch = bytes[i];
 
-        if ch == b'-' && i + 1 < n && bytes[i + 1] == b'-' {
+        // Line comment: only recognised outside a placeholder body.
+        if ch == b'-' && i + 1 < n && bytes[i + 1] == b'-' && brace_depth == 0 {
             flush_pending_with_bare_regex(&mut out, &mut pending);
             let end = input[i..].find('\n').map(|p| i + p).unwrap_or(n);
             out.push_str(&input[i..end]);
@@ -130,7 +136,8 @@ fn substitute_placeholders(input: &str) -> String {
             continue;
         }
 
-        if ch == b'/' && i + 1 < n && bytes[i + 1] == b'*' {
+        // Block comment: only recognised outside a placeholder body.
+        if ch == b'/' && i + 1 < n && bytes[i + 1] == b'*' && brace_depth == 0 {
             flush_pending_with_bare_regex(&mut out, &mut pending);
             let end = input[i + 2..]
                 .find("*/")
@@ -141,7 +148,17 @@ fn substitute_placeholders(input: &str) -> String {
             continue;
         }
 
-        if ch == b'\'' || ch == b'"' {
+        // Track brace depth so we know when we are inside {{ }} or {{{ }}}.
+        if ch == b'{' {
+            brace_depth += 1;
+        } else if ch == b'}' && brace_depth > 0 {
+            brace_depth -= 1;
+        }
+
+        // String literal: only recognised outside a placeholder body.
+        // When brace_depth > 0 a quote is part of the placeholder expression
+        // (e.g. `{{from_unixtime(t, 'yyyy-MM-dd') AS dt}}`).
+        if (ch == b'\'' || ch == b'"') && brace_depth == 0 {
             flush_pending_with_bare_regex(&mut out, &mut pending);
             let quote = ch;
             let start = i;
@@ -1267,5 +1284,42 @@ group by grouping sets((a))"#;
         assert!(lower.contains("group by 1"), "got: {out}");
         // Step 9: second_cte gets AS inserted because the regex requires a leading comma.
         assert!(lower.contains("second_cte as"), "got: {out}");
+    }
+
+    // ── Quote-inside-placeholder tests ────────────────────────────────────────
+    // These patterns previously broke because the scanner entered string-literal
+    // mode when it encountered ' inside {{ }}, splitting the placeholder across
+    // two pending buffers neither of which matched the bare-form regex.
+
+    #[test]
+    fn placeholder_with_single_quote_inside_braces() {
+        // {{other['taskid'] as taskid}} — from test-sql/24025.sql
+        let out = substitute_placeholders("AND {{other['taskid'] as taskid}}");
+        assert_eq!(out, "AND '__ph__'", "got: {out}");
+    }
+
+    #[test]
+    fn placeholder_with_string_literal_inside_braces() {
+        // {{from_unixtime(int(t/1000), 'yyyy-MM-dd') AS dt}} — from test-sql/28729.sql
+        let out = substitute_placeholders(
+            "AND {{from_unixtime(int(startclasstime / 1000), 'yyyy-MM-dd') AS start_class_dt}}",
+        );
+        assert_eq!(out, "AND '__ph__'", "got: {out}");
+    }
+
+    #[test]
+    fn placeholder_with_escaped_quote_inside_braces() {
+        // {{regexp_replace(col, '\\/', '\\-') AS dt}} — from test-sql/27167.sql / 28181.sql
+        let out = substitute_placeholders(
+            "AND {{regexp_replace(split(period_type, '-') [1], '\\/', '\\-') AS start_class_dt}}",
+        );
+        assert_eq!(out, "AND '__ph__'", "got: {out}");
+    }
+
+    #[test]
+    fn placeholder_with_quote_inside_mixed_with_normal_string() {
+        // Normal string before + placeholder with quote inside — both must be handled.
+        let out = substitute_placeholders("WHERE name='foo' AND {{other['id'] as id}}");
+        assert_eq!(out, "WHERE name='foo' AND '__ph__'", "got: {out}");
     }
 }
