@@ -703,10 +703,30 @@ impl StatementContext {
     /// Resolve subquery/CTE output columns with lexical scoping.
     ///
     /// Scope-local aliases shadow statement-global CTE definition columns.
+    ///
+    /// The walk stops at the first scope where `name` resolves to a **physical table**
+    /// (not a CTE) but has no entry in `subquery_columns`. Without this guard, a
+    /// physical-table alias in an inner scope (e.g. `FROM tbl t`) would fall through
+    /// to an outer scope where a derived subquery shares the same alias `t`, returning
+    /// wrong column nodes and producing spurious Ownership edges that cause
+    /// `MULTIPLE_TARGET_TABLES` false positives.
     pub(crate) fn resolve_subquery_columns(&self, name: &str) -> Option<&[OutputColumn]> {
         for scope in self.scope_stack.iter().rev() {
             if let Some(columns) = scope.subquery_columns.get(name) {
                 return Some(columns.as_slice());
+            }
+            // If `name` is an alias for a non-CTE (physical table/view) in this scope,
+            // stop the upward walk. CTE aliases must NOT be blocked here because their
+            // output columns live in `aliased_subquery_columns` (registered globally via
+            // `register_cte_output_columns`), which is checked after the loop.
+            if let Some(canonical) = scope.aliases.get(name) {
+                if !self.cte_definitions.contains_key(canonical.as_str()) {
+                    return None;
+                }
+            }
+            // Also stop when `name` directly matches a physical-table canonical (not a CTE).
+            if scope.tables.contains_key(name) && !self.cte_definitions.contains_key(name) {
+                return None;
             }
         }
 

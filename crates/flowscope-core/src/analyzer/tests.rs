@@ -1176,3 +1176,75 @@ fn test_type_mismatch_has_statement_index() {
         "type mismatch warning should reference the second statement"
     );
 }
+
+/// Physical-table alias in inner subquery must not resolve to an outer derived subquery
+/// of the same alias, which would produce a spurious MULTIPLE_TARGET_TABLES error.
+///
+/// Pattern: `FROM (...) t` (outer derived) FULL OUTER JOIN `(FROM phys_tbl t ...)` (inner).
+/// Both use alias `t`. The inner `t` is a physical table, not a subquery.
+#[test]
+fn full_outer_join_nested_subquery_same_alias_no_multiple_target_tables() {
+    let sql = r"
+insert overwrite table dw_dwd.dwd_eng_device_cpd_da partition(dt='2024-01-01')
+select t.oaid
+from (
+    select oaid, lower(md5(oaid)) as oaid_md5
+    from src_table
+    where dt = '2024-01-01'
+) t
+full outer join
+(
+    select oaid, lower(md5(oaid)) as oaid_md5
+    from
+    (
+        select t.oaid
+        from dw_dwd.dwd_eng_user_device_profile_da t
+        left join dw_dim.dim_eng_user_extend_da ext on t.user_id = ext.user_id
+        where t.dt = '2024-01-01'
+        group by t.oaid
+    ) u
+) d
+on t.oaid_md5 = d.oaid_md5
+";
+    let mut request = make_request(sql);
+    request.dialect = Dialect::Hive;
+    let result = analyze(&request);
+
+    assert!(
+        result
+            .issues
+            .iter()
+            .all(|i| i.code != "MULTIPLE_TARGET_TABLES"),
+        "dwd_eng_user_device_profile_da must not be treated as a sink; issues={:?}",
+        result.issues
+    );
+
+    let target = result
+        .target_table
+        .as_ref()
+        .expect("should have exactly one target table");
+    assert_eq!(
+        target.qualified_name.as_deref(),
+        Some("dw_dwd.dwd_eng_device_cpd_da"),
+        "wrong target table"
+    );
+
+    let source_names: Vec<&str> = result
+        .source_tables
+        .iter()
+        .map(|t| t.qualified_name.as_deref().unwrap_or(&t.label))
+        .collect();
+    assert!(
+        source_names
+            .iter()
+            .any(|n| n.contains("dwd_eng_user_device_profile_da")),
+        "profile_da should be a source, not a target; sources={source_names:?}"
+    );
+    assert!(
+        result
+            .source_tables
+            .iter()
+            .all(|t| matches!(t.node_type, crate::NodeType::Table | crate::NodeType::View)),
+        "source_tables must be physical relations, not CTEs"
+    );
+}
