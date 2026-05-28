@@ -1,15 +1,5 @@
 {
   "sqlType": "select",
-  "targetTable": {
-    "id": "table_27900955207d48fe",
-    "label": "ods_conan_mission_oral_lesson_user_mission_da",
-    "qualifiedName": "dw_conan_ods.ods_conan_mission_oral_lesson_user_mission_da",
-    "canonicalName": {
-      "schema": "dw_conan_ods",
-      "name": "ods_conan_mission_oral_lesson_user_mission_da"
-    },
-    "type": "table"
-  },
   "sourceTables": [
     {
       "id": "table_9a9ec1d283284f1d",
@@ -82,6 +72,16 @@
       "type": "table"
     },
     {
+      "id": "table_27900955207d48fe",
+      "label": "ods_conan_mission_oral_lesson_user_mission_da",
+      "qualifiedName": "dw_conan_ods.ods_conan_mission_oral_lesson_user_mission_da",
+      "canonicalName": {
+        "schema": "dw_conan_ods",
+        "name": "ods_conan_mission_oral_lesson_user_mission_da"
+      },
+      "type": "table"
+    },
+    {
       "id": "table_107a49af17120d87",
       "label": "ods_oral_trade_t_order_da",
       "qualifiedName": "dw_conan_ods.ods_oral_trade_t_order_da",
@@ -108,8 +108,8 @@
       "statementType": "SELECT",
       "sourceName": "test-sql/col_has_chinese.sql",
       "span": {
-        "start": 5201,
-        "end": 39530
+        "start": 5207,
+        "end": 35360
       },
       "joinCount": 10,
       "complexityScore": 100
@@ -139,13 +139,13 @@
         0
       ],
       "span": {
-        "start": 23103,
-        "end": 23104
+        "start": 19113,
+        "end": 19114
       },
       "nameSpans": [
         {
-          "start": 23103,
-          "end": 23104
+          "start": 19113,
+          "end": 19114
         }
       ],
       "metadata": {
@@ -154,8 +154,8 @@
         ],
         "occurrenceSpans": [
           {
-            "start": 23103,
-            "end": 23104
+            "start": 19113,
+            "end": 19114
           }
         ],
         "occurrenceStatementIds": [
@@ -175,13 +175,13 @@
         0
       ],
       "span": {
-        "start": 28732,
-        "end": 28733
+        "start": 24742,
+        "end": 24743
       },
       "nameSpans": [
         {
-          "start": 28732,
-          "end": 28733
+          "start": 24742,
+          "end": 24743
         }
       ],
       "metadata": {
@@ -190,8 +190,8 @@
         ],
         "occurrenceSpans": [
           {
-            "start": 28732,
-            "end": 28733
+            "start": 24742,
+            "end": 24743
           }
         ],
         "occurrenceStatementIds": [
@@ -213,8 +213,8 @@
       ],
       "nameSpans": [
         {
-          "start": 22886,
-          "end": 22927
+          "start": 18896,
+          "end": 18937
         }
       ],
       "metadata": {
@@ -223,8 +223,8 @@
         ],
         "occurrenceSpans": [
           {
-            "start": 22886,
-            "end": 22927
+            "start": 18896,
+            "end": 18937
           }
         ],
         "occurrenceStatementIds": [
@@ -453,13 +453,13 @@
         0
       ],
       "span": {
-        "start": 29287,
-        "end": 29288
+        "start": 25297,
+        "end": 25298
       },
       "nameSpans": [
         {
-          "start": 29287,
-          "end": 29288
+          "start": 25297,
+          "end": 25298
         }
       ],
       "metadata": {
@@ -468,8 +468,8 @@
         ],
         "occurrenceSpans": [
           {
-            "start": 29287,
-            "end": 29288
+            "start": 25297,
+            "end": 25298
           }
         ],
         "occurrenceStatementIds": [
@@ -491,12 +491,12 @@
       ],
       "nameSpans": [
         {
-          "start": 23581,
-          "end": 23606
+          "start": 19591,
+          "end": 19616
         },
         {
-          "start": 31035,
-          "end": 31060
+          "start": 27045,
+          "end": 27070
         }
       ],
       "metadata": {
@@ -506,12 +506,12 @@
         ],
         "occurrenceSpans": [
           {
-            "start": 23581,
-            "end": 23606
+            "start": 19591,
+            "end": 19616
           },
           {
-            "start": 31035,
-            "end": 31060
+            "start": 27045,
+            "end": 27070
           }
         ],
         "occurrenceStatementIds": [
@@ -727,13 +727,13 @@
         0
       ],
       "span": {
-        "start": 30238,
-        "end": 30239
+        "start": 26248,
+        "end": 26249
       },
       "nameSpans": [
         {
-          "start": 30238,
-          "end": 30239
+          "start": 26248,
+          "end": 26249
         }
       ],
       "metadata": {
@@ -742,8 +742,8 @@
         ],
         "occurrenceSpans": [
           {
-            "start": 30238,
-            "end": 30239
+            "start": 26248,
+            "end": 26249
           }
         ],
         "occurrenceStatementIds": [
@@ -765,8 +765,8 @@
       ],
       "nameSpans": [
         {
-          "start": 24556,
-          "end": 24601
+          "start": 20566,
+          "end": 20611
         }
       ],
       "metadata": {
@@ -775,8 +775,8 @@
         ],
         "occurrenceSpans": [
           {
-            "start": 24556,
-            "end": 24601
+            "start": 20566,
+            "end": 20611
           }
         ],
         "occurrenceStatementIds": [
@@ -1135,8 +1135,8 @@
       ],
       "nameSpans": [
         {
-          "start": 25177,
-          "end": 25195
+          "start": 21187,
+          "end": 21205
         }
       ],
       "metadata": {
@@ -1145,8 +1145,8 @@
         ],
         "occurrenceSpans": [
           {
-            "start": 25177,
-            "end": 25195
+            "start": 21187,
+            "end": 21205
           }
         ],
         "occurrenceStatementIds": [
@@ -1191,13 +1191,13 @@
         0
       ],
       "span": {
-        "start": 30348,
-        "end": 30349
+        "start": 26358,
+        "end": 26359
       },
       "nameSpans": [
         {
-          "start": 30348,
-          "end": 30349
+          "start": 26358,
+          "end": 26359
         }
       ],
       "metadata": {
@@ -1206,8 +1206,8 @@
         ],
         "occurrenceSpans": [
           {
-            "start": 30348,
-            "end": 30349
+            "start": 26358,
+            "end": 26359
           }
         ],
         "occurrenceStatementIds": [
@@ -1229,8 +1229,8 @@
       ],
       "nameSpans": [
         {
-          "start": 26752,
-          "end": 26797
+          "start": 22762,
+          "end": 22807
         }
       ],
       "metadata": {
@@ -1239,8 +1239,8 @@
         ],
         "occurrenceSpans": [
           {
-            "start": 26752,
-            "end": 26797
+            "start": 22762,
+            "end": 22807
           }
         ],
         "occurrenceStatementIds": [
@@ -1286,13 +1286,13 @@
         0
       ],
       "span": {
-        "start": 38196,
-        "end": 38197
+        "start": 34026,
+        "end": 34027
       },
       "nameSpans": [
         {
-          "start": 38196,
-          "end": 38197
+          "start": 34026,
+          "end": 34027
         }
       ],
       "metadata": {
@@ -1301,8 +1301,8 @@
         ],
         "occurrenceSpans": [
           {
-            "start": 38196,
-            "end": 38197
+            "start": 34026,
+            "end": 34027
           }
         ],
         "occurrenceStatementIds": [
@@ -1324,8 +1324,8 @@
       ],
       "nameSpans": [
         {
-          "start": 28562,
-          "end": 28599
+          "start": 24572,
+          "end": 24609
         }
       ],
       "metadata": {
@@ -1334,8 +1334,8 @@
         ],
         "occurrenceSpans": [
           {
-            "start": 28562,
-            "end": 28599
+            "start": 24572,
+            "end": 24609
           }
         ],
         "occurrenceStatementIds": [
@@ -1683,8 +1683,8 @@
       ],
       "nameSpans": [
         {
-          "start": 29111,
-          "end": 29146
+          "start": 25121,
+          "end": 25156
         }
       ],
       "metadata": {
@@ -1693,8 +1693,8 @@
         ],
         "occurrenceSpans": [
           {
-            "start": 29111,
-            "end": 29146
+            "start": 25121,
+            "end": 25156
           }
         ],
         "occurrenceStatementIds": [
@@ -2000,8 +2000,8 @@
       ],
       "nameSpans": [
         {
-          "start": 30039,
-          "end": 30079
+          "start": 26049,
+          "end": 26089
         }
       ],
       "metadata": {
@@ -2010,8 +2010,8 @@
         ],
         "occurrenceSpans": [
           {
-            "start": 30039,
-            "end": 30079
+            "start": 26049,
+            "end": 26089
           }
         ],
         "occurrenceStatementIds": [
@@ -2096,6 +2096,20 @@
       "type": "column",
       "label": "user_id",
       "canonicalName": {
+        "name": "user_id"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_727255aeb3eafa01",
+      "type": "column",
+      "label": "user_id",
+      "qualifiedName": "dw_conan_ods.ods_conan_mission_oral_lesson_user_mission_da.user_id",
+      "canonicalName": {
+        "catalog": "dw_conan_ods",
+        "schema": "ods_conan_mission_oral_lesson_user_mission_da",
         "name": "user_id"
       },
       "statementIds": [
@@ -2201,6 +2215,20 @@
       "type": "column",
       "label": "level",
       "canonicalName": {
+        "name": "level"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_ae97045e6090f59d",
+      "type": "column",
+      "label": "level",
+      "qualifiedName": "dw_conan_ods.ods_conan_mission_oral_lesson_user_mission_da.level",
+      "canonicalName": {
+        "catalog": "dw_conan_ods",
+        "schema": "ods_conan_mission_oral_lesson_user_mission_da",
         "name": "level"
       },
       "statementIds": [
@@ -2442,8 +2470,8 @@
       ],
       "nameSpans": [
         {
-          "start": 31526,
-          "end": 31563
+          "start": 27536,
+          "end": 27573
         }
       ],
       "metadata": {
@@ -2452,8 +2480,8 @@
         ],
         "occurrenceSpans": [
           {
-            "start": 31526,
-            "end": 31563
+            "start": 27536,
+            "end": 27573
           }
         ],
         "occurrenceStatementIds": [
@@ -2609,8 +2637,8 @@
       ],
       "nameSpans": [
         {
-          "start": 31932,
-          "end": 31971
+          "start": 27942,
+          "end": 27981
         }
       ],
       "metadata": {
@@ -2619,8 +2647,8 @@
         ],
         "occurrenceSpans": [
           {
-            "start": 31932,
-            "end": 31971
+            "start": 27942,
+            "end": 27981
           }
         ],
         "occurrenceStatementIds": [
@@ -2702,7 +2730,7 @@
       "statementIds": [
         0
       ],
-      "expression": "coalesce(stage_name, 'Ã¦ÂÂªÃ§ÂÂ¥')",
+      "expression": "coalesce(stage_name, '未知')",
       "metadata": {
         "data_type": "TEXT",
         "statementAggregations": {
@@ -2725,7 +2753,7 @@
       "statementIds": [
         0
       ],
-      "expression": "coalesce(teacher_city, 'Ã¦ÂÂªÃ§ÂÂ¥')",
+      "expression": "coalesce(teacher_city, '未知')",
       "metadata": {
         "data_type": "TEXT",
         "statementAggregations": {
@@ -2769,7 +2797,7 @@
       "statementIds": [
         0
       ],
-      "expression": "IF(d.user_id IS NOT NULL, 'Ã¥ÂÂ£Ã¨Â¯Â­Ã¥ÂÂÃ¦ÂµÂÃ§ÂÂ¨Ã¦ÂÂ·', 'Ã¦ÂÂÃ©Â©Â¬Ã¥Â¯Â¼Ã¦ÂµÂÃ§ÂÂ¨Ã¦ÂÂ·')",
+      "expression": "IF(d.user_id IS NOT NULL, '口语内测用户', '斑马导流用户')",
       "metadata": {
         "statementAggregations": {
           "0": {
@@ -2875,7 +2903,7 @@
       "statementIds": [
         0
       ],
-      "expression": "coalesce(episode_name, 'Ã¦ÂÂªÃ§ÂÂ¥')",
+      "expression": "coalesce(episode_name, '未知')",
       "metadata": {
         "data_type": "TEXT",
         "statementAggregations": {
@@ -2898,7 +2926,7 @@
       "statementIds": [
         0
       ],
-      "expression": "coalesce(mission_name, 'Ã¦ÂÂªÃ§ÂÂ¥')",
+      "expression": "coalesce(mission_name, '未知')",
       "metadata": {
         "data_type": "TEXT",
         "statementAggregations": {
@@ -3929,7 +3957,7 @@
       "statementIds": [
         0
       ],
-      "expression": "count(DISTINCT if(communication_reasons_desc = 'Ã¤Â½ÂÃ©ÂªÂÃ¨Â¯Â¾-Ã¥ÂÂÃ¨Â¯Â¾Ã¦Â²ÂÃ©ÂÂ', interview_id, NULL))",
+      "expression": "count(DISTINCT if(communication_reasons_desc = '体验课-参课沟通', interview_id, NULL))",
       "metadata": {
         "data_type": "INTEGER",
         "statementAggregations": {
@@ -3956,7 +3984,7 @@
       "statementIds": [
         0
       ],
-      "expression": "count(DISTINCT if(communication_reasons_desc = 'Ã¤Â½ÂÃ©ÂªÂÃ¨Â¯Â¾-Ã¥Â®ÂÃ¨Â¯Â¾Ã¦Â²ÂÃ©ÂÂ', interview_id, NULL))",
+      "expression": "count(DISTINCT if(communication_reasons_desc = '体验课-完课沟通', interview_id, NULL))",
       "metadata": {
         "data_type": "INTEGER",
         "statementAggregations": {
@@ -3983,7 +4011,7 @@
       "statementIds": [
         0
       ],
-      "expression": "count(DISTINCT if(communication_reasons_desc = 'Ã¤Â½ÂÃ©ÂªÂÃ¨Â¯Â¾-Ã¨Â½Â¬Ã¥ÂÂÃ¦Â²ÂÃ©ÂÂ', interview_id, NULL))",
+      "expression": "count(DISTINCT if(communication_reasons_desc = '体验课-转化沟通', interview_id, NULL))",
       "metadata": {
         "data_type": "INTEGER",
         "statementAggregations": {
@@ -4010,7 +4038,7 @@
       "statementIds": [
         0
       ],
-      "expression": "count(DISTINCT if(communication_reasons_desc = 'Ã¤Â½ÂÃ©ÂªÂÃ¨Â¯Â¾-Ã¥ÂÂ¬Ã¥ÂÂÃ¦Â²ÂÃ©ÂÂ', interview_id, NULL))",
+      "expression": "count(DISTINCT if(communication_reasons_desc = '体验课-召回沟通', interview_id, NULL))",
       "metadata": {
         "data_type": "INTEGER",
         "statementAggregations": {
@@ -4037,7 +4065,7 @@
       "statementIds": [
         0
       ],
-      "expression": "count(DISTINCT if(communication_reasons_desc = 'Ã¤Â½ÂÃ©ÂªÂÃ¨Â¯Â¾-Ã¥ÂÂÃ¨Â¯Â¾Ã¦Â²ÂÃ©ÂÂ' AND communication_status_desc = 'Ã¦ÂÂÃ¥ÂÂ', interview_id, NULL))",
+      "expression": "count(DISTINCT if(communication_reasons_desc = '体验课-参课沟通' AND communication_status_desc = '成功', interview_id, NULL))",
       "metadata": {
         "data_type": "INTEGER",
         "statementAggregations": {
@@ -4064,7 +4092,7 @@
       "statementIds": [
         0
       ],
-      "expression": "count(DISTINCT if(communication_reasons_desc = 'Ã¤Â½ÂÃ©ÂªÂÃ¨Â¯Â¾-Ã¥Â®ÂÃ¨Â¯Â¾Ã¦Â²ÂÃ©ÂÂ' AND communication_status_desc = 'Ã¦ÂÂÃ¥ÂÂ', interview_id, NULL))",
+      "expression": "count(DISTINCT if(communication_reasons_desc = '体验课-完课沟通' AND communication_status_desc = '成功', interview_id, NULL))",
       "metadata": {
         "data_type": "INTEGER",
         "statementAggregations": {
@@ -4091,7 +4119,7 @@
       "statementIds": [
         0
       ],
-      "expression": "count(DISTINCT if(communication_reasons_desc = 'Ã¤Â½ÂÃ©ÂªÂÃ¨Â¯Â¾-Ã¨Â½Â¬Ã¥ÂÂÃ¦Â²ÂÃ©ÂÂ' AND communication_status_desc = 'Ã¦ÂÂÃ¥ÂÂ', interview_id, NULL))",
+      "expression": "count(DISTINCT if(communication_reasons_desc = '体验课-转化沟通' AND communication_status_desc = '成功', interview_id, NULL))",
       "metadata": {
         "data_type": "INTEGER",
         "statementAggregations": {
@@ -4118,7 +4146,7 @@
       "statementIds": [
         0
       ],
-      "expression": "count(DISTINCT if(communication_reasons_desc = 'Ã¤Â½ÂÃ©ÂªÂÃ¨Â¯Â¾-Ã¥ÂÂ¬Ã¥ÂÂÃ¦Â²ÂÃ©ÂÂ' AND communication_status_desc = 'Ã¦ÂÂÃ¥ÂÂ', interview_id, NULL))",
+      "expression": "count(DISTINCT if(communication_reasons_desc = '体验课-召回沟通' AND communication_status_desc = '成功', interview_id, NULL))",
       "metadata": {
         "data_type": "INTEGER",
         "statementAggregations": {
@@ -4145,7 +4173,7 @@
       "statementIds": [
         0
       ],
-      "expression": "sum(if(communication_reasons_desc = 'Ã¤Â½ÂÃ©ÂªÂÃ¨Â¯Â¾-Ã¥ÂÂÃ¨Â¯Â¾Ã¦Â²ÂÃ©ÂÂ' AND communication_status_desc = 'Ã¦ÂÂÃ¥ÂÂ' AND communication_via_desc IN ('Ã§Â³Â»Ã§Â»ÂÃ§ÂÂµÃ¨Â¯Â', 'Ã¥Â·Â¥Ã¤Â½ÂÃ§ÂÂµÃ¨Â¯Â'), duration, 0))",
+      "expression": "sum(if(communication_reasons_desc = '体验课-参课沟通' AND communication_status_desc = '成功' AND communication_via_desc IN ('系统电话', '工作电话'), duration, 0))",
       "metadata": {
         "data_type": "FLOAT",
         "statementAggregations": {
@@ -4170,7 +4198,7 @@
       "statementIds": [
         0
       ],
-      "expression": "sum(if(communication_reasons_desc = 'Ã¤Â½ÂÃ©ÂªÂÃ¨Â¯Â¾-Ã¥Â®ÂÃ¨Â¯Â¾Ã¦Â²ÂÃ©ÂÂ' AND communication_status_desc = 'Ã¦ÂÂÃ¥ÂÂ' AND communication_via_desc IN ('Ã§Â³Â»Ã§Â»ÂÃ§ÂÂµÃ¨Â¯Â', 'Ã¥Â·Â¥Ã¤Â½ÂÃ§ÂÂµÃ¨Â¯Â'), duration, 0))",
+      "expression": "sum(if(communication_reasons_desc = '体验课-完课沟通' AND communication_status_desc = '成功' AND communication_via_desc IN ('系统电话', '工作电话'), duration, 0))",
       "metadata": {
         "data_type": "FLOAT",
         "statementAggregations": {
@@ -4195,7 +4223,7 @@
       "statementIds": [
         0
       ],
-      "expression": "sum(if(communication_reasons_desc = 'Ã¤Â½ÂÃ©ÂªÂÃ¨Â¯Â¾-Ã¨Â½Â¬Ã¥ÂÂÃ¦Â²ÂÃ©ÂÂ' AND communication_status_desc = 'Ã¦ÂÂÃ¥ÂÂ' AND communication_via_desc IN ('Ã§Â³Â»Ã§Â»ÂÃ§ÂÂµÃ¨Â¯Â', 'Ã¥Â·Â¥Ã¤Â½ÂÃ§ÂÂµÃ¨Â¯Â'), duration, 0))",
+      "expression": "sum(if(communication_reasons_desc = '体验课-转化沟通' AND communication_status_desc = '成功' AND communication_via_desc IN ('系统电话', '工作电话'), duration, 0))",
       "metadata": {
         "data_type": "FLOAT",
         "statementAggregations": {
@@ -4220,7 +4248,7 @@
       "statementIds": [
         0
       ],
-      "expression": "sum(if(communication_reasons_desc = 'Ã¤Â½ÂÃ©ÂªÂÃ¨Â¯Â¾-Ã¥ÂÂ¬Ã¥ÂÂÃ¦Â²ÂÃ©ÂÂ' AND communication_status_desc = 'Ã¦ÂÂÃ¥ÂÂ' AND communication_via_desc IN ('Ã§Â³Â»Ã§Â»ÂÃ§ÂÂµÃ¨Â¯Â', 'Ã¥Â·Â¥Ã¤Â½ÂÃ§ÂÂµÃ¨Â¯Â'), duration, 0))",
+      "expression": "sum(if(communication_reasons_desc = '体验课-召回沟通' AND communication_status_desc = '成功' AND communication_via_desc IN ('系统电话', '工作电话'), duration, 0))",
       "metadata": {
         "data_type": "FLOAT",
         "statementAggregations": {
@@ -4245,7 +4273,7 @@
       "statementIds": [
         0
       ],
-      "expression": "count(DISTINCT if(communication_reasons_desc = 'Ã¤Â½ÂÃ©ÂªÂÃ¨Â¯Â¾-Ã¥ÂÂÃ¨Â¯Â¾Ã¦Â²ÂÃ©ÂÂ' AND communication_status_desc = 'Ã¦ÂÂÃ¥ÂÂ' AND communication_via_desc IN ('Ã§Â³Â»Ã§Â»ÂÃ§ÂÂµÃ¨Â¯Â', 'Ã¥Â·Â¥Ã¤Â½ÂÃ§ÂÂµÃ¨Â¯Â'), interview_id, NULL))",
+      "expression": "count(DISTINCT if(communication_reasons_desc = '体验课-参课沟通' AND communication_status_desc = '成功' AND communication_via_desc IN ('系统电话', '工作电话'), interview_id, NULL))",
       "metadata": {
         "data_type": "INTEGER",
         "statementAggregations": {
@@ -4272,7 +4300,7 @@
       "statementIds": [
         0
       ],
-      "expression": "count(DISTINCT if(communication_reasons_desc = 'Ã¤Â½ÂÃ©ÂªÂÃ¨Â¯Â¾-Ã¥Â®ÂÃ¨Â¯Â¾Ã¦Â²ÂÃ©ÂÂ' AND communication_status_desc = 'Ã¦ÂÂÃ¥ÂÂ' AND communication_via_desc IN ('Ã§Â³Â»Ã§Â»ÂÃ§ÂÂµÃ¨Â¯Â', 'Ã¥Â·Â¥Ã¤Â½ÂÃ§ÂÂµÃ¨Â¯Â'), interview_id, NULL))",
+      "expression": "count(DISTINCT if(communication_reasons_desc = '体验课-完课沟通' AND communication_status_desc = '成功' AND communication_via_desc IN ('系统电话', '工作电话'), interview_id, NULL))",
       "metadata": {
         "data_type": "INTEGER",
         "statementAggregations": {
@@ -4299,7 +4327,7 @@
       "statementIds": [
         0
       ],
-      "expression": "count(DISTINCT if(communication_reasons_desc = 'Ã¤Â½ÂÃ©ÂªÂÃ¨Â¯Â¾-Ã¨Â½Â¬Ã¥ÂÂÃ¦Â²ÂÃ©ÂÂ' AND communication_status_desc = 'Ã¦ÂÂÃ¥ÂÂ' AND communication_via_desc IN ('Ã§Â³Â»Ã§Â»ÂÃ§ÂÂµÃ¨Â¯Â', 'Ã¥Â·Â¥Ã¤Â½ÂÃ§ÂÂµÃ¨Â¯Â'), interview_id, NULL))",
+      "expression": "count(DISTINCT if(communication_reasons_desc = '体验课-转化沟通' AND communication_status_desc = '成功' AND communication_via_desc IN ('系统电话', '工作电话'), interview_id, NULL))",
       "metadata": {
         "data_type": "INTEGER",
         "statementAggregations": {
@@ -4326,7 +4354,7 @@
       "statementIds": [
         0
       ],
-      "expression": "count(DISTINCT if(communication_reasons_desc = 'Ã¤Â½ÂÃ©ÂªÂÃ¨Â¯Â¾-Ã¥ÂÂ¬Ã¥ÂÂÃ¦Â²ÂÃ©ÂÂ' AND communication_status_desc = 'Ã¦ÂÂÃ¥ÂÂ' AND communication_via_desc IN ('Ã§Â³Â»Ã§Â»ÂÃ§ÂÂµÃ¨Â¯Â', 'Ã¥Â·Â¥Ã¤Â½ÂÃ§ÂÂµÃ¨Â¯Â'), interview_id, NULL))",
+      "expression": "count(DISTINCT if(communication_reasons_desc = '体验课-召回沟通' AND communication_status_desc = '成功' AND communication_via_desc IN ('系统电话', '工作电话'), interview_id, NULL))",
       "metadata": {
         "data_type": "INTEGER",
         "statementAggregations": {
@@ -4407,101 +4435,101 @@
       }
     },
     {
-      "id": "column_148016d86a49d135",
+      "id": "column_9a018c2abb7fb397",
       "type": "column",
-      "label": "ã¦ââã©â©â¬ã§âºâ§ã¥ââ«",
+      "label": "斑马级别",
       "canonicalName": {
-        "name": "ã¦ââã©â©â¬ã§âºâ§ã¥ââ«"
+        "name": "斑马级别"
       },
       "statementIds": [
         0
       ],
-      "expression": "coalesce(stage_name, 'Ã¦ÂÂªÃ§ÂÂ¥')",
+      "expression": "coalesce(stage_name, '未知')",
       "metadata": {
         "data_type": "TEXT"
       }
     },
     {
-      "id": "column_9934a6c59389404f",
+      "id": "column_cf3cadb73656e664",
       "type": "column",
-      "label": "ã¥ââ£ã¨â¯â­ã©â¡â¾ã©ââ®",
+      "label": "口语顾问",
       "canonicalName": {
-        "name": "ã¥ââ£ã¨â¯â­ã©â¡â¾ã©ââ®"
+        "name": "口语顾问"
       },
       "statementIds": [
         0
       ],
-      "expression": "coalesce(mentor_ldap, 'Ã¦ÂÂªÃ§ÂÂ¥')",
+      "expression": "coalesce(mentor_ldap, '未知')",
       "metadata": {
         "data_type": "TEXT"
       }
     },
     {
-      "id": "column_3359e15c072a62b6",
+      "id": "column_c10bd24285bb1a72",
       "type": "column",
-      "label": "ã§ââ¨ã¦ââ·ã¦ââ¥ã¦âºâ",
+      "label": "用户来源",
       "canonicalName": {
-        "name": "ã§ââ¨ã¦ââ·ã¦ââ¥ã¦âºâ"
+        "name": "用户来源"
       },
       "statementIds": [
         0
       ],
-      "expression": "coalesce(user_type, 'Ã¦ÂÂªÃ§ÂÂ¥')",
+      "expression": "coalesce(user_type, '未知')",
       "metadata": {
         "data_type": "TEXT"
       }
     },
     {
-      "id": "column_5f848528d67d5ecb",
+      "id": "column_6bd360ec3ad6d3fa",
       "type": "column",
-      "label": "ã¦ââã©â©â¬ã§ââ­ã¤â¸â»ã¤â»â»ã¥ââã¥â¸â",
+      "label": "斑马班主任城市",
       "canonicalName": {
-        "name": "ã¦ââã©â©â¬ã§ââ­ã¤â¸â»ã¤â»â»ã¥ââã¥â¸â"
+        "name": "斑马班主任城市"
       },
       "statementIds": [
         0
       ],
-      "expression": "coalesce(teacher_city, 'Ã¦ÂÂªÃ§ÂÂ¥')",
+      "expression": "coalesce(teacher_city, '未知')",
       "metadata": {
         "data_type": "TEXT"
       }
     },
     {
-      "id": "column_9a127919e84ea8ed",
+      "id": "column_1b17fee36cdd8e7d",
       "type": "column",
-      "label": "ã¨â¯âã¥ââ¬ã¨â¯â¾ã¤â¸â»ã©â¢â",
+      "label": "试听课主题",
       "canonicalName": {
-        "name": "ã¨â¯âã¥ââ¬ã¨â¯â¾ã¤â¸â»ã©â¢â"
+        "name": "试听课主题"
       },
       "statementIds": [
         0
       ],
-      "expression": "coalesce(mission_name, 'Ã¦ÂÂªÃ§ÂÂ¥')",
+      "expression": "coalesce(mission_name, '未知')",
       "metadata": {
         "data_type": "TEXT"
       }
     },
     {
-      "id": "column_b646d76ae553521f",
+      "id": "column_844baab04da38ca1",
       "type": "column",
-      "label": "ã¥ââã¥ââã¥ââã§â§â°",
+      "label": "商品名称",
       "canonicalName": {
-        "name": "ã¥ââã¥ââã¥ââã§â§â°"
+        "name": "商品名称"
       },
       "statementIds": [
         0
       ],
-      "expression": "coalesce(lesson_name, 'Ã¦ÂÂªÃ§ÂÂ¥')",
+      "expression": "coalesce(lesson_name, '未知')",
       "metadata": {
         "data_type": "TEXT"
       }
     },
     {
-      "id": "column_d6452c4c3487996f",
+      "id": "column_854201be16a7355c",
       "type": "column",
-      "label": "ã§âºâ¦ã¨â¯â¾ã¤âºâºã¦ââ°",
+      "label": "约课人数",
       "canonicalName": {
-        "name": "ã§âºâ¦ã¨â¯â¾ã¤âºâºã¦ââ°"
+        "name": "约课人数"
       },
       "statementIds": [
         0
@@ -4524,11 +4552,11 @@
       }
     },
     {
-      "id": "column_3012a7f84ebc61ee",
+      "id": "column_d3b20a2d5eeb6794",
       "type": "column",
-      "label": "ã¥â½âã¥â¤â©ã¥ââ°ã¨â¯â¾ã¤âºâºã¦ââ°",
+      "label": "当天到课人数",
       "canonicalName": {
-        "name": "ã¥â½âã¥â¤â©ã¥ââ°ã¨â¯â¾ã¤âºâºã¦ââ°"
+        "name": "当天到课人数"
       },
       "statementIds": [
         0
@@ -4551,11 +4579,11 @@
       }
     },
     {
-      "id": "column_ad4184e62bac571b",
+      "id": "column_fd3d46154b1835ff",
       "type": "column",
-      "label": "7ã¦ââ¥ã¥ââã¥ââ°ã¨â¯â¾ã¤âºâºã¦ââ°",
+      "label": "7日内到课人数",
       "canonicalName": {
-        "name": "7ã¦ââ¥ã¥ââã¥ââ°ã¨â¯â¾ã¤âºâºã¦ââ°"
+        "name": "7日内到课人数"
       },
       "statementIds": [
         0
@@ -4578,11 +4606,11 @@
       }
     },
     {
-      "id": "column_110f19bec1b2349a",
+      "id": "column_e6d326394d2dcac4",
       "type": "column",
-      "label": "ã¥â½âã¦ââ¥ã¥â®âã¨â¯â¾ã¤âºâºã¦ââ°",
+      "label": "当日完课人数",
       "canonicalName": {
-        "name": "ã¥â½âã¦ââ¥ã¥â®âã¨â¯â¾ã¤âºâºã¦ââ°"
+        "name": "当日完课人数"
       },
       "statementIds": [
         0
@@ -4605,11 +4633,11 @@
       }
     },
     {
-      "id": "column_d795b09db71e3fd4",
+      "id": "column_f0e40b8c9ff9d874",
       "type": "column",
-      "label": "7ã¦ââ¥ã¥ââã¥â®âã¨â¯â¾ã¤âºâºã¦ââ°",
+      "label": "7日内完课人数",
       "canonicalName": {
-        "name": "7ã¦ââ¥ã¥ââã¥â®âã¨â¯â¾ã¤âºâºã¦ââ°"
+        "name": "7日内完课人数"
       },
       "statementIds": [
         0
@@ -4632,11 +4660,11 @@
       }
     },
     {
-      "id": "column_bd0d264f8f1185f1",
+      "id": "column_48c7c5abbaf08d16",
       "type": "column",
-      "label": "14ã¦ââ¥ã¥ââã¥â®âã¨â¯â¾ã¤âºâºã¦ââ°",
+      "label": "14日内完课人数",
       "canonicalName": {
-        "name": "14ã¦ââ¥ã¥ââã¥â®âã¨â¯â¾ã¤âºâºã¦ââ°"
+        "name": "14日内完课人数"
       },
       "statementIds": [
         0
@@ -4659,11 +4687,11 @@
       }
     },
     {
-      "id": "column_5be7a45514d07785",
+      "id": "column_6923f1fe9f247439",
       "type": "column",
-      "label": "ã¥â½âã¦ââ¥ã¥â®âã¨â¯â¾ã¨â½â¬ã¥ââã¤âºâºã¦ââ°",
+      "label": "当日完课转化人数",
       "canonicalName": {
-        "name": "ã¥â½âã¦ââ¥ã¥â®âã¨â¯â¾ã¨â½â¬ã¥ââã¤âºâºã¦ââ°"
+        "name": "当日完课转化人数"
       },
       "statementIds": [
         0
@@ -4686,11 +4714,11 @@
       }
     },
     {
-      "id": "column_f4c5c28d5325a7ac",
+      "id": "column_caefb98c555a7e76",
       "type": "column",
-      "label": "7ã¦ââ¥ã¥ââã¥â®âã¨â¯â¾ã¨â½â¬ã¥ââã¤âºâºã¦ââ°",
+      "label": "7日内完课转化人数",
       "canonicalName": {
-        "name": "7ã¦ââ¥ã¥ââã¥â®âã¨â¯â¾ã¨â½â¬ã¥ââã¤âºâºã¦ââ°"
+        "name": "7日内完课转化人数"
       },
       "statementIds": [
         0
@@ -4713,11 +4741,11 @@
       }
     },
     {
-      "id": "column_ab3200f7f5e5afa5",
+      "id": "column_2c7948d952a8d319",
       "type": "column",
-      "label": "14ã¦ââ¥ã¥ââã¥â®âã¨â¯â¾ã¨â½â¬ã¥ââã¤âºâºã¦ââ°",
+      "label": "14日内完课转化人数",
       "canonicalName": {
-        "name": "14ã¦ââ¥ã¥ââã¥â®âã¨â¯â¾ã¨â½â¬ã¥ââã¤âºâºã¦ââ°"
+        "name": "14日内完课转化人数"
       },
       "statementIds": [
         0
@@ -4740,11 +4768,11 @@
       }
     },
     {
-      "id": "column_b736c3b9e4827655",
+      "id": "column_bec7cd31c24e7ca8",
       "type": "column",
-      "label": "ã¥â½âã¦ââ¥ã¨â½â¬ã¥ââã¤âºâºã¦ââ°",
+      "label": "当日转化人数",
       "canonicalName": {
-        "name": "ã¥â½âã¦ââ¥ã¨â½â¬ã¥ââã¤âºâºã¦ââ°"
+        "name": "当日转化人数"
       },
       "statementIds": [
         0
@@ -4767,11 +4795,11 @@
       }
     },
     {
-      "id": "column_54e39974a9dcb9ce",
+      "id": "column_08d2d2265717dc42",
       "type": "column",
-      "label": "4ã¦ââ¥ã¥ââã¨â½â¬ã¥ââã¤âºâºã¦ââ°",
+      "label": "4日内转化人数",
       "canonicalName": {
-        "name": "4ã¦ââ¥ã¥ââã¨â½â¬ã¥ââã¤âºâºã¦ââ°"
+        "name": "4日内转化人数"
       },
       "statementIds": [
         0
@@ -4794,11 +4822,11 @@
       }
     },
     {
-      "id": "column_46b29b2054f763f5",
+      "id": "column_2474b2a64aef3d26",
       "type": "column",
-      "label": "7ã¦ââ¥ã¥ââã¨â½â¬ã¥ââã¤âºâºã¦ââ°",
+      "label": "7日内转化人数",
       "canonicalName": {
-        "name": "7ã¦ââ¥ã¥ââã¨â½â¬ã¥ââã¤âºâºã¦ââ°"
+        "name": "7日内转化人数"
       },
       "statementIds": [
         0
@@ -4821,11 +4849,11 @@
       }
     },
     {
-      "id": "column_3f9b9539e45bb2ae",
+      "id": "column_1c0609940c2e7746",
       "type": "column",
-      "label": "14ã¦ââ¥ã¥ââã¨â½â¬ã¥ââã¤âºâºã¦ââ°",
+      "label": "14日内转化人数",
       "canonicalName": {
-        "name": "14ã¦ââ¥ã¥ââã¨â½â¬ã¥ââã¤âºâºã¦ââ°"
+        "name": "14日内转化人数"
       },
       "statementIds": [
         0
@@ -4848,11 +4876,11 @@
       }
     },
     {
-      "id": "column_62d4bf1a9909a9da",
+      "id": "column_16ff75446291ff73",
       "type": "column",
-      "label": "ã©ââã¥â¤âã¦ââ¨ã¨â¯â¾ã¤âºâºã¦ââ°",
+      "label": "重复推课人数",
       "canonicalName": {
-        "name": "ã©ââã¥â¤âã¦ââ¨ã¨â¯â¾ã¤âºâºã¦ââ°"
+        "name": "重复推课人数"
       },
       "statementIds": [
         0
@@ -4875,11 +4903,11 @@
       }
     },
     {
-      "id": "column_25533ee7f746241b",
+      "id": "column_b5bf90cea96622f3",
       "type": "column",
-      "label": "ã¥ââã¨â¯â¾ã¦â²âã©ââã¦â¬â¡ã¦ââ°",
+      "label": "参课沟通次数",
       "canonicalName": {
-        "name": "ã¥ââã¨â¯â¾ã¦â²âã©ââã¦â¬â¡ã¦ââ°"
+        "name": "参课沟通次数"
       },
       "statementIds": [
         0
@@ -4900,11 +4928,11 @@
       }
     },
     {
-      "id": "column_270652b33bfbdea0",
+      "id": "column_6d53b61a304db086",
       "type": "column",
-      "label": "ã¦ââã¥ââã¥ââã¨â¯â¾ã¦â²âã©ââã¦â¬â¡ã¦ââ°",
+      "label": "成功参课沟通次数",
       "canonicalName": {
-        "name": "ã¦ââã¥ââã¥ââã¨â¯â¾ã¦â²âã©ââã¦â¬â¡ã¦ââ°"
+        "name": "成功参课沟通次数"
       },
       "statementIds": [
         0
@@ -4925,11 +4953,11 @@
       }
     },
     {
-      "id": "column_9e4af97722d0a4ee",
+      "id": "column_fa48d75e21c9be0e",
       "type": "column",
-      "label": "ã§â³â»ã§â»âã§ââµã¨â¯âã¥â¹â³ã¥ââã¥ââã¨â¯â¾ã¦ââ¶ã©ââ¿/s",
+      "label": "系统电话平均参课时长/s",
       "canonicalName": {
-        "name": "ã§â³â»ã§â»âã§ââµã¨â¯âã¥â¹â³ã¥ââã¥ââã¨â¯â¾ã¦ââ¶ã©ââ¿/s"
+        "name": "系统电话平均参课时长/s"
       },
       "statementIds": [
         0
@@ -4950,11 +4978,11 @@
       }
     },
     {
-      "id": "column_75084a8281a280cd",
+      "id": "column_c21cac7f42ea4c71",
       "type": "column",
-      "label": "ã¥â®âã¨â¯â¾ã¦â²âã©ââã¦â¬â¡ã¦ââ°",
+      "label": "完课沟通次数",
       "canonicalName": {
-        "name": "ã¥â®âã¨â¯â¾ã¦â²âã©ââã¦â¬â¡ã¦ââ°"
+        "name": "完课沟通次数"
       },
       "statementIds": [
         0
@@ -4975,11 +5003,11 @@
       }
     },
     {
-      "id": "column_7e872693a7a8b19c",
+      "id": "column_95f1e4f1ffc1b327",
       "type": "column",
-      "label": "ã¦ââã¥ââã¥â®âã¨â¯â¾ã¦â²âã©ââã¦â¬â¡ã¦ââ°",
+      "label": "成功完课沟通次数",
       "canonicalName": {
-        "name": "ã¦ââã¥ââã¥â®âã¨â¯â¾ã¦â²âã©ââã¦â¬â¡ã¦ââ°"
+        "name": "成功完课沟通次数"
       },
       "statementIds": [
         0
@@ -5000,11 +5028,11 @@
       }
     },
     {
-      "id": "column_271cc8db2db917b2",
+      "id": "column_151da57ccef1359b",
       "type": "column",
-      "label": "ã§â³â»ã§â»âã§ââµã¨â¯âã¥â¹â³ã¥ââã¥â®âã¨â¯â¾ã¦ââ¶ã©ââ¿/s",
+      "label": "系统电话平均完课时长/s",
       "canonicalName": {
-        "name": "ã§â³â»ã§â»âã§ââµã¨â¯âã¥â¹â³ã¥ââã¥â®âã¨â¯â¾ã¦ââ¶ã©ââ¿/s"
+        "name": "系统电话平均完课时长/s"
       },
       "statementIds": [
         0
@@ -5025,11 +5053,11 @@
       }
     },
     {
-      "id": "column_94820947390b54f4",
+      "id": "column_ff39ff2e18bd9f85",
       "type": "column",
-      "label": "ã¨â½â¬ã¥ââã¦â²âã©ââã¦â¬â¡ã¦ââ°",
+      "label": "转化沟通次数",
       "canonicalName": {
-        "name": "ã¨â½â¬ã¥ââã¦â²âã©ââã¦â¬â¡ã¦ââ°"
+        "name": "转化沟通次数"
       },
       "statementIds": [
         0
@@ -5050,11 +5078,11 @@
       }
     },
     {
-      "id": "column_33b1708c78162001",
+      "id": "column_979fe0dbc4f00e8b",
       "type": "column",
-      "label": "ã¦ââã¥ââã¨â½â¬ã¥ââã¦â²âã©ââã¦â¬â¡ã¦ââ°",
+      "label": "成功转化沟通次数",
       "canonicalName": {
-        "name": "ã¦ââã¥ââã¨â½â¬ã¥ââã¦â²âã©ââã¦â¬â¡ã¦ââ°"
+        "name": "成功转化沟通次数"
       },
       "statementIds": [
         0
@@ -5075,11 +5103,11 @@
       }
     },
     {
-      "id": "column_dd8f87f4698cb7fd",
+      "id": "column_c06b76ce9a644704",
       "type": "column",
-      "label": "ã§â³â»ã§â»âã§ââµã¨â¯âã¥â¹â³ã¥ââã¨â½â¬ã¥ââã¦ââ¶ã©ââ¿/s",
+      "label": "系统电话平均转化时长/s",
       "canonicalName": {
-        "name": "ã§â³â»ã§â»âã§ââµã¨â¯âã¥â¹â³ã¥ââã¨â½â¬ã¥ââã¦ââ¶ã©ââ¿/s"
+        "name": "系统电话平均转化时长/s"
       },
       "statementIds": [
         0
@@ -5100,11 +5128,11 @@
       }
     },
     {
-      "id": "column_462874ca2ccd5411",
+      "id": "column_27c71a09834967fd",
       "type": "column",
-      "label": "ã¥ââ¬ã¥ââã¦â²âã©ââã¦â¬â¡ã¦ââ°",
+      "label": "召回沟通次数",
       "canonicalName": {
-        "name": "ã¥ââ¬ã¥ââã¦â²âã©ââã¦â¬â¡ã¦ââ°"
+        "name": "召回沟通次数"
       },
       "statementIds": [
         0
@@ -5125,11 +5153,11 @@
       }
     },
     {
-      "id": "column_e0789725a6b130fe",
+      "id": "column_13a5f26e2a4b23f7",
       "type": "column",
-      "label": "ã¦ââã¥ââã¥ââ¬ã¥ââã¦â²âã©ââã¦â¬â¡ã¦ââ°",
+      "label": "成功召回沟通次数",
       "canonicalName": {
-        "name": "ã¦ââã¥ââã¥ââ¬ã¥ââã¦â²âã©ââã¦â¬â¡ã¦ââ°"
+        "name": "成功召回沟通次数"
       },
       "statementIds": [
         0
@@ -5150,11 +5178,11 @@
       }
     },
     {
-      "id": "column_53fe5f049bd80760",
+      "id": "column_9e182b8fea335fd3",
       "type": "column",
-      "label": "ã§â³â»ã§â»âã§ââµã¨â¯âã¥â¹â³ã¥ââã¥ââ¬ã¥ââã¦ââ¶ã©ââ¿/s",
+      "label": "系统电话平均召回时长/s",
       "canonicalName": {
-        "name": "ã§â³â»ã§â»âã§ââµã¨â¯âã¥â¹â³ã¥ââã¥ââ¬ã¥ââã¦ââ¶ã©ââ¿/s"
+        "name": "系统电话平均召回时长/s"
       },
       "statementIds": [
         0
@@ -6664,17 +6692,17 @@
       ]
     },
     {
-      "id": "edge_9c1a76fa1af8d594",
+      "id": "edge_e089aa1091a61cc1",
       "from": "table_27900955207d48fe",
-      "to": "column_c3b496dde8a0e0fb",
+      "to": "column_727255aeb3eafa01",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_22530d6c1b20e9e8",
-      "from": "column_c3b496dde8a0e0fb",
+      "id": "edge_d122fa7c5606d1a7",
+      "from": "column_727255aeb3eafa01",
       "to": "column_c1c2a86e31816bbf",
       "type": "data_flow",
       "statementIds": [
@@ -6803,17 +6831,17 @@
       ]
     },
     {
-      "id": "edge_66bb7c5748c7652c",
+      "id": "edge_f93863bdf9a11b61",
       "from": "table_27900955207d48fe",
-      "to": "column_94ddbca925865296",
+      "to": "column_ae97045e6090f59d",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_0dfbaedaad471958",
-      "from": "column_94ddbca925865296",
+      "id": "edge_bfa6499df85a41ac",
+      "from": "column_ae97045e6090f59d",
       "to": "column_129a907ebbed0203",
       "type": "data_flow",
       "statementIds": [
@@ -7382,7 +7410,7 @@
       "from": "column_31451b56f0e71ea9",
       "to": "column_55b9125ae897dfb2",
       "type": "derivation",
-      "expression": "coalesce(stage_name, 'Ã¦ÂÂªÃ§ÂÂ¥')",
+      "expression": "coalesce(stage_name, '未知')",
       "joinType": "LEFT",
       "joinCondition": "a.lesson_mission_id = c.id",
       "statementIds": [
@@ -7412,7 +7440,7 @@
       "from": "column_fd84b8ba272a7342",
       "to": "column_4a42c05aa00658e3",
       "type": "derivation",
-      "expression": "coalesce(teacher_city, 'Ã¦ÂÂªÃ§ÂÂ¥')",
+      "expression": "coalesce(teacher_city, '未知')",
       "joinType": "LEFT",
       "joinCondition": "a.lesson_mission_id = c.id",
       "statementIds": [
@@ -7451,7 +7479,7 @@
       "from": "column_a257d602ce2524a8",
       "to": "column_b7c0b4bfef7ed3e6",
       "type": "derivation",
-      "expression": "IF(d.user_id IS NOT NULL, 'Ã¥ÂÂ£Ã¨Â¯Â­Ã¥ÂÂÃ¦ÂµÂÃ§ÂÂ¨Ã¦ÂÂ·', 'Ã¦ÂÂÃ©Â©Â¬Ã¥Â¯Â¼Ã¦ÂµÂÃ§ÂÂ¨Ã¦ÂÂ·')",
+      "expression": "IF(d.user_id IS NOT NULL, '口语内测用户', '斑马导流用户')",
       "joinType": "LEFT",
       "joinCondition": "a.user_id = d.user_id",
       "statementIds": [
@@ -7548,7 +7576,7 @@
       "from": "column_e634367f858dd15b",
       "to": "column_fe4bf0662e432dc5",
       "type": "derivation",
-      "expression": "coalesce(episode_name, 'Ã¦ÂÂªÃ§ÂÂ¥')",
+      "expression": "coalesce(episode_name, '未知')",
       "joinType": "LEFT",
       "joinCondition": "a.user_id = f.user_id AND b.lesson_id = f.lesson_id AND a.level = f.level AND a.study_date = f.display_date",
       "statementIds": [
@@ -7569,7 +7597,7 @@
       "from": "column_638b0c1d5d1ce836",
       "to": "column_5bc14e0d759ac74d",
       "type": "derivation",
-      "expression": "coalesce(mission_name, 'Ã¦ÂÂªÃ§ÂÂ¥')",
+      "expression": "coalesce(mission_name, '未知')",
       "joinType": "LEFT",
       "joinCondition": "a.user_id = f.user_id AND b.lesson_id = f.lesson_id AND a.level = f.level AND a.study_date = f.display_date",
       "statementIds": [
@@ -10099,132 +10127,132 @@
       ]
     },
     {
-      "id": "edge_c7b02dc179c825ae",
+      "id": "edge_d51c191e0c3feaec",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_148016d86a49d135",
+      "to": "column_9a018c2abb7fb397",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_4547eb53d2c6aeb6",
+      "id": "edge_73686d5a04b8fb03",
       "from": "column_55b9125ae897dfb2",
-      "to": "column_148016d86a49d135",
+      "to": "column_9a018c2abb7fb397",
       "type": "derivation",
-      "expression": "coalesce(stage_name, 'Ã¦ÂÂªÃ§ÂÂ¥')",
+      "expression": "coalesce(stage_name, '未知')",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_5aafde84d283e203",
+      "id": "edge_7e6d66d1b9acc8a2",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_9934a6c59389404f",
+      "to": "column_cf3cadb73656e664",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_6e5018e6227b1f03",
+      "id": "edge_c57f899f81719c20",
       "from": "column_c9cad6f0869e9bf5",
-      "to": "column_9934a6c59389404f",
+      "to": "column_cf3cadb73656e664",
       "type": "derivation",
-      "expression": "coalesce(mentor_ldap, 'Ã¦ÂÂªÃ§ÂÂ¥')",
+      "expression": "coalesce(mentor_ldap, '未知')",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_f5e29218898c3b18",
+      "id": "edge_5a84c8b9b4f28494",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_3359e15c072a62b6",
+      "to": "column_c10bd24285bb1a72",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_ef16b40ac0986586",
+      "id": "edge_99871545f592330a",
       "from": "column_b7c0b4bfef7ed3e6",
-      "to": "column_3359e15c072a62b6",
+      "to": "column_c10bd24285bb1a72",
       "type": "derivation",
-      "expression": "coalesce(user_type, 'Ã¦ÂÂªÃ§ÂÂ¥')",
+      "expression": "coalesce(user_type, '未知')",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_2195370f40033976",
+      "id": "edge_b9ac710498c87499",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_5f848528d67d5ecb",
+      "to": "column_6bd360ec3ad6d3fa",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_e7f1199c4b26e5e5",
+      "id": "edge_f2615feac90e3a70",
       "from": "column_4a42c05aa00658e3",
-      "to": "column_5f848528d67d5ecb",
+      "to": "column_6bd360ec3ad6d3fa",
       "type": "derivation",
-      "expression": "coalesce(teacher_city, 'Ã¦ÂÂªÃ§ÂÂ¥')",
+      "expression": "coalesce(teacher_city, '未知')",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_b9acdc45b8a5fbfb",
+      "id": "edge_4df276c1aa4556ec",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_9a127919e84ea8ed",
+      "to": "column_1b17fee36cdd8e7d",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_71d089f5eec73d25",
+      "id": "edge_286bc9bb1b2562d8",
       "from": "column_5bc14e0d759ac74d",
-      "to": "column_9a127919e84ea8ed",
+      "to": "column_1b17fee36cdd8e7d",
       "type": "derivation",
-      "expression": "coalesce(mission_name, 'Ã¦ÂÂªÃ§ÂÂ¥')",
+      "expression": "coalesce(mission_name, '未知')",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_c9835a06c08adf77",
+      "id": "edge_0fac4b38643e2932",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_b646d76ae553521f",
+      "to": "column_844baab04da38ca1",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_2d7c63aa2f55472e",
+      "id": "edge_81d64e337946ba88",
       "from": "column_70d0e3338895d77b",
-      "to": "column_b646d76ae553521f",
+      "to": "column_844baab04da38ca1",
       "type": "derivation",
-      "expression": "coalesce(lesson_name, 'Ã¦ÂÂªÃ§ÂÂ¥')",
+      "expression": "coalesce(lesson_name, '未知')",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_7c267c5195ad62b9",
+      "id": "edge_2766521fa0db9897",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_d6452c4c3487996f",
+      "to": "column_854201be16a7355c",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_492b290def12b45f",
+      "id": "edge_77f0fd6332b75c10",
       "from": "column_4d15fa5f6dbd48a8",
-      "to": "column_d6452c4c3487996f",
+      "to": "column_854201be16a7355c",
       "type": "derivation",
       "expression": "count(DISTINCT user_id)",
       "statementIds": [
@@ -10232,18 +10260,18 @@
       ]
     },
     {
-      "id": "edge_43862c469bbc65d4",
+      "id": "edge_2cf88127ace59a14",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_3012a7f84ebc61ee",
+      "to": "column_d3b20a2d5eeb6794",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_56937d0626b06f57",
+      "id": "edge_40f8dfeb683d363d",
       "from": "column_b7381db0b01d04d2",
-      "to": "column_3012a7f84ebc61ee",
+      "to": "column_d3b20a2d5eeb6794",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_attend_d0 = 1, user_id, NULL))",
       "statementIds": [
@@ -10251,9 +10279,9 @@
       ]
     },
     {
-      "id": "edge_7d871291d2ef2f68",
+      "id": "edge_89393b1dd1ffe1e4",
       "from": "column_4d15fa5f6dbd48a8",
-      "to": "column_3012a7f84ebc61ee",
+      "to": "column_d3b20a2d5eeb6794",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_attend_d0 = 1, user_id, NULL))",
       "statementIds": [
@@ -10261,18 +10289,18 @@
       ]
     },
     {
-      "id": "edge_b34328c85919d83d",
+      "id": "edge_9faf0c08a59df001",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_ad4184e62bac571b",
+      "to": "column_fd3d46154b1835ff",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_09e1171d87bcc609",
+      "id": "edge_5a5071ddeb68b591",
       "from": "column_f1da5dc35d9aeb06",
-      "to": "column_ad4184e62bac571b",
+      "to": "column_fd3d46154b1835ff",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_attend_d6 = 1, user_id, NULL))",
       "statementIds": [
@@ -10280,9 +10308,9 @@
       ]
     },
     {
-      "id": "edge_cd3e571eeada9d24",
+      "id": "edge_5f8d21689cdc5a7c",
       "from": "column_4d15fa5f6dbd48a8",
-      "to": "column_ad4184e62bac571b",
+      "to": "column_fd3d46154b1835ff",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_attend_d6 = 1, user_id, NULL))",
       "statementIds": [
@@ -10290,18 +10318,18 @@
       ]
     },
     {
-      "id": "edge_e67b5450c4f1df6e",
+      "id": "edge_a5437d37d73e689a",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_110f19bec1b2349a",
+      "to": "column_e6d326394d2dcac4",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_a1ce2b9896fd3610",
+      "id": "edge_b4b93beb8f8bbeb9",
       "from": "column_79352c34f2e60e90",
-      "to": "column_110f19bec1b2349a",
+      "to": "column_e6d326394d2dcac4",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_finish_d0 = 1, user_id, NULL))",
       "statementIds": [
@@ -10309,9 +10337,9 @@
       ]
     },
     {
-      "id": "edge_5ce4bc0c999cf64c",
+      "id": "edge_5fc588e69f5361c1",
       "from": "column_4d15fa5f6dbd48a8",
-      "to": "column_110f19bec1b2349a",
+      "to": "column_e6d326394d2dcac4",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_finish_d0 = 1, user_id, NULL))",
       "statementIds": [
@@ -10319,18 +10347,18 @@
       ]
     },
     {
-      "id": "edge_554e54df1d53f73a",
+      "id": "edge_93fa5d43a518dc4c",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_d795b09db71e3fd4",
+      "to": "column_f0e40b8c9ff9d874",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_3ca9eea6aa80db47",
+      "id": "edge_ce666938c61c5488",
       "from": "column_0fea38dd7c514723",
-      "to": "column_d795b09db71e3fd4",
+      "to": "column_f0e40b8c9ff9d874",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_finish_d6 = 1, user_id, NULL))",
       "statementIds": [
@@ -10338,9 +10366,9 @@
       ]
     },
     {
-      "id": "edge_7cd4cd3734440346",
+      "id": "edge_e31735bd4b2a7762",
       "from": "column_4d15fa5f6dbd48a8",
-      "to": "column_d795b09db71e3fd4",
+      "to": "column_f0e40b8c9ff9d874",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_finish_d6 = 1, user_id, NULL))",
       "statementIds": [
@@ -10348,18 +10376,18 @@
       ]
     },
     {
-      "id": "edge_a370797b9d9403ba",
+      "id": "edge_00fcdc9947471ef4",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_bd0d264f8f1185f1",
+      "to": "column_48c7c5abbaf08d16",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_d4fa526e7dd8362c",
+      "id": "edge_25cfb5e13324b26b",
       "from": "column_90fbe23c33c319cc",
-      "to": "column_bd0d264f8f1185f1",
+      "to": "column_48c7c5abbaf08d16",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_finish_d13 = 1, user_id, NULL))",
       "statementIds": [
@@ -10367,9 +10395,9 @@
       ]
     },
     {
-      "id": "edge_495204b483faddee",
+      "id": "edge_f32914c3e3fb69b1",
       "from": "column_4d15fa5f6dbd48a8",
-      "to": "column_bd0d264f8f1185f1",
+      "to": "column_48c7c5abbaf08d16",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_finish_d13 = 1, user_id, NULL))",
       "statementIds": [
@@ -10377,18 +10405,18 @@
       ]
     },
     {
-      "id": "edge_a2744113aab91a24",
+      "id": "edge_7e07a20437bc4d86",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_5be7a45514d07785",
+      "to": "column_6923f1fe9f247439",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_cf01e9c36795aaea",
+      "id": "edge_9c6dd962f63b4523",
       "from": "column_7be1213cb5f64d41",
-      "to": "column_5be7a45514d07785",
+      "to": "column_6923f1fe9f247439",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_finish_renew_d0 = 1, user_id, NULL))",
       "statementIds": [
@@ -10396,9 +10424,9 @@
       ]
     },
     {
-      "id": "edge_cf4036146c51fa07",
+      "id": "edge_d0d1b9df64a35c48",
       "from": "column_4d15fa5f6dbd48a8",
-      "to": "column_5be7a45514d07785",
+      "to": "column_6923f1fe9f247439",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_finish_renew_d0 = 1, user_id, NULL))",
       "statementIds": [
@@ -10406,18 +10434,18 @@
       ]
     },
     {
-      "id": "edge_6094ed9046276a45",
+      "id": "edge_40c0bc50bfeda8ef",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_f4c5c28d5325a7ac",
+      "to": "column_caefb98c555a7e76",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_28e77596ab39be5c",
+      "id": "edge_ea66c081c4165dcd",
       "from": "column_fdf026c3b8e3064b",
-      "to": "column_f4c5c28d5325a7ac",
+      "to": "column_caefb98c555a7e76",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_finish_renew_d6 = 1, user_id, NULL))",
       "statementIds": [
@@ -10425,9 +10453,9 @@
       ]
     },
     {
-      "id": "edge_4fb2634edec0f909",
+      "id": "edge_13fe1cf6e7cbd0d6",
       "from": "column_4d15fa5f6dbd48a8",
-      "to": "column_f4c5c28d5325a7ac",
+      "to": "column_caefb98c555a7e76",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_finish_renew_d6 = 1, user_id, NULL))",
       "statementIds": [
@@ -10435,18 +10463,18 @@
       ]
     },
     {
-      "id": "edge_48ca4750b9a41b6e",
+      "id": "edge_b35aa3dd9c2bd6ac",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_ab3200f7f5e5afa5",
+      "to": "column_2c7948d952a8d319",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_26c9cb4a11e07a27",
+      "id": "edge_c941489728a51479",
       "from": "column_c44b2238fe3d0e39",
-      "to": "column_ab3200f7f5e5afa5",
+      "to": "column_2c7948d952a8d319",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_finish_renew_d13 = 1, user_id, NULL))",
       "statementIds": [
@@ -10454,9 +10482,9 @@
       ]
     },
     {
-      "id": "edge_c4d3269985e2aa2c",
+      "id": "edge_f4a2f6e4a3e379b5",
       "from": "column_4d15fa5f6dbd48a8",
-      "to": "column_ab3200f7f5e5afa5",
+      "to": "column_2c7948d952a8d319",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_finish_renew_d13 = 1, user_id, NULL))",
       "statementIds": [
@@ -10464,18 +10492,18 @@
       ]
     },
     {
-      "id": "edge_162eeb646a66148d",
+      "id": "edge_837a30bf48ce6d94",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_b736c3b9e4827655",
+      "to": "column_bec7cd31c24e7ca8",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_68211d68f32b67a8",
+      "id": "edge_03159197ff774562",
       "from": "column_7ec1c37a93b305e0",
-      "to": "column_b736c3b9e4827655",
+      "to": "column_bec7cd31c24e7ca8",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_renew_d0 = 1, user_id, NULL))",
       "statementIds": [
@@ -10483,9 +10511,9 @@
       ]
     },
     {
-      "id": "edge_37bc7cdd028f6d0e",
+      "id": "edge_d01c142cb0d523d8",
       "from": "column_4d15fa5f6dbd48a8",
-      "to": "column_b736c3b9e4827655",
+      "to": "column_bec7cd31c24e7ca8",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_renew_d0 = 1, user_id, NULL))",
       "statementIds": [
@@ -10493,18 +10521,18 @@
       ]
     },
     {
-      "id": "edge_00d9745791765a63",
+      "id": "edge_1e4a900eb6dabf44",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_54e39974a9dcb9ce",
+      "to": "column_08d2d2265717dc42",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_04c68abef1b596b5",
+      "id": "edge_5e88c842f1540868",
       "from": "column_fca10c2ce1862ff7",
-      "to": "column_54e39974a9dcb9ce",
+      "to": "column_08d2d2265717dc42",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_renew_d3 = 1, user_id, NULL))",
       "statementIds": [
@@ -10512,9 +10540,9 @@
       ]
     },
     {
-      "id": "edge_bf117c5766dc75bf",
+      "id": "edge_f315b7b6076cef02",
       "from": "column_4d15fa5f6dbd48a8",
-      "to": "column_54e39974a9dcb9ce",
+      "to": "column_08d2d2265717dc42",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_renew_d3 = 1, user_id, NULL))",
       "statementIds": [
@@ -10522,18 +10550,18 @@
       ]
     },
     {
-      "id": "edge_26b213d100fe9a20",
+      "id": "edge_080b8d106336d41f",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_46b29b2054f763f5",
+      "to": "column_2474b2a64aef3d26",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_4f7279461c07591e",
+      "id": "edge_f6dbe418601e23d4",
       "from": "column_1dc0f9d359b8e331",
-      "to": "column_46b29b2054f763f5",
+      "to": "column_2474b2a64aef3d26",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_renew_d6 = 1, user_id, NULL))",
       "statementIds": [
@@ -10541,9 +10569,9 @@
       ]
     },
     {
-      "id": "edge_d87a36a486b4bdb4",
+      "id": "edge_d8b3bded67f3bd97",
       "from": "column_4d15fa5f6dbd48a8",
-      "to": "column_46b29b2054f763f5",
+      "to": "column_2474b2a64aef3d26",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_renew_d6 = 1, user_id, NULL))",
       "statementIds": [
@@ -10551,18 +10579,18 @@
       ]
     },
     {
-      "id": "edge_d63bcd3106369fc7",
+      "id": "edge_5ed57f83e39c793a",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_3f9b9539e45bb2ae",
+      "to": "column_1c0609940c2e7746",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_6288ee13650b363d",
+      "id": "edge_cdb76b554d49bf6a",
       "from": "column_1bbb424956ac8d0c",
-      "to": "column_3f9b9539e45bb2ae",
+      "to": "column_1c0609940c2e7746",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_renew_d13 = 1, user_id, NULL))",
       "statementIds": [
@@ -10570,9 +10598,9 @@
       ]
     },
     {
-      "id": "edge_bf0b841787c85859",
+      "id": "edge_ab0c14fea38f31af",
       "from": "column_4d15fa5f6dbd48a8",
-      "to": "column_3f9b9539e45bb2ae",
+      "to": "column_1c0609940c2e7746",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_renew_d13 = 1, user_id, NULL))",
       "statementIds": [
@@ -10580,18 +10608,18 @@
       ]
     },
     {
-      "id": "edge_823f39779390f95a",
+      "id": "edge_0e903a017159205e",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_62d4bf1a9909a9da",
+      "to": "column_16ff75446291ff73",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_e98a2e4e8599db76",
+      "id": "edge_4524b8e783e9f376",
       "from": "column_2eec2a76a882e75f",
-      "to": "column_62d4bf1a9909a9da",
+      "to": "column_16ff75446291ff73",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_repeat_trial = 1, user_id, NULL))",
       "statementIds": [
@@ -10599,9 +10627,9 @@
       ]
     },
     {
-      "id": "edge_e14d3923269f79b1",
+      "id": "edge_194178c9bc33e472",
       "from": "column_4d15fa5f6dbd48a8",
-      "to": "column_62d4bf1a9909a9da",
+      "to": "column_16ff75446291ff73",
       "type": "derivation",
       "expression": "count(DISTINCT if(is_repeat_trial = 1, user_id, NULL))",
       "statementIds": [
@@ -10609,18 +10637,18 @@
       ]
     },
     {
-      "id": "edge_c45ad130ab459310",
+      "id": "edge_46e3c7a9a894bf2b",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_25533ee7f746241b",
+      "to": "column_b5bf90cea96622f3",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_803b69bcd53acdec",
+      "id": "edge_1b0cb2d30f2fe134",
       "from": "column_d020c300294468d5",
-      "to": "column_25533ee7f746241b",
+      "to": "column_b5bf90cea96622f3",
       "type": "derivation",
       "expression": "sum(cnt_canke)",
       "statementIds": [
@@ -10628,18 +10656,18 @@
       ]
     },
     {
-      "id": "edge_3ddf80bf6291ceab",
+      "id": "edge_0f4ef6aba0d48d83",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_270652b33bfbdea0",
+      "to": "column_6d53b61a304db086",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_5af91029b1b49e01",
+      "id": "edge_708c1241a9512377",
       "from": "column_a91d8dbeab04a157",
-      "to": "column_270652b33bfbdea0",
+      "to": "column_6d53b61a304db086",
       "type": "derivation",
       "expression": "sum(cnt_canke_success)",
       "statementIds": [
@@ -10647,18 +10675,18 @@
       ]
     },
     {
-      "id": "edge_b8cd6aac0613b05c",
+      "id": "edge_fb978564ec3d26a4",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_9e4af97722d0a4ee",
+      "to": "column_fa48d75e21c9be0e",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_3d4b4f761e8c1db0",
+      "id": "edge_fc3a7044e0d8d13d",
       "from": "column_b2771017d2cd4a53",
-      "to": "column_9e4af97722d0a4ee",
+      "to": "column_fa48d75e21c9be0e",
       "type": "derivation",
       "expression": "sum(sum_phone_duration_canke) / sum(cnt_phone_duration_canke)",
       "statementIds": [
@@ -10666,9 +10694,9 @@
       ]
     },
     {
-      "id": "edge_5e5d2b715eb361e8",
+      "id": "edge_2f8e3e6b62e514a5",
       "from": "column_3af555e7e31f23a4",
-      "to": "column_9e4af97722d0a4ee",
+      "to": "column_fa48d75e21c9be0e",
       "type": "derivation",
       "expression": "sum(sum_phone_duration_canke) / sum(cnt_phone_duration_canke)",
       "statementIds": [
@@ -10676,18 +10704,18 @@
       ]
     },
     {
-      "id": "edge_b1171acd456fe0f5",
+      "id": "edge_2fa910c54c634802",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_75084a8281a280cd",
+      "to": "column_c21cac7f42ea4c71",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_6aa30e490089d39d",
+      "id": "edge_9f0cd5b90a30fc52",
       "from": "column_343c49874e76c583",
-      "to": "column_75084a8281a280cd",
+      "to": "column_c21cac7f42ea4c71",
       "type": "derivation",
       "expression": "sum(cnt_wanke)",
       "statementIds": [
@@ -10695,18 +10723,18 @@
       ]
     },
     {
-      "id": "edge_1283d0c4c9314bb6",
+      "id": "edge_ada2f45085c8325f",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_7e872693a7a8b19c",
+      "to": "column_95f1e4f1ffc1b327",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_f8dcca3542beec1b",
+      "id": "edge_a0818eef5d2075b6",
       "from": "column_3f1719666bfae71f",
-      "to": "column_7e872693a7a8b19c",
+      "to": "column_95f1e4f1ffc1b327",
       "type": "derivation",
       "expression": "sum(cnt_wanke_success)",
       "statementIds": [
@@ -10714,18 +10742,18 @@
       ]
     },
     {
-      "id": "edge_d1030ca6e1290334",
+      "id": "edge_19eed92ae9e2d083",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_271cc8db2db917b2",
+      "to": "column_151da57ccef1359b",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_4019d27b698b3ea7",
+      "id": "edge_0d1c900d27ad96c8",
       "from": "column_a49b069a9006712c",
-      "to": "column_271cc8db2db917b2",
+      "to": "column_151da57ccef1359b",
       "type": "derivation",
       "expression": "sum(sum_phone_duration_wanke) / sum(cnt_phone_duration_wanke)",
       "statementIds": [
@@ -10733,9 +10761,9 @@
       ]
     },
     {
-      "id": "edge_b0d1e7958fcbf101",
+      "id": "edge_ae52bd28873a25af",
       "from": "column_ae47fb9446a0dcff",
-      "to": "column_271cc8db2db917b2",
+      "to": "column_151da57ccef1359b",
       "type": "derivation",
       "expression": "sum(sum_phone_duration_wanke) / sum(cnt_phone_duration_wanke)",
       "statementIds": [
@@ -10743,18 +10771,18 @@
       ]
     },
     {
-      "id": "edge_d53f3ffeba05c3b1",
+      "id": "edge_8e869ff106701271",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_94820947390b54f4",
+      "to": "column_ff39ff2e18bd9f85",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_e4a48f0caf255f0c",
+      "id": "edge_50ea3ac3be4b2da8",
       "from": "column_cba44702ec0e96d8",
-      "to": "column_94820947390b54f4",
+      "to": "column_ff39ff2e18bd9f85",
       "type": "derivation",
       "expression": "sum(cnt_zhuanhua)",
       "statementIds": [
@@ -10762,18 +10790,18 @@
       ]
     },
     {
-      "id": "edge_3d154b055c9ff429",
+      "id": "edge_cf530e294ac01d96",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_33b1708c78162001",
+      "to": "column_979fe0dbc4f00e8b",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_2c3d425516b108cf",
+      "id": "edge_f59bf6b09fbadbfe",
       "from": "column_88ddd70300a931dd",
-      "to": "column_33b1708c78162001",
+      "to": "column_979fe0dbc4f00e8b",
       "type": "derivation",
       "expression": "sum(cnt_zhuanhua_success)",
       "statementIds": [
@@ -10781,18 +10809,18 @@
       ]
     },
     {
-      "id": "edge_2ff55f0e58e77cc6",
+      "id": "edge_c41a7f84a11d5dcf",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_dd8f87f4698cb7fd",
+      "to": "column_c06b76ce9a644704",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_6d7ffea5dfc53792",
+      "id": "edge_9c60132ad566f21e",
       "from": "column_542f79704c6396ac",
-      "to": "column_dd8f87f4698cb7fd",
+      "to": "column_c06b76ce9a644704",
       "type": "derivation",
       "expression": "sum(sum_phone_duration_zhuanhua) / sum(cnt_phone_duration_zhuanhua)",
       "statementIds": [
@@ -10800,9 +10828,9 @@
       ]
     },
     {
-      "id": "edge_2ea82e2927ae8026",
+      "id": "edge_f6a05ad6c1aab385",
       "from": "column_0e1e8edf746fe7a4",
-      "to": "column_dd8f87f4698cb7fd",
+      "to": "column_c06b76ce9a644704",
       "type": "derivation",
       "expression": "sum(sum_phone_duration_zhuanhua) / sum(cnt_phone_duration_zhuanhua)",
       "statementIds": [
@@ -10810,18 +10838,18 @@
       ]
     },
     {
-      "id": "edge_24489446bab8d919",
+      "id": "edge_9ef0b340a229780b",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_462874ca2ccd5411",
+      "to": "column_27c71a09834967fd",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_1ef310ff6553131e",
+      "id": "edge_8b2d11e8fa7bd4f7",
       "from": "column_3ad9dd10f15214a9",
-      "to": "column_462874ca2ccd5411",
+      "to": "column_27c71a09834967fd",
       "type": "derivation",
       "expression": "sum(cnt_zhaohui)",
       "statementIds": [
@@ -10829,18 +10857,18 @@
       ]
     },
     {
-      "id": "edge_1a5c9cc074906899",
+      "id": "edge_c0f354ee3d60e91f",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_e0789725a6b130fe",
+      "to": "column_13a5f26e2a4b23f7",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_89646fe03fbef058",
+      "id": "edge_b7c7b92fec76883d",
       "from": "column_380f061a69e7ce8c",
-      "to": "column_e0789725a6b130fe",
+      "to": "column_13a5f26e2a4b23f7",
       "type": "derivation",
       "expression": "sum(cnt_zhaohui_success)",
       "statementIds": [
@@ -10848,18 +10876,18 @@
       ]
     },
     {
-      "id": "edge_26c618b8e9dcc187",
+      "id": "edge_4dca04e16ae6754a",
       "from": "output_74d22f755ec62dbc",
-      "to": "column_53fe5f049bd80760",
+      "to": "column_9e182b8fea335fd3",
       "type": "ownership",
       "statementIds": [
         0
       ]
     },
     {
-      "id": "edge_5266166e26c28b7d",
+      "id": "edge_fca2425cbf82eac3",
       "from": "column_230bb18034a0f434",
-      "to": "column_53fe5f049bd80760",
+      "to": "column_9e182b8fea335fd3",
       "type": "derivation",
       "expression": "sum(sum_phone_duration_zhaohui) / sum(cnt_phone_duration_zhaohui)",
       "statementIds": [
@@ -10867,9 +10895,9 @@
       ]
     },
     {
-      "id": "edge_227a05adfef56976",
+      "id": "edge_2f18977f9e7b1065",
       "from": "column_e581098e1b510cdf",
-      "to": "column_53fe5f049bd80760",
+      "to": "column_9e182b8fea335fd3",
       "type": "derivation",
       "expression": "sum(sum_phone_duration_zhaohui) / sum(cnt_phone_duration_zhaohui)",
       "statementIds": [
@@ -10993,8 +11021,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'lesson_type' is ambiguous across tables in scope: b, c, dw_conan_ods.ods_conan_mission_oral_lesson_user_mission_da",
       "span": {
-        "start": 25516,
-        "end": 25527
+        "start": 21526,
+        "end": 21537
       },
       "statementIndex": 0
     },
@@ -11003,8 +11031,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'lesson_mission_id' is ambiguous across tables in scope: b, c, dw_conan_ods.ods_conan_mission_oral_lesson_user_mission_da",
       "span": {
-        "start": 25614,
-        "end": 25631
+        "start": 21624,
+        "end": 21641
       },
       "statementIndex": 0
     },
@@ -11013,8 +11041,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'display_date' is ambiguous across tables in scope: b, c, dw_conan_ods.ods_conan_mission_oral_lesson_user_mission_da",
       "span": {
-        "start": 25872,
-        "end": 25884
+        "start": 21882,
+        "end": 21894
       },
       "statementIndex": 0
     },
@@ -11023,8 +11051,8 @@
       "code": "APPROXIMATE_LINEAGE",
       "message": "SELECT * from 'dw_conan_dwd.dwd_oral_user_mentor_interview_trial_da' - column list unknown without schema metadata",
       "span": {
-        "start": 31919,
-        "end": 31971
+        "start": 27929,
+        "end": 27981
       },
       "statementIndex": 0
     },
@@ -11033,8 +11061,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_reasons_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17549,
-        "end": 17575
+        "start": 15359,
+        "end": 15385
       },
       "statementIndex": 0
     },
@@ -11043,8 +11071,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'interview_id' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17664,
-        "end": 17676
+        "start": 15411,
+        "end": 15423
       },
       "statementIndex": 0
     },
@@ -11053,8 +11081,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_reasons_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17549,
-        "end": 17575
+        "start": 15359,
+        "end": 15385
       },
       "statementIndex": 0
     },
@@ -11063,8 +11091,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'interview_id' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17664,
-        "end": 17676
+        "start": 15411,
+        "end": 15423
       },
       "statementIndex": 0
     },
@@ -11073,8 +11101,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_reasons_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17549,
-        "end": 17575
+        "start": 15359,
+        "end": 15385
       },
       "statementIndex": 0
     },
@@ -11083,8 +11111,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'interview_id' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17664,
-        "end": 17676
+        "start": 15411,
+        "end": 15423
       },
       "statementIndex": 0
     },
@@ -11093,8 +11121,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_reasons_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17549,
-        "end": 17575
+        "start": 15359,
+        "end": 15385
       },
       "statementIndex": 0
     },
@@ -11103,8 +11131,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'interview_id' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17664,
-        "end": 17676
+        "start": 15411,
+        "end": 15423
       },
       "statementIndex": 0
     },
@@ -11113,8 +11141,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_reasons_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17549,
-        "end": 17575
+        "start": 15359,
+        "end": 15385
       },
       "statementIndex": 0
     },
@@ -11123,8 +11151,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_status_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 18421,
-        "end": 18446
+        "start": 15916,
+        "end": 15941
       },
       "statementIndex": 0
     },
@@ -11133,8 +11161,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'interview_id' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17664,
-        "end": 17676
+        "start": 15411,
+        "end": 15423
       },
       "statementIndex": 0
     },
@@ -11143,8 +11171,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_reasons_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17549,
-        "end": 17575
+        "start": 15359,
+        "end": 15385
       },
       "statementIndex": 0
     },
@@ -11153,8 +11181,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_status_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 18421,
-        "end": 18446
+        "start": 15916,
+        "end": 15941
       },
       "statementIndex": 0
     },
@@ -11163,8 +11191,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'interview_id' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17664,
-        "end": 17676
+        "start": 15411,
+        "end": 15423
       },
       "statementIndex": 0
     },
@@ -11173,8 +11201,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_reasons_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17549,
-        "end": 17575
+        "start": 15359,
+        "end": 15385
       },
       "statementIndex": 0
     },
@@ -11183,8 +11211,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_status_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 18421,
-        "end": 18446
+        "start": 15916,
+        "end": 15941
       },
       "statementIndex": 0
     },
@@ -11193,8 +11221,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'interview_id' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17664,
-        "end": 17676
+        "start": 15411,
+        "end": 15423
       },
       "statementIndex": 0
     },
@@ -11203,8 +11231,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_reasons_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17549,
-        "end": 17575
+        "start": 15359,
+        "end": 15385
       },
       "statementIndex": 0
     },
@@ -11213,8 +11241,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_status_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 18421,
-        "end": 18446
+        "start": 15916,
+        "end": 15941
       },
       "statementIndex": 0
     },
@@ -11223,8 +11251,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'interview_id' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17664,
-        "end": 17676
+        "start": 15411,
+        "end": 15423
       },
       "statementIndex": 0
     },
@@ -11233,8 +11261,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_reasons_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17549,
-        "end": 17575
+        "start": 15359,
+        "end": 15385
       },
       "statementIndex": 0
     },
@@ -11243,8 +11271,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_status_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 18421,
-        "end": 18446
+        "start": 15916,
+        "end": 15941
       },
       "statementIndex": 0
     },
@@ -11253,8 +11281,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_via_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 19488,
-        "end": 19510
+        "start": 16641,
+        "end": 16663
       },
       "statementIndex": 0
     },
@@ -11263,8 +11291,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'duration' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 19618,
-        "end": 19626
+        "start": 16699,
+        "end": 16707
       },
       "statementIndex": 0
     },
@@ -11273,8 +11301,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_reasons_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17549,
-        "end": 17575
+        "start": 15359,
+        "end": 15385
       },
       "statementIndex": 0
     },
@@ -11283,8 +11311,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_status_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 18421,
-        "end": 18446
+        "start": 15916,
+        "end": 15941
       },
       "statementIndex": 0
     },
@@ -11293,8 +11321,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_via_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 19488,
-        "end": 19510
+        "start": 16641,
+        "end": 16663
       },
       "statementIndex": 0
     },
@@ -11303,8 +11331,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'duration' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 19618,
-        "end": 19626
+        "start": 16699,
+        "end": 16707
       },
       "statementIndex": 0
     },
@@ -11313,8 +11341,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_reasons_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17549,
-        "end": 17575
+        "start": 15359,
+        "end": 15385
       },
       "statementIndex": 0
     },
@@ -11323,8 +11351,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_status_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 18421,
-        "end": 18446
+        "start": 15916,
+        "end": 15941
       },
       "statementIndex": 0
     },
@@ -11333,8 +11361,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_via_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 19488,
-        "end": 19510
+        "start": 16641,
+        "end": 16663
       },
       "statementIndex": 0
     },
@@ -11343,8 +11371,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'duration' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 19618,
-        "end": 19626
+        "start": 16699,
+        "end": 16707
       },
       "statementIndex": 0
     },
@@ -11353,8 +11381,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_reasons_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17549,
-        "end": 17575
+        "start": 15359,
+        "end": 15385
       },
       "statementIndex": 0
     },
@@ -11363,8 +11391,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_status_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 18421,
-        "end": 18446
+        "start": 15916,
+        "end": 15941
       },
       "statementIndex": 0
     },
@@ -11373,8 +11401,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_via_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 19488,
-        "end": 19510
+        "start": 16641,
+        "end": 16663
       },
       "statementIndex": 0
     },
@@ -11383,8 +11411,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'duration' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 19618,
-        "end": 19626
+        "start": 16699,
+        "end": 16707
       },
       "statementIndex": 0
     },
@@ -11393,8 +11421,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_reasons_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17549,
-        "end": 17575
+        "start": 15359,
+        "end": 15385
       },
       "statementIndex": 0
     },
@@ -11403,8 +11431,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_status_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 18421,
-        "end": 18446
+        "start": 15916,
+        "end": 15941
       },
       "statementIndex": 0
     },
@@ -11413,8 +11441,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_via_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 19488,
-        "end": 19510
+        "start": 16641,
+        "end": 16663
       },
       "statementIndex": 0
     },
@@ -11423,8 +11451,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'interview_id' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17664,
-        "end": 17676
+        "start": 15411,
+        "end": 15423
       },
       "statementIndex": 0
     },
@@ -11433,8 +11461,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_reasons_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17549,
-        "end": 17575
+        "start": 15359,
+        "end": 15385
       },
       "statementIndex": 0
     },
@@ -11443,8 +11471,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_status_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 18421,
-        "end": 18446
+        "start": 15916,
+        "end": 15941
       },
       "statementIndex": 0
     },
@@ -11453,8 +11481,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_via_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 19488,
-        "end": 19510
+        "start": 16641,
+        "end": 16663
       },
       "statementIndex": 0
     },
@@ -11463,8 +11491,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'interview_id' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17664,
-        "end": 17676
+        "start": 15411,
+        "end": 15423
       },
       "statementIndex": 0
     },
@@ -11473,8 +11501,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_reasons_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17549,
-        "end": 17575
+        "start": 15359,
+        "end": 15385
       },
       "statementIndex": 0
     },
@@ -11483,8 +11511,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_status_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 18421,
-        "end": 18446
+        "start": 15916,
+        "end": 15941
       },
       "statementIndex": 0
     },
@@ -11493,8 +11521,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_via_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 19488,
-        "end": 19510
+        "start": 16641,
+        "end": 16663
       },
       "statementIndex": 0
     },
@@ -11503,8 +11531,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'interview_id' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17664,
-        "end": 17676
+        "start": 15411,
+        "end": 15423
       },
       "statementIndex": 0
     },
@@ -11513,8 +11541,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_reasons_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17549,
-        "end": 17575
+        "start": 15359,
+        "end": 15385
       },
       "statementIndex": 0
     },
@@ -11523,8 +11551,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_status_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 18421,
-        "end": 18446
+        "start": 15916,
+        "end": 15941
       },
       "statementIndex": 0
     },
@@ -11533,8 +11561,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'communication_via_desc' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 19488,
-        "end": 19510
+        "start": 16641,
+        "end": 16663
       },
       "statementIndex": 0
     },
@@ -11543,8 +11571,8 @@
       "code": "UNRESOLVED_REFERENCE",
       "message": "Column 'interview_id' is ambiguous across tables in scope: a, ads_mc, b, c, d, f, j, k",
       "span": {
-        "start": 17664,
-        "end": 17676
+        "start": 15411,
+        "end": 15423
       },
       "statementIndex": 0
     }
@@ -11552,7 +11580,7 @@
   "summary": {
     "statementCount": 1,
     "tableCount": 23,
-    "columnCount": 237,
+    "columnCount": 239,
     "joinCount": 10,
     "complexityScore": 100,
     "issueCount": {
@@ -11630,7 +11658,7 @@
         ],
         "origin": "implied",
         "sourceStatementIndex": 0,
-        "updatedAt": "2026-05-28T10:04:12.800014+00:00",
+        "updatedAt": "2026-05-28T10:23:59.490502+00:00",
         "constraints": [
           {
             "constraintType": "foreign_key",
@@ -11712,7 +11740,7 @@
         ],
         "origin": "implied",
         "sourceStatementIndex": 0,
-        "updatedAt": "2026-05-28T10:04:12.799996+00:00",
+        "updatedAt": "2026-05-28T10:23:59.490434+00:00",
         "constraints": [
           {
             "constraintType": "foreign_key",
@@ -11788,7 +11816,7 @@
         ],
         "origin": "implied",
         "sourceStatementIndex": 0,
-        "updatedAt": "2026-05-28T10:04:12.800051+00:00",
+        "updatedAt": "2026-05-28T10:23:59.490453+00:00",
         "constraints": [
           {
             "constraintType": "foreign_key",
@@ -11852,7 +11880,7 @@
         ],
         "origin": "implied",
         "sourceStatementIndex": 0,
-        "updatedAt": "2026-05-28T10:04:12.800040+00:00",
+        "updatedAt": "2026-05-28T10:23:59.490442+00:00",
         "constraints": [
           {
             "constraintType": "foreign_key",
@@ -11890,7 +11918,7 @@
         ],
         "origin": "implied",
         "sourceStatementIndex": 0,
-        "updatedAt": "2026-05-28T10:04:12.800065+00:00",
+        "updatedAt": "2026-05-28T10:23:59.490389+00:00",
         "constraints": [
           {
             "constraintType": "foreign_key",
@@ -11915,7 +11943,7 @@
         ],
         "origin": "implied",
         "sourceStatementIndex": 0,
-        "updatedAt": "2026-05-28T10:04:12.800019+00:00"
+        "updatedAt": "2026-05-28T10:23:59.490467+00:00"
       },
       {
         "name": "f",
@@ -11955,7 +11983,7 @@
         ],
         "origin": "implied",
         "sourceStatementIndex": 0,
-        "updatedAt": "2026-05-28T10:04:12.800060+00:00",
+        "updatedAt": "2026-05-28T10:23:59.490462+00:00",
         "constraints": [
           {
             "constraintType": "foreign_key",
@@ -12001,7 +12029,7 @@
         ],
         "origin": "implied",
         "sourceStatementIndex": 0,
-        "updatedAt": "2026-05-28T10:04:12.800034+00:00",
+        "updatedAt": "2026-05-28T10:23:59.490484+00:00",
         "constraints": [
           {
             "constraintType": "foreign_key",
@@ -12045,7 +12073,7 @@
         ],
         "origin": "implied",
         "sourceStatementIndex": 0,
-        "updatedAt": "2026-05-28T10:04:12.800027+00:00",
+        "updatedAt": "2026-05-28T10:23:59.490491+00:00",
         "constraints": [
           {
             "constraintType": "foreign_key",
@@ -12110,7 +12138,7 @@
         ],
         "origin": "implied",
         "sourceStatementIndex": 0,
-        "updatedAt": "2026-05-28T10:04:12.800076+00:00",
+        "updatedAt": "2026-05-28T10:23:59.490478+00:00",
         "constraints": [
           {
             "constraintType": "foreign_key",

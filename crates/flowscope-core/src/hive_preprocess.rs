@@ -189,8 +189,19 @@ fn substitute_placeholders(input: &str) -> String {
             continue;
         }
 
-        pending.push(ch as char);
-        i += 1;
+        // Advance by a full UTF-8 character so we never slice mid-codepoint.
+        let ch_len = if ch < 0x80 {
+            1
+        } else if ch < 0xE0 {
+            2
+        } else if ch < 0xF0 {
+            3
+        } else {
+            4
+        };
+        let end = (i + ch_len).min(n);
+        pending.push_str(&input[i..end]);
+        i = end;
     }
     flush_pending_with_bare_regex(&mut out, &mut pending);
     out
@@ -383,32 +394,30 @@ fn rewrite_double_quote_strings(input: &str) -> String {
         }
         // single-quoted string: copy through, respecting `\X` escapes
         if ch == b'\'' {
-            out.push('\'');
+            let start = i; // include opening quote
             i += 1;
             while i < n {
                 let c2 = bytes[i];
                 if c2 == b'\\' && i + 1 < n {
-                    out.push_str(&input[i..i + 2]);
                     i += 2;
                     continue;
                 }
-                out.push(c2 as char);
                 i += 1;
                 if c2 == b'\'' {
                     break;
                 }
             }
+            out.push_str(&input[start..i]);
             continue;
         }
         // top-level double-quoted string → rewrite
         if ch == b'"' {
             let mut j = i + 1;
-            let mut inner = String::new();
+            let inner_start = j;
             let mut closed = false;
             while j < n {
                 let c2 = bytes[j];
                 if c2 == b'\\' && j + 1 < n {
-                    inner.push(bytes[j + 1] as char);
                     j += 2;
                     continue;
                 }
@@ -416,13 +425,14 @@ fn rewrite_double_quote_strings(input: &str) -> String {
                     closed = true;
                     break;
                 }
-                inner.push(c2 as char);
                 j += 1;
             }
             if !closed {
                 out.push_str(&input[i..]);
                 return out;
             }
+            // inner_start..j is a valid UTF-8 slice (we never sliced mid-char)
+            let inner = &input[inner_start..j];
             let safe: String = inner
                 .chars()
                 .map(|c| if c == '\'' { '_' } else { c })
@@ -433,8 +443,19 @@ fn rewrite_double_quote_strings(input: &str) -> String {
             i = j + 1;
             continue;
         }
-        out.push(ch as char);
-        i += 1;
+        // Non-special byte: advance by a full UTF-8 character.
+        let ch_len = if ch < 0x80 {
+            1
+        } else if ch < 0xE0 {
+            2
+        } else if ch < 0xF0 {
+            3
+        } else {
+            4
+        };
+        let end = (i + ch_len).min(n);
+        out.push_str(&input[i..end]);
+        i = end;
     }
     out
 }
@@ -666,21 +687,20 @@ fn fix_orphan_as(input: &str) -> String {
             continue;
         }
         if bytes[i] == b'\'' {
-            out.push('\'');
+            let start = i;
             i += 1;
             while i < n {
                 let c = bytes[i];
                 if c == b'\\' && i + 1 < n {
-                    out.push_str(&input[i..i + 2]);
                     i += 2;
                     continue;
                 }
-                out.push(c as char);
                 i += 1;
                 if c == b'\'' {
                     break;
                 }
             }
+            out.push_str(&input[start..i]);
             continue;
         }
         // detect \bAS\b
@@ -706,8 +726,19 @@ fn fix_orphan_as(input: &str) -> String {
                 continue;
             }
         }
-        out.push(bytes[i] as char);
-        i += 1;
+        // Non-special byte: advance by a full UTF-8 character.
+        let ch_len = if bytes[i] < 0x80 {
+            1
+        } else if bytes[i] < 0xE0 {
+            2
+        } else if bytes[i] < 0xF0 {
+            3
+        } else {
+            4
+        };
+        let end = (i + ch_len).min(n);
+        out.push_str(&input[i..end]);
+        i = end;
     }
     out
 }
@@ -796,21 +827,20 @@ fn rewrite_grouping_sets(input: &str) -> String {
         let ch = bytes[i];
 
         if ch == b'\'' {
-            out.push('\'');
+            let start = i;
             i += 1;
             while i < n {
                 let c2 = bytes[i];
                 if c2 == b'\\' && i + 1 < n {
-                    out.push_str(&input[i..i + 2]);
                     i += 2;
                     continue;
                 }
-                out.push(c2 as char);
                 i += 1;
                 if c2 == b'\'' {
                     break;
                 }
             }
+            out.push_str(&input[start..i]);
             continue;
         }
 
@@ -856,8 +886,19 @@ fn rewrite_grouping_sets(input: &str) -> String {
             }
         }
 
-        out.push(ch as char);
-        i += 1;
+        // Non-special byte: advance by a full UTF-8 character.
+        let ch_len = if ch < 0x80 {
+            1
+        } else if ch < 0xE0 {
+            2
+        } else if ch < 0xF0 {
+            3
+        } else {
+            4
+        };
+        let end = (i + ch_len).min(n);
+        out.push_str(&input[i..end]);
+        i = end;
     }
     out
 }
