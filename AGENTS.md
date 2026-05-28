@@ -147,25 +147,7 @@ cd app/dist && zip -qr "../../flowscope-h5-$(date +%Y%m%d-%H%M).zip" . && cd ../
 
 #### Step 5 — 部署 CLI 到 Neo4j 服务器
 
-```bash
-# 备份旧二进制
-ssh maintain@alibjh-op-neo4j1-vm \
-  "cd ~/wangliang/flowscope-main && cp flowscope flowscope.bak.$(date +%Y%m%d-%H%M)"
-
-# 上传新二进制
-scp target-zigbuild/x86_64-unknown-linux-gnu/release/flowscope \
-  maintain@alibjh-op-neo4j1-vm:~/wangliang/flowscope-main/
-
-# 重启服务
-ssh maintain@alibjh-op-neo4j1-vm "
-  cd ~/wangliang/flowscope-main
-  chmod +x flowscope
-  tmux kill-session -t flowscope 2>/dev/null || true
-  tmux new -d -s flowscope './flowscope --serve --host 0.0.0.0 --port 7681 --audit-log data/audit.db'
-  sleep 2
-  curl -fsS http://localhost:7681/api/health
-"
-```
+将 Step 4 上传的 CLI CDN URL 交给运维，服务器侧使用独立的启动脚本完成部署和重启。
 
 完整流程、回滚方案、双端一致性验证见 [`docs/release-workflow.md`](./docs/release-workflow.md)。
 
