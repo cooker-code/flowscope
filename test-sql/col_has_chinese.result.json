@@ -1,0 +1,30 @@
+{
+  "statements": [],
+  "nodes": [],
+  "edges": [],
+  "issues": [
+    {
+      "severity": "error",
+      "code": "PARSE_ERROR",
+      "message": "Parse error in col_has_chinese.sql: Parse error at line 349, column 10: sql parser error: Expected: identifier, found: { at Line: 349, Column: 10",
+      "span": {
+        "start": 5207,
+        "end": 35393
+      },
+      "sourceName": "col_has_chinese.sql"
+    }
+  ],
+  "summary": {
+    "statementCount": 0,
+    "tableCount": 0,
+    "columnCount": 0,
+    "joinCount": 0,
+    "complexityScore": 1,
+    "issueCount": {
+      "errors": 1,
+      "warnings": 0,
+      "infos": 0
+    },
+    "hasErrors": true
+  }
+}
