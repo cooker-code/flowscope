@@ -82,22 +82,92 @@ cargo build -p flowscope-cli --features serve
 - `--audit-log`：指定 SQLite 审计日志文件路径，**启动时必须携带**，否则审计功能不可用
 - `data/audit.db` 目录需提前存在：`mkdir -p data`
 
-### 生产打包发布（UI + CLI 一致性 + 上传 H5 CDN）
+### 生产打包发布（UI + CLI 一致性 + 上传 CDN）
 
-**说"打包发布"就按 `docs/release-workflow.md` 走，不要临时拼步骤。** 核心顺序：
+说"打包发布"就严格按下面步骤走，不要临时拼步骤。
 
-1. `just regression-sql` 真实 SQL 头部字段回归
-2. `cd app && yarn build` 产出 `app/dist/`（前端唯一来源）
-3. `cp -R app/dist/. crates/flowscope-cli/embedded-app/` 同步到 CLI 嵌入目录
-4. `cargo zigbuild --target x86_64-unknown-linux-gnu.2.17 --target-dir target-zigbuild -p flowscope-cli --features serve --release`
-5. `(cd app/dist && zip -qr "../../flowscope-h5-$(date +%Y%m%d-%H%M).zip" .)` 打包前端
-6. `./scripts/upload-h5.sh` 自动上传到 `upload.zhenguanyu.com` 并打印 CDN URL（含 sha256 校验）
-7. `scp target-zigbuild/x86_64-unknown-linux-gnu/release/flowscope` 到 Neo4j 服务器
+> **约束**：生产分析在 CLI serve 后端跑，前端只走 REST，不需要 `wasm-pack`。
+> 服务器是 CentOS 7 / glibc 2.17，**必须用 `cargo zigbuild`**，不能用 `cargo build` 或 `cross build`。
 
-> **不要装 `wasm-pack`**：生产分析在 CLI serve 后端跑，前端走 REST，不需要 WASM 重新打包。
-> **不要用 `cargo build` 或 `cross build` 替代 zigbuild**：服务器 glibc 2.17，会跑不起来（详见 `docs/build-for-neo4j-server.md`）。
+#### Step 0 — 预检
 
-完整流程、验证、回滚、错误对照表见 [`docs/release-workflow.md`](./docs/release-workflow.md)。
+```bash
+cargo test -p flowscope-core --lib           # 核心单测必须全绿
+python3 ./scripts/regression-test-sql.py     # 真实 SQL 回归（要求 0 failed）
+```
+
+#### Step 1 — 构建前端
+
+```bash
+cd app && yarn build && cd ..
+# 产物：app/dist/
+```
+
+#### Step 2 — 同步前端资产到 CLI 嵌入目录
+
+```bash
+rm -rf crates/flowscope-cli/embedded-app
+mkdir -p crates/flowscope-cli/embedded-app
+cp -R app/dist/. crates/flowscope-cli/embedded-app/
+# 自检（无输出为正常）
+diff -q app/dist/index.html crates/flowscope-cli/embedded-app/index.html
+```
+
+#### Step 3 — 交叉编译 Linux CLI（glibc 2.17）
+
+```bash
+cargo zigbuild \
+  --target x86_64-unknown-linux-gnu.2.17 \
+  --target-dir target-zigbuild \
+  -p flowscope-cli \
+  --features serve \
+  --release
+# 产物：target-zigbuild/x86_64-unknown-linux-gnu/release/flowscope
+```
+
+验证 glibc 版本（最高必须是 2.17，出现 2.18+ 立即排查）：
+
+```bash
+strings target-zigbuild/x86_64-unknown-linux-gnu/release/flowscope \
+  | grep '^GLIBC_' | sort -V -u | tail -3
+```
+
+#### Step 4 — 上传前端和 CLI 到 CDN
+
+```bash
+# 上传 H5 前端（zip 打包后上传）
+cd app/dist && zip -qr "../../flowscope-h5-$(date +%Y%m%d-%H%M).zip" . && cd ../..
+./scripts/upload-h5.sh   # 自动选最新 flowscope-h5-*.zip，上传并 sha256 校验
+
+# 上传 CLI 二进制（直接上传，无需压缩）
+./scripts/upload-h5.sh target-zigbuild/x86_64-unknown-linux-gnu/release/flowscope
+```
+
+两条命令各打印一个 `URL:`，记录备用。
+
+#### Step 5 — 部署 CLI 到 Neo4j 服务器
+
+```bash
+# 备份旧二进制
+ssh maintain@alibjh-op-neo4j1-vm \
+  "cd ~/wangliang/flowscope-main && cp flowscope flowscope.bak.$(date +%Y%m%d-%H%M)"
+
+# 上传新二进制
+scp target-zigbuild/x86_64-unknown-linux-gnu/release/flowscope \
+  maintain@alibjh-op-neo4j1-vm:~/wangliang/flowscope-main/
+
+# 重启服务
+ssh maintain@alibjh-op-neo4j1-vm "
+  cd ~/wangliang/flowscope-main
+  chmod +x flowscope
+  tmux kill-session -t flowscope 2>/dev/null || true
+  tmux new -d -s flowscope './flowscope --serve --host 0.0.0.0 --port 7681 --audit-log data/audit.db'
+  sleep 2
+  curl -fsS http://localhost:7681/api/health
+"
+```
+
+完整流程、回滚方案、双端一致性验证见 [`docs/release-workflow.md`](./docs/release-workflow.md)。
 
 ## Lint, Format, Typecheck
 
