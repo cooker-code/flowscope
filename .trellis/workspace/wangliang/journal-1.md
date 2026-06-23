@@ -245,3 +245,37 @@ yarn dev 时浏览器报 Unexpected token '<', '<!DOCTYPE'... is not valid JSON 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: 完成审计目标表筛选
+
+**Date**: 2026-06-23
+**Task**: 完成审计目标表筛选
+**Branch**: `codex/audit-target-table-filter`
+
+### Summary
+
+实现审计日志 target_table 落库、精确筛选、前端筛选框和列表列；剔除 GitNexus 规则/技能/文档引用；完成本地页面验证、生产服务端 zigbuild 打包上传，并归档 Trellis task。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `27e1a1b3` | (see git log) |
+| `16fc359f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

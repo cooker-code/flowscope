@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
-- **Last Active**: 2026-05-15
+- **Total Sessions**: 8
+- **Last Active**: 2026-06-23
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~247 | Active |
+| `journal-1.md` | ~281 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-06-23 | 完成审计目标表筛选 | `27e1a1b3`, `16fc359f` | `codex/audit-target-table-filter` |
 | 7 | 2026-05-15 | SQL 快速粘贴分析 + JSON 结果查看器 | `2cf69f8` | `master` |
 | 6 | 2026-05-15 | CLAUDE.md 加 MANDATORY：work commit 后必须跑 /trellis-finish-work | `bde255a` | `master` |
 | 5 | 2026-05-15 | Trellis 任务批量归档与文档引用同步 | `e572725`, `fa09a69`, `5cb7083`, `eec94b8`, `7c692ba`, `017401d` | `master` |
