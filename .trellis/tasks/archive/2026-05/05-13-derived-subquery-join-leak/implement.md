@@ -34,7 +34,7 @@ Status: **DONE** — fix landed in working tree, tests + snapshot + spec updated
 | `cargo test -p flowscope-core` (full crate) | **PASS** (436 lineage + 26 snapshot + others) |
 | Workspace `cargo test --workspace` | **PASS** except 2 pre-existing failures (`dali_merge_using_join_with_schema_refs`, `dali_bulk_column_refs_with_schema`) — verified to fail on `c85d5d4` as well |
 | `cargo clippy -p flowscope-core` | 12 errors — all in files **not touched by this change** (e.g. `st_008.rs`); verified identical count with stashed working tree |
-| `gitnexus_detect_changes --scope all` | `affected_processes: 0`, risk **LOW** (no symbol-level interface change) |
+| 影响范围复查 | `affected_processes: 0`, risk **LOW** (no symbol-level interface change) |
 | End-to-end on real SQL (`dwd_eng_frog_user_devices_detail_chapter_finish_da.sql` via running `flowscope --serve`) | Only the **expected** `derived_b → target` `data_flow` edge carries `joinType: LEFT`. The two defective edges from the user report are **both gone**. |
 
 ## Files Outside Scope (Not Modified)

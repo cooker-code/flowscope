@@ -24,6 +24,10 @@ pub struct AuditEntry {
     /// `None` when the API caller didn't supply one or the entry comes from
     /// an endpoint that doesn't accept the field (split / lint-fix / export).
     pub source_name: Option<String>,
+    /// Single target table written by the analyzed workload, using
+    /// `AnalyzeResult.target_table.qualified_name` when available and falling
+    /// back to the short label. `None` for read-only or multi-target SQL.
+    pub target_table: Option<String>,
     pub sql_text: String,
     pub sql_hash: String,
     pub sql_len: usize,
@@ -53,6 +57,8 @@ pub struct AuditLogListFilters<'a> {
     pub file_name_filter: Option<&'a str>,
     /// Case-sensitive `LIKE %?%` match on `source_name`.
     pub source_name_filter: Option<&'a str>,
+    /// Exact match on the materialized target table name.
+    pub target_table_filter: Option<&'a str>,
     pub keyword: Option<&'a str>,
 }
 
@@ -111,6 +117,16 @@ pub fn extract_audit_flags(
     (has_cte, has_union, stmt_count, table_count, sql_type)
 }
 
+/// Return the display name for the single target table in an AnalyzeResult.
+pub fn extract_target_table(result: &AnalyzeResult) -> Option<String> {
+    result.target_table.as_ref().map(|table| {
+        table
+            .qualified_name
+            .clone()
+            .unwrap_or_else(|| table.label.clone())
+    })
+}
+
 /// Serialize AnalyzeResult to JSON, truncating at 1 MiB if necessary.
 /// Returns (json_string, was_truncated).
 pub fn truncate_result_json(result: &AnalyzeResult) -> (Option<String>, bool) {
@@ -151,6 +167,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
     dialect          TEXT    NOT NULL,
     file_name        TEXT,
     source_name      TEXT,
+    target_table     TEXT,
     sql_text         TEXT    NOT NULL,
     sql_hash         TEXT    NOT NULL,
     sql_len          INTEGER NOT NULL,
@@ -177,6 +194,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_sql_hash    ON audit_log(sql_hash);
 CREATE INDEX IF NOT EXISTS idx_audit_has_cte     ON audit_log(has_cte);
 CREATE INDEX IF NOT EXISTS idx_audit_sql_type    ON audit_log(sql_type);
 CREATE INDEX IF NOT EXISTS idx_audit_source_name ON audit_log(source_name);
+CREATE INDEX IF NOT EXISTS idx_audit_target_table ON audit_log(target_table);
 "#;
 
 /// Step 2: additive column migrations. Each migration is applied at
@@ -187,19 +205,20 @@ CREATE INDEX IF NOT EXISTS idx_audit_source_name ON audit_log(source_name);
 const ADDITIVE_MIGRATIONS: &[&str] = &[
     "ALTER TABLE audit_log ADD COLUMN sql_type TEXT",
     "ALTER TABLE audit_log ADD COLUMN source_name TEXT",
+    "ALTER TABLE audit_log ADD COLUMN target_table TEXT",
 ];
 
 const INSERT_SQL: &str = r#"
 INSERT INTO audit_log (
-    ts, client_ip, endpoint, dialect, file_name, source_name,
+    ts, client_ip, endpoint, dialect, file_name, source_name, target_table,
     sql_text, sql_hash, sql_len,
     has_cte, has_union, success, duration_ms,
     stmt_count, table_count, sql_type, result_json, result_truncated, error_msg
 ) VALUES (
-    ?1, ?2, ?3, ?4, ?5, ?6,
-    ?7, ?8, ?9,
-    ?10, ?11, ?12, ?13,
-    ?14, ?15, ?16, ?17, ?18, ?19
+    ?1, ?2, ?3, ?4, ?5, ?6, ?7,
+    ?8, ?9, ?10,
+    ?11, ?12, ?13, ?14,
+    ?15, ?16, ?17, ?18, ?19, ?20
 )
 "#;
 
@@ -271,6 +290,7 @@ impl AuditWriter {
                             entry.dialect,
                             entry.file_name,
                             entry.source_name,
+                            entry.target_table,
                             entry.sql_text,
                             entry.sql_hash,
                             entry.sql_len as i64,
@@ -352,6 +372,10 @@ impl AuditWriter {
             cond_parts.push("source_name LIKE ?");
             extra_params.push(format!("%{sn_pat}%"));
         }
+        if let Some(target_table) = filters.target_table_filter {
+            cond_parts.push("target_table = ?");
+            extra_params.push(target_table.to_string());
+        }
         if let Some(kw) = filters.keyword {
             cond_parts.push("LOWER(sql_text) LIKE LOWER(?)");
             extra_params.push(format!("%{kw}%"));
@@ -385,7 +409,7 @@ impl AuditWriter {
         // List query: omit sql_text and result_json to keep responses small.
         // Use GET /api/audit/:id for full detail including those fields.
         let select_sql = format!(
-            "SELECT id, ts, client_ip, endpoint, dialect, file_name, source_name, \
+            "SELECT id, ts, client_ip, endpoint, dialect, file_name, source_name, target_table, \
              sql_hash, sql_len, has_cte, has_union, success, duration_ms, \
              stmt_count, table_count, sql_type, result_truncated, error_msg \
              FROM audit_log {where_clause} ORDER BY ts DESC LIMIT ?{limit_idx} OFFSET ?{offset_idx}"
@@ -408,17 +432,18 @@ impl AuditWriter {
             let dialect: String = row.get(4)?;
             let file_name: Option<String> = row.get(5)?;
             let source_name: Option<String> = row.get(6)?;
-            let sql_hash: String = row.get(7)?;
-            let sql_len: i64 = row.get(8)?;
-            let has_cte: i32 = row.get(9)?;
-            let has_union: i32 = row.get(10)?;
-            let success: i32 = row.get(11)?;
-            let duration_ms: i64 = row.get(12)?;
-            let stmt_count: Option<i64> = row.get(13)?;
-            let table_count: Option<i64> = row.get(14)?;
-            let sql_type: Option<String> = row.get(15)?;
-            let result_truncated: i32 = row.get(16)?;
-            let error_msg: Option<String> = row.get(17)?;
+            let target_table: Option<String> = row.get(7)?;
+            let sql_hash: String = row.get(8)?;
+            let sql_len: i64 = row.get(9)?;
+            let has_cte: i32 = row.get(10)?;
+            let has_union: i32 = row.get(11)?;
+            let success: i32 = row.get(12)?;
+            let duration_ms: i64 = row.get(13)?;
+            let stmt_count: Option<i64> = row.get(14)?;
+            let table_count: Option<i64> = row.get(15)?;
+            let sql_type: Option<String> = row.get(16)?;
+            let result_truncated: i32 = row.get(17)?;
+            let error_msg: Option<String> = row.get(18)?;
 
             records.push(serde_json::json!({
                 "id": id,
@@ -428,6 +453,7 @@ impl AuditWriter {
                 "dialect": dialect,
                 "file_name": file_name,
                 "source_name": source_name,
+                "target_table": target_table,
                 "sql_hash": sql_hash,
                 "sql_len": sql_len,
                 "has_cte": has_cte != 0,
@@ -489,7 +515,7 @@ impl AuditWriter {
     ) -> anyhow::Result<Option<serde_json::Value>> {
         let conn = rusqlite::Connection::open(db_path)?;
         let mut stmt = conn.prepare(
-            "SELECT id, ts, client_ip, endpoint, dialect, file_name, source_name, \
+            "SELECT id, ts, client_ip, endpoint, dialect, file_name, source_name, target_table, \
              sql_text, sql_hash, sql_len, has_cte, has_union, success, duration_ms, \
              stmt_count, table_count, sql_type, result_json, result_truncated, error_msg \
              FROM audit_log WHERE id = ?1",
@@ -499,7 +525,7 @@ impl AuditWriter {
         match rows.next()? {
             None => Ok(None),
             Some(row) => {
-                let result_json_raw: Option<String> = row.get(17)?;
+                let result_json_raw: Option<String> = row.get(18)?;
                 let result_json = result_json_raw
                     .as_deref()
                     .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
@@ -511,19 +537,20 @@ impl AuditWriter {
                     "dialect":          row.get::<_, String>(4)?,
                     "file_name":        row.get::<_, Option<String>>(5)?,
                     "source_name":      row.get::<_, Option<String>>(6)?,
-                    "sql_text":         row.get::<_, String>(7)?,
-                    "sql_hash":         row.get::<_, String>(8)?,
-                    "sql_len":          row.get::<_, i64>(9)?,
-                    "has_cte":          row.get::<_, i32>(10)? != 0,
-                    "has_union":        row.get::<_, i32>(11)? != 0,
-                    "success":          row.get::<_, i32>(12)? != 0,
-                    "duration_ms":      row.get::<_, i64>(13)?,
-                    "stmt_count":       row.get::<_, Option<i64>>(14)?,
-                    "table_count":      row.get::<_, Option<i64>>(15)?,
-                    "sql_type":         row.get::<_, Option<String>>(16)?,
+                    "target_table":     row.get::<_, Option<String>>(7)?,
+                    "sql_text":         row.get::<_, String>(8)?,
+                    "sql_hash":         row.get::<_, String>(9)?,
+                    "sql_len":          row.get::<_, i64>(10)?,
+                    "has_cte":          row.get::<_, i32>(11)? != 0,
+                    "has_union":        row.get::<_, i32>(12)? != 0,
+                    "success":          row.get::<_, i32>(13)? != 0,
+                    "duration_ms":      row.get::<_, i64>(14)?,
+                    "stmt_count":       row.get::<_, Option<i64>>(15)?,
+                    "table_count":      row.get::<_, Option<i64>>(16)?,
+                    "sql_type":         row.get::<_, Option<String>>(17)?,
                     "result_json":      result_json,
-                    "result_truncated": row.get::<_, i32>(18)? != 0,
-                    "error_msg":        row.get::<_, Option<String>>(19)?,
+                    "result_truncated": row.get::<_, i32>(19)? != 0,
+                    "error_msg":        row.get::<_, Option<String>>(20)?,
                 })))
             }
         }
@@ -544,6 +571,7 @@ mod tests {
             dialect: "Hive".to_string(),
             file_name: file_name.map(str::to_string),
             source_name: source_name.map(str::to_string),
+            target_table: None,
             sql_text: "SELECT 1".to_string(),
             sql_hash: sha256_hex("SELECT 1"),
             sql_len: 8,
@@ -571,6 +599,7 @@ mod tests {
                 entry.dialect,
                 entry.file_name,
                 entry.source_name,
+                entry.target_table,
                 entry.sql_text,
                 entry.sql_hash,
                 entry.sql_len as i64,
@@ -619,7 +648,46 @@ mod tests {
         let second = &records[1];
         assert_eq!(first["file_name"], serde_json::json!("foo.sql"));
         assert_eq!(first["source_name"], serde_json::json!(null));
+        assert_eq!(first["target_table"], serde_json::json!(null));
         assert_eq!(second["source_name"], serde_json::json!("etl-job-1234"));
+    }
+
+    #[test]
+    fn insert_and_query_round_trip_target_table() {
+        let (_dir, path, conn) = fresh_db();
+        let mut entry = make_entry(None, None);
+        entry.target_table = Some("dw_conan_dwd.dwd_conan_user_order_da".to_string());
+        insert_direct(&conn, &entry);
+        drop(conn);
+
+        let (total, records) =
+            AuditWriter::query(&path, 100, 0, AuditLogListFilters::default()).unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(
+            records[0]["target_table"],
+            serde_json::json!("dw_conan_dwd.dwd_conan_user_order_da")
+        );
+    }
+
+    #[test]
+    fn target_table_filter_is_exact_match() {
+        let (_dir, path, conn) = fresh_db();
+        let mut orders_entry = make_entry(None, None);
+        orders_entry.target_table = Some("dw.orders".to_string());
+        insert_direct(&conn, &orders_entry);
+
+        let mut orders_daily_entry = make_entry(None, None);
+        orders_daily_entry.target_table = Some("dw.orders_daily".to_string());
+        insert_direct(&conn, &orders_daily_entry);
+        drop(conn);
+
+        let filters = AuditLogListFilters {
+            target_table_filter: Some("dw.orders"),
+            ..Default::default()
+        };
+        let (total, records) = AuditWriter::query(&path, 100, 0, filters).unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(records[0]["target_table"], serde_json::json!("dw.orders"));
     }
 
     #[test]
@@ -650,6 +718,7 @@ mod tests {
 
         let detail = AuditWriter::query_one(&path, 1).unwrap().expect("row");
         assert_eq!(detail["source_name"], serde_json::json!("payment-pipeline"));
+        assert_eq!(detail["target_table"], serde_json::json!(null));
         assert_eq!(detail["sql_text"], serde_json::json!("SELECT 1"));
     }
 
@@ -688,7 +757,7 @@ mod tests {
                 .unwrap();
         }
 
-        // First open: should add sql_type + source_name columns.
+        // First open: should add sql_type + source_name + target_table columns.
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -707,11 +776,11 @@ mod tests {
         let conn = rusqlite::Connection::open(&path).unwrap();
         let row: Option<String> = conn
             .query_row(
-                "SELECT name FROM pragma_table_info('audit_log') WHERE name = 'source_name'",
+                "SELECT name FROM pragma_table_info('audit_log') WHERE name = 'target_table'",
                 [],
                 |r| r.get(0),
             )
             .ok();
-        assert_eq!(row.as_deref(), Some("source_name"));
+        assert_eq!(row.as_deref(), Some("target_table"));
     }
 }

@@ -15,7 +15,7 @@ This spec applies whenever:
 
 ---
 
-## 2. SQLite Schema (Current — v3)
+## 2. SQLite Schema (Current — v4)
 
 ```sql
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
     dialect          TEXT    NOT NULL,               -- "Generic" | "Hive" | "Postgres" etc.
     file_name        TEXT,                           -- files[] mode: source file name; inline SQL: NULL
     source_name      TEXT,                           -- caller-supplied business identifier (sourceName / source_name); NULL when omitted
+    target_table     TEXT,                           -- single analyzed sink table (`qualified_name` preferred, label fallback); NULL for read-only / multi-target SQL
     sql_text         TEXT    NOT NULL,               -- full original SQL — NEVER truncated
     sql_hash         TEXT    NOT NULL,               -- SHA-256(sql_text) hex, for dedup lookups
     sql_len          INTEGER NOT NULL,               -- byte length of sql_text
@@ -49,6 +50,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_sql_hash    ON audit_log(sql_hash);
 CREATE INDEX IF NOT EXISTS idx_audit_has_cte     ON audit_log(has_cte);
 CREATE INDEX IF NOT EXISTS idx_audit_sql_type    ON audit_log(sql_type);
 CREATE INDEX IF NOT EXISTS idx_audit_source_name ON audit_log(source_name);
+CREATE INDEX IF NOT EXISTS idx_audit_target_table ON audit_log(target_table);
 ```
 
 ### Migration order (CRITICAL — strict three-phase)
@@ -110,6 +112,25 @@ row verbatim. The API accepts both spellings:
 **Use cases**: ETL job id, dbt model name, scheduler task id, ad-hoc tag for
 manual investigations. The audit DB never interprets the value; it's
 purely a search/correlation key for the caller.
+
+### `target_table` — analyzed write target
+
+Materialized from `AnalyzeResult.target_table` at audit-write time:
+
+```rust
+let target_table = result.target_table.as_ref().map(|table| {
+    table.qualified_name.clone().unwrap_or_else(|| table.label.clone())
+});
+```
+
+- Prefer `qualified_name` because the audit page filter is meant for
+  `db.table` / fully qualified names.
+- Fall back to `label` only when the analyzer did not provide a qualified name.
+- `NULL` for read-only SQL, parse failures without a target, or multi-target
+  workloads where `AnalyzeResult.target_table` is intentionally empty.
+- Filter via `GET /api/audit?target_table=db.table` — exact match on the
+  materialized `target_table` column. Do not use SQL keyword search for this
+  because keyword search can match source tables, comments, or unrelated text.
 
 ### `stmt_count` — meaningful statements only
 
@@ -198,7 +219,7 @@ Truncated to 1,048,576 bytes if oversized. `result_truncated = 1` is set when tr
 **Response omits `sql_text` and `result_json`** to keep list responses small and browser-viewable.
 
 ```
-GET /api/audit?limit=50&offset=0&from=2026-05-01T00:00:00.000Z&to=2026-05-31T23:59:59.999Z&endpoint=/api/analyze&sql_type=INSERT&success=true&file_name=orders&source_name=etl-job&keyword=MERGE
+GET /api/audit?limit=50&offset=0&from=2026-05-01T00:00:00.000Z&to=2026-05-31T23:59:59.999Z&endpoint=/api/analyze&sql_type=INSERT&success=true&file_name=orders&source_name=etl-job&target_table=dw.orders&keyword=MERGE
 ```
 
 | Param | Type | Default | Max | Notes |
@@ -212,6 +233,7 @@ GET /api/audit?limit=50&offset=0&from=2026-05-01T00:00:00.000Z&to=2026-05-31T23:
 | `success` | bool | — | — | `true` / `false` query param |
 | `file_name` | string | — | — | substring match: `file_name LIKE %value%` |
 | `source_name` (alias `sourceName`) | string | — | — | substring match: `source_name LIKE %value%` |
+| `target_table` | string | — | — | exact match on materialized target table (`db.table`) |
 | `keyword` | string | — | — | case-insensitive substring on `sql_text` (list rows still omit `sql_text` in JSON) |
 
 Response:
@@ -223,6 +245,7 @@ Response:
       "id": 10, "ts": "...", "client_ip": "127.0.0.1",
       "endpoint": "/api/analyze", "dialect": "Hive",
       "file_name": "orders.sql", "source_name": "etl-job-1234",
+      "target_table": "dw.orders",
       "sql_hash": "...", "sql_len": 4885,
       "has_cte": true, "has_union": false, "success": true,
       "duration_ms": 5, "stmt_count": 1, "table_count": 3,
@@ -284,6 +307,8 @@ When serve mode returns configuration JSON, it includes:
 - `sql_text`: that file's content
 - `sql_hash`: SHA-256 of that file's content
 - Shared: `has_cte`, `has_union`, `stmt_count`, `table_count`, `sql_type`, `result_json`, `source_name` — all from the combined `AnalyzeResult` (or, for `source_name`, the request-level field)
+- Shared: `target_table` — from the combined `AnalyzeResult`, same as
+  `sql_type` / `table_count`.
 
 **Why shared result**: The engine analyzes all files together as one cross-file lineage graph. Individual per-file results do not exist.
 

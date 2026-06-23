@@ -71,8 +71,8 @@ Minimal change: 2 lines added (save + restore), no control-flow change.
 
 ## Risk
 
-`gitnexus_impact(visit_table_factor, upstream)` = HIGH (impacts 9
-`analyze` flows + 6 `analyze_update` + 6 `analyze_merge`).
+影响分析 = HIGH（影响 9 个 `analyze` 流程、6 个 `analyze_update`
+流程和 6 个 `analyze_merge` 流程）。
 
 But the actual edit is purely additive save/restore — no logic change.
 Risk is dominated by potential test churn, not behavior change.

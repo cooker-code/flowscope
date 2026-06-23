@@ -29,6 +29,7 @@ const URL_PARAM_KEYS = [
   'success',
   'file_name',
   'source_name',
+  'target_table',
   'keyword',
   'page',
 ] as const;
@@ -41,6 +42,7 @@ interface AuditListRecord {
   dialect: string;
   file_name: string | null;
   source_name: string | null;
+  target_table: string | null;
   sql_type: string | null;
   success: boolean;
   duration_ms: number;
@@ -65,6 +67,7 @@ export function AuditPage() {
   const success = searchParams.get('success') ?? ANY;
   const fileName = searchParams.get('file_name') ?? '';
   const sourceName = searchParams.get('source_name') ?? '';
+  const targetTable = searchParams.get('target_table') ?? '';
   const urlKeyword = searchParams.get('keyword') ?? '';
   const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10) || 1);
 
@@ -72,9 +75,11 @@ export function AuditPage() {
   // debounced value is what we push back to the URL (and the request).
   const [fileNameInput, setFileNameInput] = useState(fileName);
   const [sourceNameInput, setSourceNameInput] = useState(sourceName);
+  const [targetTableInput, setTargetTableInput] = useState(targetTable);
   const [keywordInput, setKeywordInput] = useState(urlKeyword);
   const debouncedFileName = useDebounce(fileNameInput, 300);
   const debouncedSourceName = useDebounce(sourceNameInput, 300);
+  const debouncedTargetTable = useDebounce(targetTableInput, 300);
   const debouncedKeyword = useDebounce(keywordInput, 300);
 
   // Helper: mutate the URL while resetting page=1 on any filter change.
@@ -116,6 +121,12 @@ export function AuditPage() {
   }, [debouncedSourceName, sourceName, updateParams]);
 
   useEffect(() => {
+    if (debouncedTargetTable !== targetTable) {
+      updateParams({ target_table: debouncedTargetTable }, { resetPage: true });
+    }
+  }, [debouncedTargetTable, targetTable, updateParams]);
+
+  useEffect(() => {
     if (debouncedKeyword !== urlKeyword) {
       updateParams({ keyword: debouncedKeyword }, { resetPage: true });
     }
@@ -148,9 +159,10 @@ export function AuditPage() {
     if (success === 'true' || success === 'false') p.set('success', success);
     if (fileName.trim()) p.set('file_name', fileName.trim());
     if (sourceName.trim()) p.set('source_name', sourceName.trim());
+    if (targetTable.trim()) p.set('target_table', targetTable.trim());
     if (urlKeyword.trim()) p.set('keyword', urlKeyword.trim());
     return p.toString();
-  }, [page, from, to, sqlType, success, fileName, sourceName, urlKeyword]);
+  }, [page, from, to, sqlType, success, fileName, sourceName, targetTable, urlKeyword]);
 
   const fetchList = useCallback(async () => {
     setLoading(true);
@@ -216,6 +228,7 @@ export function AuditPage() {
   const resetFilters = () => {
     setFileNameInput('');
     setSourceNameInput('');
+    setTargetTableInput('');
     setKeywordInput('');
     setSearchParams(new URLSearchParams(), { replace: true });
   };
@@ -312,6 +325,15 @@ export function AuditPage() {
             />
           </div>
           <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Target table</label>
+            <Input
+              className="h-9 w-[220px] text-xs"
+              placeholder="db.table…"
+              value={targetTableInput}
+              onChange={(e) => setTargetTableInput(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
             <label className="text-xs text-muted-foreground">SQL keyword</label>
             <Input
               className="h-9 w-[220px] text-xs"
@@ -385,6 +407,7 @@ export function AuditPage() {
                   <th className="px-3 py-2 font-medium">Dialect</th>
                   <th className="px-3 py-2 font-medium">File</th>
                   <th className="px-3 py-2 font-medium">Name</th>
+                  <th className="px-3 py-2 font-medium">Target table</th>
                   <th className="px-3 py-2 font-medium">Type</th>
                   <th className="px-3 py-2 font-medium">OK</th>
                   <th className="px-3 py-2 font-medium">ms</th>
@@ -417,6 +440,12 @@ export function AuditPage() {
                     >
                       {r.source_name ?? '—'}
                     </td>
+                    <td
+                      className="px-3 py-2 max-w-[220px] truncate"
+                      title={r.target_table ?? ''}
+                    >
+                      {r.target_table ?? '—'}
+                    </td>
                     <td className="px-3 py-2">{r.sql_type ?? '—'}</td>
                     <td className="px-3 py-2">
                       {r.success ? (
@@ -445,7 +474,7 @@ export function AuditPage() {
                 ))}
                 {data && data.records.length === 0 && (
                   <tr>
-                    <td colSpan={11} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={12} className="px-4 py-8 text-center text-muted-foreground">
                       No audit records match the current filters.
                     </td>
                   </tr>

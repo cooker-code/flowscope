@@ -2052,6 +2052,40 @@ async fn audit_files_array_writes_multiple_records() {
 }
 
 #[tokio::test]
+async fn audit_records_target_table_for_insert_sql() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("audit.db");
+
+    let state = test_state_with_audit(&db_path);
+    let app = build_router(Arc::clone(&state))
+        .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))));
+
+    let (status, _) = post_json(
+        &app,
+        "/api/analyze",
+        json!({ "sql": "INSERT INTO dw.orders SELECT id FROM src.users" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    wait_for_audit_rows(&db_path, 1).await;
+
+    let db_path2 = db_path.clone();
+    let target_table: Option<String> = tokio::task::spawn_blocking(move || {
+        use rusqlite::Connection;
+        let conn = Connection::open(&db_path2).unwrap();
+        conn.query_row("SELECT target_table FROM audit_log LIMIT 1", [], |r| {
+            r.get(0)
+        })
+        .unwrap()
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(target_table.as_deref(), Some("dw.orders"));
+}
+
+#[tokio::test]
 async fn audit_has_cte_flag_set_for_cte_query() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("audit.db");
@@ -2216,23 +2250,36 @@ fn insert_audit_row(
     sql_type: &str,
     success: i32,
 ) {
+    insert_audit_row_with_target(db_path, ts, file_name, None, sql_text, sql_type, success);
+}
+
+fn insert_audit_row_with_target(
+    db_path: &std::path::Path,
+    ts: &str,
+    file_name: Option<&str>,
+    target_table: Option<&str>,
+    sql_text: &str,
+    sql_type: &str,
+    success: i32,
+) {
     use flowscope_cli::server::audit::sha256_hex;
     let conn = rusqlite::Connection::open(db_path).unwrap();
     let hash = sha256_hex(sql_text);
     let len = sql_text.len() as i64;
     conn.execute(
         "INSERT INTO audit_log (
-            ts, client_ip, endpoint, dialect, file_name,
+            ts, client_ip, endpoint, dialect, file_name, target_table,
             sql_text, sql_hash, sql_len,
             has_cte, has_union, success, duration_ms,
             stmt_count, table_count, sql_type, result_json, result_truncated, error_msg
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
         rusqlite::params![
             ts,
             "127.0.0.1",
             "/api/analyze",
             "Generic",
             file_name,
+            target_table,
             sql_text,
             hash,
             len,
@@ -2403,6 +2450,53 @@ async fn audit_query_filter_by_file_name_like() {
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["total"], 1);
     assert_eq!(json["records"][0]["file_name"], "models/dim/foo.sql");
+}
+
+#[tokio::test]
+async fn audit_query_filter_by_target_table_exact_match() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("audit.db");
+    let state = test_state_with_audit(&db_path);
+    let app = build_router(Arc::clone(&state))
+        .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))));
+
+    insert_audit_row_with_target(
+        &db_path,
+        "2026-01-01T00:00:00.000Z",
+        None,
+        Some("dw.orders"),
+        "INSERT INTO dw.orders SELECT * FROM src",
+        "INSERT",
+        1,
+    );
+    insert_audit_row_with_target(
+        &db_path,
+        "2026-01-02T00:00:00.000Z",
+        None,
+        Some("dw.orders_daily"),
+        "INSERT INTO dw.orders_daily SELECT * FROM src",
+        "INSERT",
+        1,
+    );
+
+    let response = app
+        .oneshot(
+            Request::get("/api/audit?limit=50&offset=0&target_table=dw.orders")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["total"], 1);
+    assert_eq!(json["records"][0]["target_table"], "dw.orders");
+    assert!(json["records"][0].get("sql_text").is_none());
+    assert!(json["records"][0].get("result_json").is_none());
 }
 
 #[tokio::test]

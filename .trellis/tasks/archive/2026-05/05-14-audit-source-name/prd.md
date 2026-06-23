@@ -14,7 +14,7 @@ dbt model 名、业务侧 SQL 标签等），让 audit 记录可被业务关联�
 | 适用端点 | **只 `/api/analyze`**（split / lint-fix / export 的 audit 行 `source_name` 写 NULL） |
 | 前端范围 | **API + DB + 列表显示 + Name 输入框做 LIKE 过滤**（同 file_name 模式） |
 
-## 影响分析（gitnexus）
+## 影响分析
 
 - **风险等级**: LOW
 - **直接受影响**: `AuditEntry` 的 4 个调用点（`analyze` / `split` / `lint_fix` / `export`，全在 `crates/flowscope-cli/src/server/api.rs`）

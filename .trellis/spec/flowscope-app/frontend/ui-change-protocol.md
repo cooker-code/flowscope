@@ -23,8 +23,8 @@
 # 用组件名/文本/类名搜索
 grep -r "Audit History\|handleSelectAuditFile\|FileSelector" app/src --include="*.tsx" -l
 
-# 用 GitNexus 找调用链
-npx gitnexus query "audit file selector dropdown" --repo flowscope
+# 用代码检索找调用链
+rg -n "Audit History|handleSelectAuditFile|FileSelector" app/src
 ```
 
 不确认到文件级别，不开始改。

@@ -537,7 +537,7 @@ Learn something → /trellis-update-spec → Knowledge captured
 ### 跨层验证
 - [ ] 手动 `./target/debug/flowscope --serve --port 3099 --audit-log data/audit.db` + curl 走核心路径
 - [ ] 若涉及 EdgeType：同步前端 `packages/react/src/constants.ts` + `Legend.tsx`
-- [ ] GitNexus 影响分析（HIGH/CRITICAL 风险写进 PRD）
+- [ ] 影响分析（高风险写进 PRD）
 ```
 
 **为什么 Trellis 把验收清单放 spec 而不是 workflow？**

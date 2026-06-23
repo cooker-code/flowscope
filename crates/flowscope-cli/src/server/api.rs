@@ -16,7 +16,9 @@ use axum::{
 use chrono::SecondsFormat;
 use serde::{Deserialize, Serialize};
 
-use super::audit::{extract_audit_flags, sha256_hex, truncate_result_json, AuditEntry};
+use super::audit::{
+    extract_audit_flags, extract_target_table, sha256_hex, truncate_result_json, AuditEntry,
+};
 use super::AppState;
 
 /// Build the API router with all endpoints.
@@ -158,6 +160,8 @@ struct AuditQueryParams {
     /// (`sourceName=…`) for consistency with the analyze input.
     #[serde(default, alias = "sourceName")]
     source_name: Option<String>,
+    /// Exact match on the analyzed target table (`db.table` / qualified name).
+    target_table: Option<String>,
     /// Case-insensitive substring match on `sql_text`
     keyword: Option<String>,
 }
@@ -237,6 +241,7 @@ async fn analyze(
         };
         let (has_cte, has_union, stmt_count, table_count, sql_type) =
             extract_audit_flags(&result, &combined_sql);
+        let target_table = extract_target_table(&result);
         let (result_json, result_truncated) = truncate_result_json(&result);
         let success = !result.summary.has_errors;
 
@@ -252,6 +257,7 @@ async fn analyze(
                     dialect: dialect.clone(),
                     file_name: Some(file.name.clone()),
                     source_name: payload.source_name.clone(),
+                    target_table: target_table.clone(),
                     sql_text: file.content.clone(),
                     sql_hash,
                     sql_len,
@@ -278,6 +284,7 @@ async fn analyze(
                 dialect,
                 file_name: None,
                 source_name: payload.source_name.clone(),
+                target_table,
                 sql_text: payload.sql.clone(),
                 sql_hash,
                 sql_len,
@@ -349,6 +356,7 @@ async fn split(
             // as "caller-supplied identifier" without forcing every endpoint
             // to invent one.
             source_name: None,
+            target_table: None,
             sql_text: payload.sql,
             sql_hash,
             sql_len,
@@ -412,6 +420,7 @@ async fn lint_fix(
             dialect: format!("{:?}", state.config.dialect),
             file_name: None,
             source_name: None,
+            target_table: None,
             sql_text: payload.sql.clone(),
             sql_hash,
             sql_len,
@@ -510,6 +519,7 @@ async fn export(
         };
         let (has_cte, has_union, stmt_count, table_count, sql_type) =
             extract_audit_flags(&result, &export_combined_sql);
+        let target_table = extract_target_table(&result);
         let success = !result.summary.has_errors;
         let endpoint = format!("/api/export/{format}");
 
@@ -524,6 +534,7 @@ async fn export(
                     dialect: dialect.clone(),
                     file_name: Some(file.name.clone()),
                     source_name: None,
+                    target_table: target_table.clone(),
                     sql_text: file.content.clone(),
                     sql_hash,
                     sql_len,
@@ -549,6 +560,7 @@ async fn export(
                 dialect,
                 file_name: None,
                 source_name: None,
+                target_table,
                 sql_text: payload.sql.clone(),
                 sql_hash,
                 sql_len,
@@ -683,6 +695,7 @@ async fn audit_records(
     let success = params.success;
     let file_name = params.file_name.clone().filter(|s| !s.trim().is_empty());
     let source_name = params.source_name.clone().filter(|s| !s.trim().is_empty());
+    let target_table = params.target_table.clone().filter(|s| !s.trim().is_empty());
     let keyword = params.keyword.clone().filter(|s| !s.trim().is_empty());
 
     let result = tokio::task::spawn_blocking(move || {
@@ -694,6 +707,7 @@ async fn audit_records(
             success,
             file_name_filter: file_name.as_deref(),
             source_name_filter: source_name.as_deref(),
+            target_table_filter: target_table.as_deref(),
             keyword: keyword.as_deref(),
         };
         super::audit::AuditWriter::query(&audit_path, limit, offset, filters)

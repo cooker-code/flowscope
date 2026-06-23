@@ -37,7 +37,7 @@
 - **为什么 `fix` 个人也强制**：呼应 `suibi.md` §3「创建 issue。描述要清晰。前端的错误要到元素的粒度」和 §20「agent 的能力上限取决于它能不能自己拿到反馈」。bug 的反馈链是 `issue（现象+复现）→ task（修复+验收报告）→ PR（关闭 issue）→ spec 沉淀`；缺 issue 等于断了下次同类问题的追溯路径。
 - **为什么 `perf` 必须留 issue**：baseline 数字和目标数字必须有持久化载体，issue 是最自然的位置——不留容易退化成"感觉变快了"。
 - **`feat` 的 0.5 天阈值**：低于这个量级的小功能（加个按钮、补个字段）走 task 已经够；超过就涉及产品方向，需要 issue 让历史可追溯。
-- **`refactor` 的 10 文件阈值**：呼应 `AGENTS.md` 里 GitNexus 影响分析规则——blast radius 大到需要让别人知情时，issue 是协同信号。
+- **`refactor` 的 10 文件阈值**：当影响面大到需要让别人知情时，issue 是协同信号。
 
 
 
@@ -138,7 +138,7 @@
 - 复现命令：<curl/yarn test/cargo test 命令>
 - 修复前：<输出片段，证明失败>
 - 修复后：<输出片段，证明通过>
-- 影响范围：<列出受影响的文件 + 通过 gitnexus_detect_changes 输出>
+- 影响范围：<列出受影响文件、关键调用点和验证命令输出>
 - 回归测试：<列出跑过的测试集，确保旧用例没破>
 ```
 
@@ -182,7 +182,7 @@
 - [ ] `cargo test -p flowscope-core` 全绿
 - [ ] 新增/修改的 fixture 落在 `crates/flowscope-core/tests/fixtures/`
 - [ ] 若涉及 `EdgeType` —— **同步更新前端 `packages/react/src/constants.ts` 与 `Legend.tsx`** 与 spec
-- [ ] **GitNexus 影响分析**：`gitnexus_impact({target: "<symbol>", direction: "upstream"})`，HIGH/CRITICAL 风险必须在 PRD 中说明
+- [ ] **影响分析**：列出关键调用点、受影响模块和高风险行为变化；高风险必须在 PRD 中说明
 
 #### 3.2.3 `cli` 验收（CLI + 审计 API）
 
@@ -207,7 +207,7 @@
 
 ### 3.3 `refactor` 系 —— 重构
 
-- [ ] **前置必跑**：`gitnexus_impact({target: ..., direction: "upstream"})`，blast radius 写进 PRD
+- [ ] **前置必做**：梳理关键调用点、受影响文件和外部行为边界，影响范围写进 PRD
 - [ ] 重构前后**外部行为不变**——所有相关测试全绿，没有新增/删除任何业务测试断言
 - [ ] 复杂重构（>10 文件 / 跨包）必须有 `design.md`
 - [ ] Commit 不混入 feat / fix 的改动
