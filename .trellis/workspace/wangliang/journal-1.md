@@ -279,3 +279,36 @@ yarn dev 时浏览器报 Unexpected token '<', '<!DOCTYPE'... is not valid JSON 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: 修复自依赖 INSERT 缺失 sourceTables 收尾
+
+**Date**: 2026-07-06
+**Task**: 修复自依赖 INSERT 缺失 sourceTables 收尾
+**Branch**: `master`
+
+### Summary
+
+完成 flowscope-core 自依赖 INSERT sourceTables 契约修复并提交代码；完成生产 CLI serve 打包上传；创建 Claro Story 1187 / Task 1646，写入 score=4、plannedScore=4，上传 Trellis 文档到 DocZ 并挂载 Task 产物；Trellis task 已归档。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `82b3f7f9` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

@@ -15,12 +15,22 @@
   "branch": null,
   "base_branch": "master",
   "worktree_path": null,
-  "commit": null,
+  "commit": "82b3f7f9",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {
+    "claro": {
+      "epic_id": "4900471",
+      "story_id": "1187",
+      "task_id": "1646",
+      "task_url": "https://claro.zhenguanyu.com/tasks/1646",
+      "docz_url": "https://docz.zhenguanyu.com/s/rd/f/aL7UoAtp",
+      "score": 4,
+      "plannedScore": 4
+    }
+  }
 }
