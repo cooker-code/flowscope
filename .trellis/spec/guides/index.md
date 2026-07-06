@@ -24,6 +24,7 @@ These guides help you **ask the right questions before coding**.
 | [Code Reuse Thinking Guide](./code-reuse-thinking-guide.md) | Identify patterns and reduce duplication | When you notice repeated patterns |
 | [Cross-Layer Thinking Guide](./cross-layer-thinking-guide.md) | Think through data flow across layers | Features spanning multiple layers |
 | [Fix Location Thinking Guide](./fix-location-thinking-guide.md) | Decide which layer to put a fix in | Before fixing a bug or adding compatibility |
+| [Claro Task 估分指南](./claro-task-scoring.md) | 校准 Claro Task 的 `score` / `plannedScore`，避免把估分误当估时 | Claro 收尾、批量补登记、历史 Task 重估 |
 
 ---
 
@@ -57,6 +58,14 @@ These guides help you **ask the right questions before coding**.
 - [ ] Pass rate / metrics improved but you can't explain how real users benefit
 
 → Read [Fix Location Thinking Guide](./fix-location-thinking-guide.md)
+
+### 何时看 Claro 估分指南
+
+- [ ] 要给 Claro Task 写入 `score`
+- [ ] 要解释或修正 `plannedScore`
+- [ ] 执行 “收尾 / task 收尾 / 同步 claro”
+
+→ 读 [Claro Task 估分指南](./claro-task-scoring.md)
 
 ---
 

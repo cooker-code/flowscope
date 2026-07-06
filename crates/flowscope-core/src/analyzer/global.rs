@@ -389,8 +389,9 @@ impl<'a> Analyzer<'a> {
 /// - When multiple physical sinks are detected, emit a
 ///   `MULTIPLE_TARGET_TABLES` error and leave `target_table` empty so callers
 ///   don't silently pick the wrong one.
-/// - `source_tables` contains every physical table/view that is not the sink,
-///   sorted by qualified name (or label as a fallback) for stable output.
+/// - `source_tables` contains every physical table/view read by the workload,
+///   including self-dependent sources that are also the sink, sorted by
+///   qualified name (or label as a fallback) for stable output.
 fn classify_physical_tables(
     nodes: &[Node],
     edges: &[Edge],
@@ -416,16 +417,34 @@ fn classify_physical_tables(
             continue;
         }
         let to_id = edge.to.as_ref();
-        let candidate = if physical_ids.contains(to_id) {
-            Some(to_id)
-        } else {
-            column_owner
-                .get(to_id)
-                .copied()
-                .filter(|owner| physical_ids.contains(*owner))
-        };
-        if let Some(id) = candidate {
-            sink_ids.insert(id);
+        if physical_ids.contains(to_id) {
+            sink_ids.insert(to_id);
+        } else if let Some(owner) = column_owner
+            .get(to_id)
+            .copied()
+            .filter(|owner| physical_ids.contains(*owner))
+        {
+            sink_ids.insert(owner);
+        }
+    }
+
+    let mut source_ids: HashSet<&str> = HashSet::new();
+    for edge in edges {
+        if !matches!(
+            edge.edge_type,
+            EdgeType::DataFlow | EdgeType::Derivation | EdgeType::JoinDependency
+        ) {
+            continue;
+        }
+        let from_id = edge.from.as_ref();
+        if physical_ids.contains(from_id) {
+            source_ids.insert(from_id);
+        } else if let Some(owner) = column_owner
+            .get(from_id)
+            .copied()
+            .filter(|owner| physical_ids.contains(*owner))
+        {
+            source_ids.insert(owner);
         }
     }
 
@@ -469,7 +488,7 @@ fn classify_physical_tables(
 
     let mut source_nodes: Vec<&Node> = nodes
         .iter()
-        .filter(|n| n.node_type.is_table_or_view() && !sink_ids.contains(n.id.as_ref()))
+        .filter(|n| source_ids.contains(n.id.as_ref()))
         .collect();
     source_nodes.sort_by(|a, b| sort_key(a).cmp(&sort_key(b)));
     let source_tables: Vec<TableRef> = source_nodes.into_iter().map(to_ref).collect();

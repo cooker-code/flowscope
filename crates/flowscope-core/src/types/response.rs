@@ -142,9 +142,10 @@ pub struct AnalyzeResult {
 
     /// Physical source relations consumed by the workload.
     ///
-    /// Excludes CTEs and the `target_table` itself; only `table` / `view`
-    /// nodes that contribute data downstream are listed. Sorted by qualified
-    /// name for stability.
+    /// Excludes CTEs; only `table` / `view` nodes read by the workload are
+    /// listed. Self-dependent writes include the same physical relation in
+    /// both `target_table` and `source_tables`. Sorted by qualified name for
+    /// stability.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub source_tables: Vec<TableRef>,
 

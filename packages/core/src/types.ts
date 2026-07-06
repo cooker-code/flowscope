@@ -429,7 +429,8 @@ export interface AnalyzeResult {
   targetTable?: TableRef;
   /**
    * Physical source relations (`table` / `view`) consumed by the workload.
-   * Excludes CTEs and the `targetTable` itself.
+   * Excludes CTEs. Self-dependent writes can include the same physical
+   * relation in both `targetTable` and `sourceTables`.
    */
   sourceTables?: TableRef[];
   /**

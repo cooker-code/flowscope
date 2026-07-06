@@ -452,7 +452,7 @@
         ]
       },
       "sourceTables": {
-        "description": "Physical source relations consumed by the workload.\n\nExcludes CTEs and the `target_table` itself; only `table` / `view`\nnodes that contribute data downstream are listed. Sorted by qualified\nname for stability.",
+        "description": "Physical source relations consumed by the workload.\n\nExcludes CTEs; only `table` / `view` nodes read by the workload are\nlisted. Self-dependent writes include the same physical relation in\nboth `target_table` and `source_tables`. Sorted by qualified name for\nstability.",
         "type": "array",
         "items": {
           "$ref": "#/definitions/TableRef"

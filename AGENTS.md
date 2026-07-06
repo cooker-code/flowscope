@@ -338,6 +338,29 @@ Use a single repo tag for each release (`vX.Y.Z`) and align Rust workspace + npm
 | **任务收尾** | **`/trellis-finish-work`** | **work commit 之后立即（archive + 写 journal）** |
 | 架构定制 | `/trellis-meta` | 修改 `.trellis/`、platform hooks、skills、commands 时 |
 
+## Claro / Trellis / DocZ 收尾规则
+
+当用户说“收尾”“task 收尾”“同步 claro”“补充 Claro task”“将 Trellis task 补充到 Claro”“把 `.trellis/tasks` 文档上传到 Claro/DocZ”等类似表达时，必须使用项目内 `.agents/skills/conan-claro-task-append/SKILL.md`。
+
+如果当前 Codex 会话的自动 skill 清单没有注入 `conan-claro-task-append`，也必须手动读取该 skill，再按 canonical skill 完成闭环；不能因为 skill 未出现在注入列表中就跳过 Claro/DocZ 收尾。
+
+收尾闭环至少包含：
+
+- 创建或复用 Claro Task / Story，并挂到合适 Epic。
+- 触发或人工落地 Claro Task `score` 估分；涉及周期计划时区分 `score` 与 `plannedScore`。
+- DocZ 目录必须和 Claro Task 对应，上传 Trellis task 的关键文档，并把 DocZ 短链挂到 Claro Task artifacts。
+- 用户语义是“收尾”时，必须将 Claro Task 状态推进到 `done`，并回读验证。
+- 确认完成证据后归档 Trellis task，记录 journal，并提交本次收尾产生的本地改动。
+
+常用 Claro Epic：
+
+| 场景 | Epic |
+| --- | --- |
+| SQL 解析、SQL parser、lineage analyzer、审计页 SQL 解析能力 | `[E-4900471] SQL 解析` |
+| Change 任务排查、Hive/表修改维护、无法明确归属的兜底任务 | `[E-4900415] Change 任务排查与表修改维护` |
+| Neo4j 图谱修复、血缘图修复验证、图谱关系验证 | `[E-4900472] neo4j 图谱修复验证` |
+| 广告投放、promotion、广告消耗、投放 Change/DS 需求 | `[E-4900490] 广告投放` |
+
 ---
 
 <!-- TRELLIS:START -->

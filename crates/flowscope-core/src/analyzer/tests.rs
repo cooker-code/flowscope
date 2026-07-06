@@ -174,6 +174,65 @@ left join dw_dwd.dwd_site_user_reg_profile_da b on a.user_id = b.userid
 }
 
 #[test]
+fn test_self_dependent_insert_keeps_target_in_source_tables() {
+    let sql = r"
+insert overwrite table dw_ads.dm_eng_user_portrait_label_di partition(dt='${date}', bunch='current')
+select coalesce(a.user_id, b.user_id) as user_id,
+       coalesce(a.label_value, b.label_value) as label_value
+from (
+    select user_id, label_value
+    from dw_ads.dm_eng_user_portrait_label_di
+    where dt='${date}' and bunch='history'
+) a
+left join (
+    select user_id, label_value
+    from dw_ads.dm_eng_user_portrait_label_di
+    where dt=date_sub('${date}', 1) and bunch='history'
+) b on a.user_id = b.user_id
+";
+    let mut request = make_request(sql);
+    request.dialect = Dialect::Hive;
+    let result = analyze(&request);
+
+    assert!(!result.summary.has_errors, "issues={:?}", result.issues);
+
+    let target = result.target_table.as_ref().expect("target table");
+    assert_eq!(
+        target.qualified_name.as_deref(),
+        Some("dw_ads.dm_eng_user_portrait_label_di")
+    );
+
+    let source_names: Vec<&str> = result
+        .source_tables
+        .iter()
+        .map(|t| t.qualified_name.as_deref().unwrap_or(&t.label))
+        .collect();
+    assert!(
+        source_names.contains(&"dw_ads.dm_eng_user_portrait_label_di"),
+        "self-dependent physical table must remain in source_tables; got {source_names:?}"
+    );
+    assert_eq!(
+        source_names
+            .iter()
+            .filter(|name| **name == "dw_ads.dm_eng_user_portrait_label_di")
+            .count(),
+        1,
+        "source_tables should deduplicate repeated reads; got {source_names:?}"
+    );
+    assert!(
+        !source_names.iter().any(|name| matches!(*name, "a" | "b")),
+        "source_tables must not expose derived aliases; got {source_names:?}"
+    );
+    assert!(
+        result
+            .source_tables
+            .iter()
+            .all(|t| matches!(t.node_type, crate::NodeType::Table | crate::NodeType::View)),
+        "source_tables must be physical relations, not aliases"
+    );
+}
+
+#[test]
 fn test_multiple_target_tables_emit_error_and_clear_field() {
     let sql = r"
 insert into dst_a select * from src_x;
