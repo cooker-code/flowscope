@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+#### Core Engine (flowscope-core)
+
+- Hive analysis now recognizes `FROM VALUES (...), (...)` as an inline row source, including audit 443044, while preserving target table and column lineage.
+
 ### Added
 
 #### Web App (app/) — Librarian (2026-05-04)

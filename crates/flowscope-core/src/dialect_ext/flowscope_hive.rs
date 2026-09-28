@@ -9,6 +9,7 @@
 //! | Feature                       | Reason                                   |
 //! |-------------------------------|------------------------------------------|
 //! | `supports_struct_literal`     | `STRUCT(col AS name)` field naming       |
+//! | `supports_values_as_table_factor` | `FROM VALUES (..), (..)` row source  |
 //! | `parse_infix` (DIV operator)  | `a DIV b` integer division               |
 //! | `is_table_alias` (OFFSET)     | Hive has no OFFSET keyword, so `offset`  |
 //! |                               | can legally name a table (`(...) offset`)|
@@ -69,6 +70,13 @@ impl Dialect for FlowscopeHiveDialect {
 
     fn supports_group_by_with_modifier(&self) -> bool {
         self.inner.supports_group_by_with_modifier()
+    }
+
+    // Hive-compatible workloads can contain Spark-style inline rows in a
+    // FROM clause. sqlparser only recognizes this form when the dialect opts
+    // in; otherwise VALUES is parsed as a table name and fails at a row comma.
+    fn supports_values_as_table_factor(&self) -> bool {
+        true
     }
 
     // ── PR1 override ────────────────────────────────────────────────────────
@@ -159,6 +167,23 @@ mod tests {
         // Sanity guard: the upstream dialect must still fail; if this assertion
         // breaks, the override has become redundant and can be removed.
         assert!(Parser::parse_sql(&HiveDialect {}, "SELECT STRUCT(a AS w) FROM t").is_err());
+    }
+
+    #[test]
+    fn values_as_table_factor_parses() {
+        // Audit 443044 uses this bare FROM VALUES shape with many rows.
+        assert!(parse_ok(
+            "SELECT id, amount FROM VALUES (1, 0.1), (2, 0.2) AS rows (id, amount)"
+        ));
+    }
+
+    #[test]
+    fn upstream_hive_still_fails_values_as_table_factor() {
+        assert!(Parser::parse_sql(
+            &HiveDialect {},
+            "SELECT id FROM VALUES (1), (2) AS rows (id)"
+        )
+        .is_err());
     }
 
     #[test]
