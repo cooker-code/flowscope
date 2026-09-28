@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 9
-- **Last Active**: 2026-07-06
+- **Total Sessions**: 10
+- **Last Active**: 2026-09-28
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~314 | Active |
+| `journal-1.md` | ~347 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 10 | 2026-09-28 | Hive FROM VALUES audit 443044 fix | `3f6f653826abed5d47a7ce2b544356c478c54f9e` | `codex/fix-hive-from-values-443044` |
 | 9 | 2026-07-06 | 修复自依赖 INSERT 缺失 sourceTables 收尾 | `82b3f7f9` | `master` |
 | 8 | 2026-06-23 | 完成审计目标表筛选 | `27e1a1b3`, `16fc359f` | `codex/audit-target-table-filter` |
 | 7 | 2026-05-15 | SQL 快速粘贴分析 + JSON 结果查看器 | `2cf69f8` | `master` |

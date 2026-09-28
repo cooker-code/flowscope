@@ -312,3 +312,36 @@ yarn dev 时浏览器报 Unexpected token '<', '<!DOCTYPE'... is not valid JSON 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 10: Hive FROM VALUES audit 443044 fix
+
+**Date**: 2026-09-28
+**Task**: Hive FROM VALUES audit 443044 fix
+**Branch**: `codex/fix-hive-from-values-443044`
+
+### Summary
+
+Created GitLab issue 1; enabled Hive FROM VALUES table factor, added parser and public analyze regressions, replayed unchanged audit SQL with exact Databricks lineage parity, verified 1725 core tests and 18 SQL fixtures, built glibc 2.17 Linux serve binary and frontend ZIP; deployment and post-audit verification remain pending.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3f6f653826abed5d47a7ce2b544356c478c54f9e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
