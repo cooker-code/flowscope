@@ -35,15 +35,15 @@ verify the unchanged original SQL and its lineage locally.
 
 ## Acceptance Criteria
 
-- [ ] GitLab issue exists in `yuanli/flowscope` with a stable link and no SQL body.
-- [ ] A compact `INSERT ... SELECT ... FROM VALUES` Hive request has zero error
+- [x] GitLab issue exists in `yuanli/flowscope` with a stable link and no SQL body.
+- [x] A compact `INSERT ... SELECT ... FROM VALUES` Hive request has zero error
   issues, the expected write target, and no physical source table.
-- [ ] Original audit 443044 SQL has zero error issues with `dialect=hive`, the
+- [x] Original audit 443044 SQL has zero error issues with `dialect=hive`, the
   expected target, no physical source tables, and a nonempty lineage graph.
-- [ ] Relevant core tests and repository SQL regression pass.
-- [ ] Issue contains the fix and local replay evidence and remains open for
+- [x] Relevant core tests and repository SQL regression pass.
+- [x] Issue contains the fix and local replay evidence and remains open for
   deployment and post-deployment audit verification.
-- [ ] Package exists with matching embedded frontend assets, Linux target and
+- [x] Package exists with matching embedded frontend assets, Linux target and
   glibc versions checked, and checksum reported with a redeployment reminder.
 
 ## Notes
