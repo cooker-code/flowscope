@@ -516,6 +516,37 @@ impl<'a, 'b> LineageVisitor<'a, 'b> {
     }
 }
 
+fn reserve_relation_names_in_table_with_joins(
+    ctx: &mut StatementContext,
+    table_with_joins: &TableWithJoins,
+) {
+    reserve_relation_names_in_table_factor(ctx, &table_with_joins.relation);
+    for join in &table_with_joins.joins {
+        reserve_relation_names_in_table_factor(ctx, &join.relation);
+    }
+}
+
+fn reserve_relation_names_in_table_factor(ctx: &mut StatementContext, table_factor: &TableFactor) {
+    match table_factor {
+        TableFactor::Table { name, alias, .. } => {
+            ctx.reserve_relation_name_in_current_scope(name.to_string());
+            if let Some(alias) = alias {
+                ctx.reserve_relation_name_in_current_scope(alias.name.to_string());
+            }
+        }
+        TableFactor::Derived {
+            alias: Some(alias), ..
+        } => ctx.reserve_relation_name_in_current_scope(alias.name.to_string()),
+        TableFactor::NestedJoin {
+            table_with_joins, ..
+        } => reserve_relation_names_in_table_with_joins(ctx, table_with_joins),
+        TableFactor::TableFunction {
+            alias: Some(alias), ..
+        } => ctx.reserve_relation_name_in_current_scope(alias.name.to_string()),
+        _ => {}
+    }
+}
+
 impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
     fn visit_query(&mut self, query: &Query) {
         if let Some(with) = &query.with {
@@ -627,6 +658,13 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
 
     fn visit_select(&mut self, select: &Select) {
         self.ctx.push_scope();
+        // Reserve all explicit names before an earlier anonymous derived
+        // relation receives its internal canonical name. FROM items are
+        // visited left-to-right, so without this pre-pass a later user alias
+        // equal to the generated name could overwrite the earlier relation.
+        for table_with_joins in &select.from {
+            reserve_relation_names_in_table_with_joins(self.ctx, table_with_joins);
+        }
         for table_with_joins in &select.from {
             self.visit_table_with_joins(table_with_joins);
         }
@@ -684,6 +722,16 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
                 // output columns, and then register its alias and columns in the current scope
                 // so the outer query can reference it.
                 let alias_name = alias.as_ref().map(|a| a.name.to_string());
+                // A derived relation is still a real FROM source when the SQL
+                // dialect permits omitting its alias. Give it an internal
+                // canonical name so its known projection can participate in
+                // ordinary scope resolution. This is deliberately not exposed
+                // as an SQL alias: outer unqualified references resolve only
+                // when this is the sole relation, while multiple anonymous
+                // sources remain ambiguous through the existing resolver.
+                let relation_name = alias_name
+                    .clone()
+                    .unwrap_or_else(|| self.ctx.next_anonymous_derived_relation_name());
                 let projection_checkpoint = self.ctx.projection_checkpoint();
                 let derived_span = alias_name
                     .as_ref()
@@ -698,7 +746,8 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
                 // inside a CTE body and in the outer INSERT SELECT) produce distinct graph
                 // nodes rather than being silently merged by `add_node`.
                 let derived_scope_id = self.ctx.current_scope_id().unwrap_or(0);
-                let derived_node_id = alias_name.as_ref().map(|name| {
+                let derived_node_id = {
+                    let name = &relation_name;
                     let scoped_name = format!(
                         "statement_{}::scope_{}::{}",
                         self.ctx.statement_index, derived_scope_id, name
@@ -737,15 +786,14 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
                     }
 
                     id
-                });
+                };
 
-                if let (Some(name), Some(node_id)) = (alias_name.as_ref(), derived_node_id.as_ref())
-                {
+                if let Some(name) = alias_name.as_ref() {
                     // Track reverse mapping for wildcard inference without polluting
                     // the global CTE definition map (which stores real WITH items).
                     self.ctx
                         .cte_node_to_name
-                        .insert(node_id.clone(), name.clone());
+                        .insert(derived_node_id.clone(), name.clone());
                 }
 
                 // Save and clear last_operation + current_join_info before processing
@@ -769,30 +817,41 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
                 // below relies on `current_join_info` being intact.
                 let saved_operation = self.ctx.last_operation.take();
                 let saved_join_info = std::mem::take(&mut self.ctx.current_join_info);
-                let mut derived_visitor = LineageVisitor::new(
-                    self.analyzer,
-                    self.ctx,
-                    derived_node_id.as_ref().map(|id| id.to_string()),
-                );
+                let mut derived_visitor =
+                    LineageVisitor::new(self.analyzer, self.ctx, Some(derived_node_id.to_string()));
                 derived_visitor.visit_query(subquery);
                 self.ctx.last_operation = saved_operation;
                 self.ctx.current_join_info = saved_join_info;
                 let columns = self.ctx.take_output_columns_since(projection_checkpoint);
 
-                if let (Some(name), Some(node_id)) = (alias_name, derived_node_id) {
-                    // If there is an outer target (e.g. an INSERT target table), emit a
-                    // table-level data_flow edge from this derived table node to that target.
-                    // Without this, INSERT … SELECT … FROM (subquery) patterns produce no
-                    // data_flow IN edge on the target table.
-                    if let Some(outer_target) = self.target_node.as_deref() {
-                        self.analyzer
-                            .create_source_edge(self.ctx, &node_id, Some(outer_target));
-                    }
-                    self.ctx
-                        .register_table_in_scope(name.clone(), node_id.clone());
-                    self.ctx.register_alias_in_scope(name.clone(), name.clone());
-                    self.ctx.register_subquery_columns_in_scope(name, columns);
+                // If there is an outer target (e.g. an INSERT target table), emit a
+                // table-level data_flow edge from this derived table node to that target.
+                // Without this, INSERT … SELECT … FROM (subquery) patterns produce no
+                // data_flow IN edge on the target table.
+                if let Some(outer_target) = self.target_node.as_deref() {
+                    self.analyzer.create_source_edge(
+                        self.ctx,
+                        &derived_node_id,
+                        Some(outer_target),
+                    );
                 }
+                self.ctx
+                    .register_table_in_scope(relation_name.clone(), derived_node_id.clone());
+                // `RelationInstance` is the source of truth for unqualified
+                // column resolution. Explicit aliases retain their existing
+                // alias map; anonymous relations use their internal canonical
+                // name solely as an instance key.
+                self.ctx.register_alias_instance(
+                    alias_name.clone().unwrap_or_else(|| relation_name.clone()),
+                    relation_name.clone(),
+                    derived_node_id,
+                );
+                if let Some(name) = alias_name {
+                    self.ctx
+                        .register_alias_in_scope(name, relation_name.clone());
+                }
+                self.ctx
+                    .register_subquery_columns_in_scope(relation_name, columns);
             }
             TableFactor::NestedJoin {
                 table_with_joins, ..

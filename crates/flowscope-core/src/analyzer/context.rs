@@ -55,6 +55,20 @@ pub(crate) struct Scope {
     /// Scope-local output columns for subquery/CTE aliases materialized in this scope.
     /// These shadow statement-global CTE definitions when alias names are reused.
     pub(crate) subquery_columns: HashMap<String, Vec<OutputColumn>>,
+    /// User-visible relation names declared by this SELECT's FROM/JOIN list.
+    ///
+    /// Anonymous derived relations receive internal names, so reserve explicit
+    /// names before visiting the list. This prevents a later user alias from
+    /// overwriting an already-registered anonymous relation.
+    pub(crate) reserved_relation_names: HashSet<String>,
+    /// Number of anonymous derived relations registered in this lexical scope.
+    ///
+    /// SQL permits a derived relation in `FROM` without an explicit alias in
+    /// several dialects. The analyzer still needs a deterministic internal
+    /// identity for its materialized projection so unqualified outer columns
+    /// can be resolved without treating the inner tables as outer-scope
+    /// relations.
+    pub(crate) anonymous_derived_relations: usize,
     /// True when the scope contains a table function relation whose output
     /// columns may be dialect-provided rather than schema-backed.
     pub(crate) has_table_function_relation: bool,
@@ -691,6 +705,50 @@ impl StatementContext {
             scope.subquery_columns.insert(name, columns);
         } else {
             self.aliased_subquery_columns.insert(name, columns);
+        }
+    }
+
+    /// Reserve an explicit relation name in the current SELECT before its
+    /// FROM/JOIN items are visited. Reservations affect only internally
+    /// generated anonymous-derived names; they never alter SQL resolution.
+    pub(crate) fn reserve_relation_name_in_current_scope(&mut self, name: String) {
+        if let Some(scope) = self.current_scope_mut() {
+            scope.reserved_relation_names.insert(name);
+        }
+    }
+
+    /// Allocate a deterministic, analyzer-internal canonical name for an
+    /// unnamed derived relation in the current lexical scope.
+    ///
+    /// The name is not an SQL alias and is never selected as a fallback for a
+    /// user-provided qualifier. It only lets the normal scope and
+    /// `RelationInstance` machinery represent a syntactically unnamed `FROM
+    /// (SELECT ...)` relation. Keeping the ordinal per scope makes siblings
+    /// distinct, so an unqualified column across two anonymous relations stays
+    /// ambiguous instead of being silently bound to one of them.
+    pub(crate) fn next_anonymous_derived_relation_name(&mut self) -> String {
+        let statement_index = self.statement_index;
+        let cte_names: HashSet<String> = self.cte_definitions.keys().cloned().collect();
+        let Some(scope) = self.current_scope_mut() else {
+            return "__flowscope_derived_without_scope_0".to_string();
+        };
+
+        loop {
+            let ordinal = scope.anonymous_derived_relations;
+            scope.anonymous_derived_relations += 1;
+            let candidate = format!(
+                "__flowscope_derived_statement_{}_scope_{}_{}",
+                statement_index, scope.scope_id, ordinal
+            );
+            if !cte_names.contains(&candidate)
+                && !scope.reserved_relation_names.contains(&candidate)
+                && !scope.tables.contains_key(&candidate)
+                && !scope.aliases.contains_key(&candidate)
+                && !scope.alias_instances.contains_key(&candidate)
+                && !scope.subquery_columns.contains_key(&candidate)
+            {
+                return candidate;
+            }
         }
     }
 

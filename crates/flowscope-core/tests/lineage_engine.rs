@@ -1430,6 +1430,204 @@ fn hidden_cte_preserves_window_controls_through_later_aggregation() {
 }
 
 #[test]
+fn unnamed_derived_relation_registers_window_controls_for_outer_cte_projection() {
+    let result = run_analysis(
+        r#"
+            WITH date_groups AS (
+                SELECT
+                    user_id,
+                    SUM(prev_value) OVER (
+                        PARTITION BY user_id
+                        ORDER BY mark_date
+                    ) AS group_id
+                FROM (
+                    SELECT
+                        user_id,
+                        mark_date,
+                        LAG(value) OVER (
+                            PARTITION BY user_id
+                            ORDER BY mark_date
+                        ) AS prev_value
+                    FROM marks
+                )
+            )
+            SELECT COUNT(group_id) AS group_count FROM date_groups
+        "#,
+        Dialect::Generic,
+        None,
+    );
+    let stmt = first_statement(&result);
+    let output = find_column_node(&stmt, "group_id").expect("outer window output");
+    let controls: Vec<_> = edges_by_type(&stmt, EdgeType::WindowControl)
+        .into_iter()
+        .filter(|edge| edge.to == output.id)
+        .collect();
+
+    assert_eq!(
+        controls.len(),
+        2,
+        "anonymous derived projection must be in scope"
+    );
+    assert!(controls.iter().any(|edge| {
+        edge.metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("windowRole"))
+            .and_then(serde_json::Value::as_str)
+            == Some("partition")
+    }));
+    assert!(controls.iter().any(|edge| {
+        edge.metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("windowRole"))
+            .and_then(serde_json::Value::as_str)
+            == Some("order")
+    }));
+    assert_eq!(
+        output
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("windowControlStatus"))
+            .and_then(serde_json::Value::as_str),
+        Some("complete")
+    );
+    assert!(
+        stmt.edges.iter().any(|edge| {
+            edge.to == output.id
+                && matches!(edge.edge_type, EdgeType::DataFlow | EdgeType::Derivation)
+        }),
+        "the window value operand must retain ordinary lineage"
+    );
+}
+
+#[test]
+fn two_unnamed_derived_relations_keep_outer_window_controls_ambiguous() {
+    let result = run_analysis(
+        r#"
+            SELECT SUM(value) OVER (
+                PARTITION BY user_id
+                ORDER BY mark_date
+            ) AS grouped_value
+            FROM (SELECT user_id, mark_date, value FROM left_marks)
+            CROSS JOIN (SELECT user_id, mark_date, value FROM right_marks)
+        "#,
+        Dialect::Generic,
+        None,
+    );
+    let stmt = first_statement(&result);
+    let output = find_column_node(&stmt, "grouped_value").expect("outer window output");
+    let controls: Vec<_> = edges_by_type(&stmt, EdgeType::WindowControl)
+        .into_iter()
+        .filter(|edge| edge.to == output.id)
+        .collect();
+
+    assert!(
+        controls.is_empty(),
+        "ambiguous controls must not be guessed"
+    );
+    assert_eq!(
+        output
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("windowControlStatus"))
+            .and_then(serde_json::Value::as_str),
+        Some("unresolved")
+    );
+    assert!(
+        result.issues.iter().any(|issue| {
+            issue.code == issue_codes::UNRESOLVED_REFERENCE
+                && issue.message.to_ascii_lowercase().contains("disambiguate")
+        }),
+        "ambiguous anonymous relations must report a resolver issue: {:?}",
+        result.issues
+    );
+}
+
+#[test]
+fn anonymous_derived_name_does_not_collide_with_later_explicit_alias() {
+    let result = run_analysis(
+        r#"
+            SELECT SUM(value) OVER (
+                PARTITION BY user_id
+                ORDER BY mark_date
+            ) AS grouped_value
+            FROM (SELECT user_id, mark_date, value FROM left_marks)
+            CROSS JOIN (
+                SELECT user_id, mark_date, value FROM right_marks
+            ) AS __flowscope_derived_statement_0_scope_0_0
+        "#,
+        Dialect::Generic,
+        None,
+    );
+    let stmt = first_statement(&result);
+    let output = find_column_node(&stmt, "grouped_value").expect("outer window output");
+
+    let derived_nodes: Vec<_> = stmt
+        .nodes
+        .iter()
+        .filter(|node| node.node_type == NodeType::Cte)
+        .collect();
+    assert_eq!(
+        derived_nodes.len(),
+        2,
+        "the explicit alias must not overwrite the anonymous derived relation"
+    );
+    assert_eq!(
+        derived_nodes
+            .iter()
+            .filter(|node| node.label.as_ref() == "__flowscope_derived_statement_0_scope_0_0")
+            .count(),
+        1,
+        "the user-provided alias must remain intact"
+    );
+    assert_eq!(
+        output
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("windowControlStatus"))
+            .and_then(serde_json::Value::as_str),
+        Some("unresolved"),
+        "two same-shaped derived projections remain ambiguous"
+    );
+}
+
+#[test]
+fn explicit_derived_alias_keeps_outer_window_controls_resolved() {
+    let result = run_analysis(
+        r#"
+            SELECT SUM(d.value) OVER (
+                PARTITION BY d.user_id
+                ORDER BY d.mark_date
+            ) AS grouped_value
+            FROM (
+                SELECT user_id, mark_date, value FROM marks
+            ) AS d
+        "#,
+        Dialect::Generic,
+        None,
+    );
+    let stmt = first_statement(&result);
+    let output = find_column_node(&stmt, "grouped_value").expect("outer window output");
+    let controls: Vec<_> = edges_by_type(&stmt, EdgeType::WindowControl)
+        .into_iter()
+        .filter(|edge| edge.to == output.id)
+        .collect();
+
+    assert_eq!(
+        controls.len(),
+        2,
+        "explicit derived aliases remain unchanged"
+    );
+    assert_eq!(
+        output
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("windowControlStatus"))
+            .and_then(serde_json::Value::as_str),
+        Some("complete")
+    );
+}
+
+#[test]
 fn ansi_values_clause_requires_no_tables() {
     let sql = r#"
         SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v(id, label);
