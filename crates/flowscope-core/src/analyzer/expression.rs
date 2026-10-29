@@ -764,7 +764,10 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
             Expr::IsFalse(e) | Expr::IsNotFalse(e) | Expr::IsTrue(e) | Expr::IsNotTrue(e) => {
                 depth_limited |= Self::collect_column_refs(e, refs, dialect, next_depth);
             }
-            Expr::Like { expr, pattern, .. } | Expr::ILike { expr, pattern, .. } => {
+            Expr::Like { expr, pattern, .. }
+            | Expr::ILike { expr, pattern, .. }
+            | Expr::SimilarTo { expr, pattern, .. }
+            | Expr::RLike { expr, pattern, .. } => {
                 depth_limited |= Self::collect_column_refs(expr, refs, dialect, next_depth);
                 depth_limited |= Self::collect_column_refs(pattern, refs, dialect, next_depth);
             }
@@ -1345,6 +1348,40 @@ mod tests {
                 (None, "payload".to_string()),
                 (None, "start_col".to_string()),
                 (None, "length_col".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn collect_column_refs_visits_case_rlike_and_similar_to_conditions() {
+        let statements = Parser::parse_sql(
+            &GenericDialect {},
+            "SELECT CASE WHEN applyaccountid RLIKE '1738' THEN 'matched' \
+             WHEN alternate_id SIMILAR TO '17.*' THEN 'also_matched' ELSE 'other' END \
+             AS account_type FROM source_table",
+        )
+        .expect("CASE pattern conditions should parse");
+        let ast::Statement::Query(query) = &statements[0] else {
+            panic!("expected query statement");
+        };
+        let ast::SetExpr::Select(select) = query.body.as_ref() else {
+            panic!("expected SELECT query body");
+        };
+        let ast::SelectItem::ExprWithAlias { expr, .. } = &select.projection[0] else {
+            panic!("expected aliased CASE expression");
+        };
+
+        let (refs, depth_limited) =
+            ExpressionAnalyzer::extract_column_refs_with_dialect(expr, Dialect::Hive);
+
+        assert!(!depth_limited);
+        assert_eq!(
+            refs.into_iter()
+                .map(|reference| (reference.table, reference.column))
+                .collect::<Vec<_>>(),
+            vec![
+                (None, "applyaccountid".to_string()),
+                (None, "alternate_id".to_string()),
             ]
         );
     }

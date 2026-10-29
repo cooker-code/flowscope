@@ -7547,6 +7547,93 @@ fn case_when_simple_expression() {
 }
 
 #[test]
+fn hive_case_rlike_value_source_survives_grouping_and_window_control() {
+    // This is the value/control path in ETL task 31491: a CASE result becomes
+    // a GROUP BY key, then a window PARTITION BY control. The CASE must retain
+    // its concrete physical input instead of receiving a source-less table edge.
+    let sql = r#"
+        WITH base_data AS (
+            SELECT CASE WHEN applyaccountid RLIKE '1738' THEN '微圈' ELSE '其他' END AS account_type,
+                   stat_cost
+            FROM dw_conan_ods.ods_conan_promotion_doris_advert_consumption_da
+        ), agg_data AS (
+            SELECT account_type, SUM(stat_cost) AS stat_cost
+            FROM base_data GROUP BY account_type
+        )
+        SELECT SUM(stat_cost) OVER (PARTITION BY account_type) AS stat_cost_7d
+        FROM agg_data
+    "#;
+    let schema = SchemaMetadata {
+        tables: vec![schema_table(
+            None,
+            Some("dw_conan_ods"),
+            "ods_conan_promotion_doris_advert_consumption_da",
+            &["applyaccountid", "stat_cost"],
+        )],
+        ..Default::default()
+    };
+
+    let result = run_analysis(sql, Dialect::Hive, Some(schema));
+    assert!(
+        !result.summary.has_errors,
+        "task-shaped Hive SQL should analyze"
+    );
+
+    let physical = result
+        .nodes
+        .iter()
+        .find(|node| {
+            node.qualified_name.as_deref()
+                == Some(
+                    "dw_conan_ods.ods_conan_promotion_doris_advert_consumption_da.applyaccountid",
+                )
+        })
+        .expect("schema-backed physical applyaccountid node");
+    let case_output = result
+        .nodes
+        .iter()
+        .find(|node| {
+            node.label.as_ref() == "account_type"
+                && node
+                    .expression
+                    .as_deref()
+                    .is_some_and(|expr| expr.contains("RLIKE"))
+        })
+        .expect("CASE account_type node");
+
+    assert!(
+        result.edges.iter().any(|edge| {
+            edge.from == physical.id
+                && edge.to == case_output.id
+                && edge.edge_type == EdgeType::Derivation
+        }),
+        "CASE RLIKE must retain the concrete physical value source"
+    );
+    assert!(
+        result.edges.iter().any(|edge| {
+            edge.to == case_output.id
+                && edge.from != physical.id
+                && result
+                    .nodes
+                    .iter()
+                    .any(|node| node.id == edge.from && node.node_type == NodeType::Table)
+        }) == false,
+        "CASE RLIKE must not fall back to a relation-level source edge"
+    );
+    assert!(
+        result.edges.iter().any(|edge| {
+            edge.edge_type == EdgeType::WindowControl
+                && edge
+                    .metadata
+                    .as_ref()
+                    .and_then(|meta| meta.get("windowRole"))
+                    == Some(&serde_json::json!("partition"))
+        }),
+        "the downstream PARTITION BY control must remain a WindowControl edge"
+    );
+}
+
+#[test]
 fn case_when_searched_form() {
     // Test searched CASE (without operand) with column references
     let sql = r#"
