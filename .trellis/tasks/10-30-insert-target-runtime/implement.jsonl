@@ -1,0 +1,2 @@
+{"file":".trellis/spec/flowscope-core/backend/analyze-result-contract.md","reason":"INSERT 目标字段位置合同与拒绝规则"}
+{"file":".trellis/spec/flowscope-core/backend/edge-types.md","reason":"保证位置注释不改变值边或窗口控制边语义"}

@@ -1,0 +1,2 @@
+{"file":".trellis/spec/flowscope-core/backend/analyze-result-contract.md","reason":"复核位置映射权威来源、冲突和 UNION 分支约束"}
+{"file":".trellis/spec/flowscope-core/backend/edge-types.md","reason":"复核值与窗口控制边未被映射元数据改变"}
