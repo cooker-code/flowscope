@@ -292,5 +292,6 @@ fn edge_type_label(edge_type: EdgeType) -> &'static str {
         EdgeType::Derivation => "derivation",
         EdgeType::JoinDependency => "join_dependency",
         EdgeType::CrossStatement => "cross_statement",
+        EdgeType::WindowControl => "window_control",
     }
 }

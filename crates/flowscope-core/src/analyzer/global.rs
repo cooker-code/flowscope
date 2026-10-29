@@ -460,7 +460,7 @@ fn classify_physical_tables(
         .iter()
         .filter(|n| sink_ids.contains(n.id.as_ref()))
         .collect();
-    sinks.sort_by(|a, b| sort_key(a).cmp(&sort_key(b)));
+    sinks.sort_by_key(|node| sort_key(node));
 
     let target_table = match sinks.len() {
         0 => None,
@@ -490,7 +490,7 @@ fn classify_physical_tables(
         .iter()
         .filter(|n| source_ids.contains(n.id.as_ref()))
         .collect();
-    source_nodes.sort_by(|a, b| sort_key(a).cmp(&sort_key(b)));
+    source_nodes.sort_by_key(|node| sort_key(node));
     let source_tables: Vec<TableRef> = source_nodes.into_iter().map(to_ref).collect();
 
     (target_table, source_tables)
@@ -524,6 +524,7 @@ struct EdgeIndexKey {
     join_type: &'static str,
     join_condition: Option<String>,
     approximate: Option<bool>,
+    window_role: Option<String>,
 }
 
 /// Per-statement scoped-id classification computed before consuming a lineage.
@@ -649,6 +650,7 @@ fn edge_kind(edge_type: crate::types::EdgeType) -> &'static str {
         crate::types::EdgeType::Derivation => "derivation",
         crate::types::EdgeType::JoinDependency => "join_dependency",
         crate::types::EdgeType::CrossStatement => "cross_statement",
+        crate::types::EdgeType::WindowControl => "window_control",
     }
 }
 
@@ -680,6 +682,12 @@ fn edge_index_key(edge: &Edge, from: &Arc<str>, to: &Arc<str>) -> EdgeIndexKey {
         join_type: join_type_key(edge.join_type),
         join_condition: edge.join_condition.as_ref().map(|value| value.to_string()),
         approximate: edge.approximate,
+        window_role: edge
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("windowRole"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
     }
 }
 

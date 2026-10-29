@@ -1,0 +1,5 @@
+# FlowScope 窗口控制合同
+
+父项目已批准设计：neo4j-http-service/.trellis/tasks/10-29-window-control-lineage/design.md。窗口控制从函数OVER的PARTITION/ORDER原生AST提取，独立WindowControl边，role参与edgeID和flatten身份，值边不变。所有投影显式complete/unresolved，命名窗口和复杂表达式缺口必须Issue。Dali保持source_columns仅value，新增control_columns；Rust/TS/VSCode/renderer/schema同步。原生Hive DDL schema读取的回归一并修复，使权威DDL可以用于原ETL回放。
+
+本仓独立worktree基于843f9757，完整本地WIP保存在父外部证据flowscope-initial-tracked.patch。修改与WIP重叠的expression/global等文件只在本worktree实现；合master必须先核实差异及具体重叠处理授权，不自动stash/reset/清理。使用外部CARGO_TARGET_DIR保留原候选binary。

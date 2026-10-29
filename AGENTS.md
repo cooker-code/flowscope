@@ -228,7 +228,7 @@ cd app/dist && zip -qr "../../flowscope-h5-$(date +%Y%m%d-%H%M).zip" . && cd ../
 
 ## Lineage Graph Edge Types
 
-`flowscope-core` emits 5 edge variants (`EdgeType` in
+`flowscope-core` emits 6 edge variants (`EdgeType` in
 `crates/flowscope-core/src/types/response.rs`). The choice is part of the
 analyzer ↔ renderer contract — do not invent new types or change emission
 rules without updating both sides and the spec below.
@@ -240,6 +240,7 @@ rules without updating both sides and the spec below.
 | `JoinDependency` | `join_dependency` | Dotted green (`#10B981`, `2 2`) | A JOIN operand that contributes NO column to the sink. Carries `join_type` + `join_condition`. |
 | `Ownership` | `ownership` | Not drawn (structural) | `relation → column` containment. Used by the UI for grouping, not as a visible edge. |
 | `CrossStatement` | `cross_statement` | Only in multi-statement views | Cross-file / cross-statement linkage (e.g. dbt `ref(...)`). `statementIds` carries a `[producer, consumer]` pair. |
+| `WindowControl` | `window_control` | Dotted sky-blue (`#0EA5E9`, `1 4`) | A `PARTITION BY` / `ORDER BY` input. It is not a value source; metadata carries `windowRole`. |
 
 Key rules:
 

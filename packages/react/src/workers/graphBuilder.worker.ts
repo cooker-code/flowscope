@@ -696,7 +696,8 @@ function buildFlowEdges(
         return;
       }
 
-      const dedupKey = edgePairKey(sourceTableId, targetTableId);
+      const windowRole = sourceEdge?.metadata?.windowRole;
+      const dedupKey = `${edgePairKey(sourceTableId, targetTableId)}\0${edgeType}\0${windowRole ?? ''}`;
       if (tableEdgeKeys.has(dedupKey)) {
         return;
       }
@@ -704,10 +705,14 @@ function buildFlowEdges(
       tableEdgeKeys.add(dedupKey);
       const joinType = formatJoinType(sourceEdge?.joinType);
 
-      const uiEdgeType = edgeType === JOIN_DEPENDENCY_EDGE_TYPE ? 'joinDependency' : edgeType;
+      const uiEdgeType = edgeType === JOIN_DEPENDENCY_EDGE_TYPE
+        ? 'joinDependency'
+        : edgeType === 'window_control'
+          ? 'windowControl'
+          : edgeType;
 
       flowEdges.push({
-        id: syntheticEdgeId('relation', sourceTableId, targetTableId),
+        id: syntheticEdgeId('relation', sourceTableId, targetTableId, `${edgeType}:${windowRole ?? ''}`),
         source: sourceTableId,
         target: targetTableId,
         type: 'animated',
@@ -726,7 +731,7 @@ function buildFlowEdges(
     }
 
     merged.edges
-      .filter((e) => e.type === 'derivation' || e.type === 'data_flow')
+      .filter((e) => e.type === 'derivation' || e.type === 'data_flow' || e.type === 'window_control')
       .forEach((edge) => {
         const sourceCol = columnNodeMap.get(edge.from);
         const targetCol = columnNodeMap.get(edge.to);
@@ -738,7 +743,9 @@ function buildFlowEdges(
           const targetTableId = columnToTableMap.get(edge.to);
 
           if (sourceTableId && targetTableId && sourceTableId !== targetTableId) {
-            tablePairsFromColumns.add(edgePairKey(sourceTableId, targetTableId));
+            if (edge.type !== 'window_control') {
+              tablePairsFromColumns.add(edgePairKey(sourceTableId, targetTableId));
+            }
             const hasExpression = !!(edge.expression || targetCol.expression);
             const isDerivedColumn = edge.type === 'derivation' || hasExpression;
 
@@ -773,7 +780,9 @@ function buildFlowEdges(
           // Handle relation-to-column edges (e.g., base table → COUNT(*) output column)
           // as table-level edges. Self-referential edges (same relation) are excluded
           // since they don't represent cross-table data flow.
-          tablePairsFromColumns.add(edgePairKey(sourceRelationId, targetRelationId));
+          if (edge.type !== 'window_control') {
+            tablePairsFromColumns.add(edgePairKey(sourceRelationId, targetRelationId));
+          }
           pushTableEdge(sourceRelationId, targetRelationId, edge.type, edge);
         }
       });
@@ -786,14 +795,15 @@ function buildFlowEdges(
         (edge) =>
           edge.type === 'data_flow' ||
           edge.type === 'derivation' ||
-          edge.type === JOIN_DEPENDENCY_EDGE_TYPE
+          edge.type === JOIN_DEPENDENCY_EDGE_TYPE ||
+          edge.type === 'window_control'
       )
       .forEach((edge) => {
         if (!relationNodeIds.has(edge.from) || !relationNodeIds.has(edge.to)) {
           return;
         }
 
-        if (tablePairsFromColumns.has(edgePairKey(edge.from, edge.to))) {
+        if (edge.type !== 'window_control' && tablePairsFromColumns.has(edgePairKey(edge.from, edge.to))) {
           return;
         }
 
@@ -812,7 +822,7 @@ function buildFlowEdges(
   >();
 
   for (const edge of merged.edges) {
-    if (edge.type === 'data_flow' || edge.type === 'derivation') {
+    if (edge.type === 'data_flow' || edge.type === 'derivation' || edge.type === 'window_control') {
       if (isSelect && outputColumnIds.has(edge.to)) {
         const sourceTableId =
           columnToTableMap.get(edge.from) || (tableNodeMap.has(edge.from) ? edge.from : undefined);
@@ -835,14 +845,14 @@ function buildFlowEdges(
       const targetTableId = columnToTableMap.get(edge.to);
 
       if (sourceTableId && targetTableId && sourceTableId !== targetTableId) {
-        const dedupKey = edgePairKey(sourceTableId, targetTableId);
+        const dedupKey = `${edgePairKey(sourceTableId, targetTableId)}\0${edge.type}\0${edge.metadata?.windowRole ?? ''}`;
         if (!seenEdges.has(dedupKey)) {
           seenEdges.add(dedupKey);
 
           const joinType = formatJoinType(edge.joinType);
 
           flowEdges.push({
-            id: syntheticEdgeId('relation', sourceTableId, targetTableId),
+            id: syntheticEdgeId('relation', sourceTableId, targetTableId, `${edge.type}:${edge.metadata?.windowRole ?? ''}`),
             source: sourceTableId,
             target: targetTableId,
             type: 'animated',
@@ -864,14 +874,14 @@ function buildFlowEdges(
         const resolvedTargetId = targetFromColumn || (targetTable ? targetTable.id : null);
 
         if (resolvedSourceId && resolvedTargetId && resolvedSourceId !== resolvedTargetId) {
-          const dedupKey = edgePairKey(resolvedSourceId, resolvedTargetId);
+          const dedupKey = `${edgePairKey(resolvedSourceId, resolvedTargetId)}\0${edge.type}\0${edge.metadata?.windowRole ?? ''}`;
           if (!seenEdges.has(dedupKey)) {
             seenEdges.add(dedupKey);
 
             const joinType = formatJoinType(edge.joinType);
 
             flowEdges.push({
-              id: syntheticEdgeId('relation', resolvedSourceId, resolvedTargetId),
+              id: syntheticEdgeId('relation', resolvedSourceId, resolvedTargetId, `${edge.type}:${edge.metadata?.windowRole ?? ''}`),
               source: resolvedSourceId,
               target: resolvedTargetId,
               type: 'animated',

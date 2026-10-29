@@ -40,7 +40,7 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
         self.ctx.clear_grouping();
 
         self.analyze_group_by(&select.group_by);
-        self.analyze_projection(&select.projection);
+        self.analyze_projection(&select.projection, &select.named_window);
         self.analyze_selection(&select.selection);
         self.analyze_having(&select.having);
     }
@@ -101,7 +101,11 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
         }
     }
 
-    fn analyze_projection(&mut self, projection: &[SelectItem]) {
+    fn analyze_projection(
+        &mut self,
+        projection: &[SelectItem],
+        named_window_definitions: &[ast::NamedWindowDefinition],
+    ) {
         // Track aliases defined in this SELECT list for lateral column alias checking.
         // For dialects that support lateral aliases, we also track the sources so we can
         // resolve references to them in subsequent SELECT items.
@@ -111,6 +115,12 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
 
         let dialect = self.analyzer.request.dialect;
         let supports_lateral = dialect.lateral_column_alias();
+        let named_windows: HashMap<String, ast::NamedWindowExpr> = named_window_definitions
+            .iter()
+            .map(|ast::NamedWindowDefinition(name, definition)| {
+                (name.value.clone(), definition.clone())
+            })
+            .collect();
 
         for (idx, item) in projection.iter().enumerate() {
             match item {
@@ -118,13 +128,18 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
                     // Check for lateral column alias usage
                     self.check_lateral_column_alias(expr, &defined_aliases);
 
-                    let (mut sources, name, aggregation) = {
+                    let (mut sources, name, aggregation, window_controls) = {
                         let mut ea = ExpressionAnalyzer::new(self.analyzer, self.ctx);
                         let column_refs = ea.extract_column_refs_with_warning(expr);
                         (
                             column_refs,
                             ea.derive_column_name(expr, idx),
                             ea.detect_aggregation(expr),
+                            ExpressionAnalyzer::extract_window_controls(
+                                expr,
+                                dialect,
+                                &named_windows,
+                            ),
                         )
                     };
 
@@ -161,6 +176,8 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
                         OutputColumnParams {
                             name,
                             sources,
+                            window_controls: window_controls.controls,
+                            window_control_issues: window_controls.issues,
                             expression: expr_text,
                             data_type,
                             target_node: self.target_node.clone(),
@@ -173,10 +190,18 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
                     // Check for lateral column alias usage
                     self.check_lateral_column_alias(expr, &defined_aliases);
 
-                    let (mut sources, aggregation) = {
+                    let (mut sources, aggregation, window_controls) = {
                         let mut ea = ExpressionAnalyzer::new(self.analyzer, self.ctx);
                         let column_refs = ea.extract_column_refs_with_warning(expr);
-                        (column_refs, ea.detect_aggregation(expr))
+                        (
+                            column_refs,
+                            ea.detect_aggregation(expr),
+                            ExpressionAnalyzer::extract_window_controls(
+                                expr,
+                                dialect,
+                                &named_windows,
+                            ),
+                        )
                     };
 
                     // Resolve lateral alias references if dialect supports them
@@ -222,6 +247,8 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
                         OutputColumnParams {
                             name,
                             sources,
+                            window_controls: window_controls.controls,
+                            window_control_issues: window_controls.issues,
                             expression: expr_text,
                             data_type,
                             target_node: self.target_node.clone(),

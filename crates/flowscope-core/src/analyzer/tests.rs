@@ -826,6 +826,7 @@ fn hide_ctes_customer_360_preserves_relationships() {
             EdgeType::Derivation => "derivation",
             EdgeType::JoinDependency => "join_dependency",
             EdgeType::CrossStatement => "cross_statement",
+            EdgeType::WindowControl => "window_control",
         }
     };
 

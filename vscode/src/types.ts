@@ -89,6 +89,7 @@ export interface Edge {
   operation?: string;
   joinType?: JoinType;
   joinCondition?: string;
+  metadata?: Record<string, unknown>;
   approximate?: boolean;
   statementIds: number[];
 }
@@ -98,7 +99,8 @@ export type EdgeType =
   | 'data_flow'
   | 'derivation'
   | 'join_dependency'
-  | 'cross_statement';
+  | 'cross_statement'
+  | 'window_control';
 
 export type JoinType =
   | 'INNER'

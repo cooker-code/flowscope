@@ -1013,7 +1013,7 @@
             ]
           },
           "statementIds": {
-            "description": "Zero-based indices of the statement(s) this edge participates in.\n\nInvariants:\n- Intra-statement edges (Ownership, DataFlow, Derivation, JoinDependency)\n  list every statement in which the same structural `(from, to, kind)`\n  edge appears, sorted ascending and deduplicated.\n- `EdgeType::CrossStatement` edges are not merged across\n  producer/consumer pairs: each edge carries exactly\n  `[producer_index, consumer_index]` in that order, and the same\n  `(from, to)` self-loop may appear multiple times with different\n  pairs.",
+            "description": "Zero-based indices of the statement(s) this edge participates in.\n\nInvariants:\n- Intra-statement edges (Ownership, DataFlow, Derivation, JoinDependency,\n  WindowControl)\n  list every statement in which the same structural `(from, to, kind)`\n  edge appears, sorted ascending and deduplicated.\n- `EdgeType::CrossStatement` edges are not merged across\n  producer/consumer pairs: each edge carries exactly\n  `[producer_index, consumer_index]` in that order, and the same\n  `(from, to)` self-loop may appear multiple times with different\n  pairs.",
             "type": "array",
             "items": {
               "type": "integer",
@@ -1055,6 +1055,11 @@
             "description": "Cross-statement dependency",
             "type": "string",
             "const": "cross_statement"
+          },
+          {
+            "description": "Window PARTITION BY / ORDER BY control dependency, not a value source.",
+            "type": "string",
+            "const": "window_control"
           }
         ]
       },

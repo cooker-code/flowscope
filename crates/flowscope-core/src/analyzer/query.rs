@@ -40,11 +40,38 @@ impl ExpandedColumnInfo {
 pub(super) struct OutputColumnParams {
     pub name: String,
     pub sources: Vec<ColumnRef>,
+    /// Window partition/order inputs. They influence a window result but are
+    /// deliberately kept out of `sources`, which models value provenance.
+    pub window_controls: Vec<WindowControlRef>,
+    /// Concrete parsing/resolution failures for window controls. A projection
+    /// with one of these is marked `windowControlStatus=unresolved`.
+    pub window_control_issues: Vec<String>,
     pub expression: Option<String>,
     pub data_type: Option<String>,
     pub target_node: Option<String>,
     pub approximate: bool,
     pub aggregation: Option<AggregationInfo>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum WindowControlRole {
+    Partition,
+    Order,
+}
+
+impl WindowControlRole {
+    fn metadata_value(self) -> &'static str {
+        match self {
+            Self::Partition => "partition",
+            Self::Order => "order",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct WindowControlRef {
+    pub source: ColumnRef,
+    pub role: WindowControlRole,
 }
 
 impl<'a> Analyzer<'a> {
@@ -927,6 +954,8 @@ impl<'a> Analyzer<'a> {
             OutputColumnParams {
                 name: name.to_string(),
                 sources,
+                window_controls: Vec::new(),
+                window_control_issues: Vec::new(),
                 expression,
                 data_type,
                 target_node: target_node.map(|s| s.to_string()),
@@ -956,11 +985,27 @@ impl<'a> Analyzer<'a> {
             label: normalized_name.clone().into(),
             qualified_name: None, // Will be set if we have target table
             expression: params.expression.as_deref().map(Into::into),
-            metadata: params.data_type.as_ref().map(|dt| {
+            metadata: {
                 let mut m = HashMap::new();
-                m.insert("data_type".to_string(), json!(dt));
-                m
-            }),
+                if let Some(dt) = params.data_type.as_ref() {
+                    m.insert("data_type".to_string(), json!(dt));
+                }
+                m.insert(
+                    "windowControlStatus".to_string(),
+                    json!(if params.window_control_issues.is_empty() {
+                        "complete"
+                    } else {
+                        "unresolved"
+                    }),
+                );
+                if !params.window_control_issues.is_empty() {
+                    m.insert(
+                        "windowControlIssues".to_string(),
+                        json!(params.window_control_issues),
+                    );
+                }
+                Some(m)
+            },
             aggregation: params.aggregation,
             ..Default::default()
         };
@@ -1096,6 +1141,107 @@ impl<'a> Analyzer<'a> {
                         statement_ids: Vec::new(),
                     });
                 }
+            }
+        }
+
+        // Window controls must remain structurally separate from value-flow
+        // edges. This intentionally repeats only the resolution/node creation
+        // portion above so an ORDER BY/PARTITION BY input cannot become a
+        // `Derivation` source by accident.
+        let mut unresolved_controls = params.window_control_issues;
+        for control in &params.window_controls {
+            let source = &control.source;
+            let Some(table_canonical) =
+                self.resolve_column_table(ctx, source.table.as_deref(), &source.column)
+            else {
+                unresolved_controls.push(format!(
+                    "Unresolved window {} control column '{}'.",
+                    control.role.metadata_value(),
+                    source.column
+                ));
+                continue;
+            };
+
+            let source_col_id = source
+                .table
+                .as_deref()
+                .and_then(|qualifier| ctx.resolve_subquery_columns(qualifier))
+                .or_else(|| ctx.resolve_subquery_columns(&table_canonical))
+                .and_then(|cols| {
+                    let normalized = self.normalize_identifier(&source.column);
+                    cols.iter()
+                        .find(|col| col.name == normalized)
+                        .map(|col| col.node_id.clone())
+                });
+            let table_node_id = source_col_id
+                .as_ref()
+                .and_then(|_| {
+                    source
+                        .table
+                        .as_deref()
+                        .and_then(|q| self.resolve_instance_node_id(ctx, q))
+                })
+                .or_else(|| ctx.cte_definitions.get(&table_canonical).cloned())
+                .or_else(|| {
+                    source
+                        .table
+                        .as_deref()
+                        .and_then(|q| self.resolve_instance_node_id(ctx, q))
+                })
+                .or_else(|| ctx.table_node_ids.get(&table_canonical).cloned())
+                .unwrap_or_else(|| self.relation_node_id(&table_canonical));
+            let source_col_id = source_col_id.unwrap_or_else(|| {
+                generate_column_node_id(
+                    Some(&table_node_id),
+                    &self.normalize_identifier(&source.column),
+                )
+            });
+
+            self.validate_column(ctx, &table_canonical, &source.column);
+            ctx.add_node(Node {
+                id: source_col_id.clone(),
+                node_type: NodeType::Column,
+                label: source.column.clone().into(),
+                qualified_name: Some(format!("{}.{}", table_canonical, source.column).into()),
+                ..Default::default()
+            });
+            let ownership_edge_id = generate_edge_id(&table_node_id, &source_col_id);
+            if !ctx.edge_ids.contains(&ownership_edge_id) {
+                ctx.add_edge(Edge::ownership(
+                    ownership_edge_id,
+                    table_node_id,
+                    source_col_id.clone(),
+                ));
+            }
+            let control_edge_id = generate_edge_id(
+                &format!(
+                    "window_control:{}:{}",
+                    control.role.metadata_value(),
+                    source_col_id
+                ),
+                &node_id,
+            );
+            if !ctx.edge_ids.contains(&control_edge_id) {
+                let mut metadata = HashMap::new();
+                metadata.insert(
+                    "windowRole".to_string(),
+                    json!(control.role.metadata_value()),
+                );
+                ctx.add_edge(
+                    Edge::window_control(control_edge_id, source_col_id, node_id.clone())
+                        .with_metadata(metadata),
+                );
+            }
+        }
+
+        if !unresolved_controls.is_empty() {
+            if let Some(node) = ctx.nodes.iter_mut().find(|node| node.id == node_id) {
+                let metadata = node.metadata.get_or_insert_with(HashMap::new);
+                metadata.insert("windowControlStatus".to_string(), json!("unresolved"));
+                metadata.insert(
+                    "windowControlIssues".to_string(),
+                    json!(unresolved_controls),
+                );
             }
         }
 

@@ -341,8 +341,16 @@ export function edgePairKey(sourceId: string, targetId: string): string {
 /**
  * Create a collision-safe React Flow edge ID for synthetic relation-level edges.
  */
-export function syntheticEdgeId(kind: string, sourceId: string, targetId: string): string {
-  return ['edge', kind, sourceId, targetId].map((part) => encodeURIComponent(part)).join('/');
+export function syntheticEdgeId(
+  kind: string,
+  sourceId: string,
+  targetId: string,
+  discriminator?: string
+): string {
+  return ['edge', kind, sourceId, targetId, discriminator]
+    .filter((part): part is string => part !== undefined)
+    .map((part) => encodeURIComponent(part))
+    .join('/');
 }
 
 /**

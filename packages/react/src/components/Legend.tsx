@@ -106,6 +106,12 @@ export function Legend({ viewMode = 'table' }: LegendProps): JSX.Element {
                 label="Derivation"
                 sublabel="Transformation"
               />
+              <LegendEdgeItem
+                style="dotted"
+                color={EDGE_STYLES.windowControl.stroke}
+                label="Window control"
+                sublabel="PARTITION BY / ORDER BY"
+              />
             </div>
           </div>
 

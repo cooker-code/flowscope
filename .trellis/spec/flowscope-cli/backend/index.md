@@ -25,6 +25,13 @@ This directory contains guidelines for backend development. Fill in each file wi
 > [`flowscope-core/backend/hive-compat-preprocess.md`](../../flowscope-core/backend/hive-compat-preprocess.md)
 > because it runs inside `flowscope_core::analyze` (not in cli middleware). All
 > API/wasm/cli callers receive it automatically when `dialect=hive`.
+>
+> `flowscope --schema <ddl>` is intentionally different: the Hive workload
+> preprocessor removes DDL statements, so the CLI loads Hive schema files with
+> `sqlparser::dialect::HiveDialect` before running workload analysis. A
+> `CREATE EXTERNAL TABLE` table-level `COMMENT` may use the narrowly-scoped
+> parser compatibility fallback; all table columns and partition columns must
+> come from the parsed AST, never from a consumer-side regex reconstruction.
 
 ---
 

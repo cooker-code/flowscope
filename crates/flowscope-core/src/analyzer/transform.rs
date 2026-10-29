@@ -129,6 +129,7 @@ pub fn filter_cte_nodes(lineage: &mut StatementLineage) {
         join_type: Option<crate::types::JoinType>,
         join_condition: Option<String>,
         approximate: Option<bool>,
+        window_role: Option<String>,
     }
 
     impl std::hash::Hash for EdgeKey {
@@ -141,6 +142,7 @@ pub fn filter_cte_nodes(lineage: &mut StatementLineage) {
                 EdgeType::Derivation => 2u8.hash(state),
                 EdgeType::JoinDependency => 3u8.hash(state),
                 EdgeType::CrossStatement => 4u8.hash(state),
+                EdgeType::WindowControl => 5u8.hash(state),
             }
             self.expression.hash(state);
             self.operation.hash(state);
@@ -161,6 +163,7 @@ pub fn filter_cte_nodes(lineage: &mut StatementLineage) {
             }
             self.join_condition.hash(state);
             self.approximate.hash(state);
+            self.window_role.hash(state);
         }
     }
 
@@ -214,6 +217,7 @@ pub fn filter_cte_nodes(lineage: &mut StatementLineage) {
                         join_type: None,
                         join_condition: None,
                         approximate: None,
+                        window_role: None,
                     };
                     bypass_edges.entry(key).or_insert_with(|| {
                         Edge::data_flow(format!("edge_{}_{}", src, tgt), src.clone(), tgt.clone())
@@ -223,13 +227,29 @@ pub fn filter_cte_nodes(lineage: &mut StatementLineage) {
 
                 for out_edge in &outgoings {
                     for in_edge in &incomings {
-                        let edge_type = if out_edge.edge_type == EdgeType::Derivation
+                        let edge_type = if out_edge.edge_type == EdgeType::WindowControl
+                            || in_edge.edge_type == EdgeType::WindowControl
+                        {
+                            EdgeType::WindowControl
+                        } else if out_edge.edge_type == EdgeType::Derivation
                             || in_edge.edge_type == EdgeType::Derivation
                         {
                             EdgeType::Derivation
                         } else {
                             out_edge.edge_type
                         };
+
+                        // CTE bypassing normally combines every reachable
+                        // source/target pair. A control edge is different: its
+                        // source is semantically meaningful, so pairing it
+                        // with unrelated value inputs would fabricate extra
+                        // partition/order dependencies. Keep the concrete
+                        // incoming source when propagating a control edge.
+                        if edge_type == EdgeType::WindowControl
+                            && in_edge.from.as_ref() != src.as_str()
+                        {
+                            continue;
+                        }
 
                         let expression = out_edge
                             .expression
@@ -262,6 +282,11 @@ pub fn filter_cte_nodes(lineage: &mut StatementLineage) {
                             join_type,
                             join_condition: join_condition.as_ref().map(|v| v.to_string()),
                             approximate,
+                            window_role: metadata
+                                .as_ref()
+                                .and_then(|value| value.get("windowRole"))
+                                .and_then(serde_json::Value::as_str)
+                                .map(str::to_string),
                         };
 
                         bypass_edges.entry(key).or_insert_with(|| Edge {
@@ -296,6 +321,12 @@ pub fn filter_cte_nodes(lineage: &mut StatementLineage) {
                 join_type: edge.join_type,
                 join_condition: edge.join_condition.as_ref().map(|v| v.to_string()),
                 approximate: edge.approximate,
+                window_role: edge
+                    .metadata
+                    .as_ref()
+                    .and_then(|value| value.get("windowRole"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
             };
             bypass_edges.entry(key).or_insert_with(|| edge.clone());
         }

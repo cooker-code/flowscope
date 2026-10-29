@@ -936,6 +936,223 @@ fn ansi_window_functions_produce_derivation_edges() {
 }
 
 #[test]
+fn window_controls_are_role_separated_from_value_lineage() {
+    let sql = r#"
+        SELECT FIRST_VALUE(o.amount) OVER (
+            PARTITION BY o.user_id ORDER BY o.created_at
+        ) AS first_amount
+        FROM orders o;
+    "#;
+
+    let result = run_analysis(sql, Dialect::Generic, None);
+    let stmt = first_statement(&result);
+    let output = find_column_node(&stmt, "first_amount").expect("window output should exist");
+    let controls: Vec<_> = edges_by_type(&stmt, EdgeType::WindowControl)
+        .into_iter()
+        .filter(|edge| edge.to == output.id)
+        .collect();
+
+    assert_eq!(
+        controls.len(),
+        2,
+        "partition and order controls must not merge"
+    );
+    assert!(controls.iter().any(|edge| edge
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("windowRole"))
+        .and_then(serde_json::Value::as_str)
+        == Some("partition")));
+    assert!(controls.iter().any(|edge| edge
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("windowRole"))
+        .and_then(serde_json::Value::as_str)
+        == Some("order")));
+    assert!(
+        stmt.edges
+            .iter()
+            .filter(|edge| edge.to == output.id)
+            .filter(|edge| matches!(edge.edge_type, EdgeType::DataFlow | EdgeType::Derivation))
+            .all(|edge| {
+                let source = stmt
+                    .nodes
+                    .iter()
+                    .find(|node| node.id == edge.from)
+                    .expect("source node");
+                source.label.as_ref() == "amount"
+            }),
+        "window controls must not enter value provenance"
+    );
+    assert_eq!(
+        output
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("windowControlStatus"))
+            .and_then(serde_json::Value::as_str),
+        Some("complete")
+    );
+}
+
+#[test]
+fn named_window_controls_keep_roles_and_do_not_pollute_value_lineage() {
+    let sql = r#"
+        SELECT CASE WHEN o.amount > 0 THEN
+            FIRST_VALUE(o.amount) OVER w
+        END AS first_amount
+        FROM orders o
+        WINDOW w AS (
+            PARTITION BY o.user_id
+            ORDER BY CASE WHEN o.created_at IS NULL THEN o.id ELSE o.created_at END
+        );
+    "#;
+
+    let result = run_analysis(sql, Dialect::Generic, None);
+    let stmt = first_statement(&result);
+    let output = find_column_node(&stmt, "first_amount").expect("window output should exist");
+    let controls: Vec<_> = edges_by_type(&stmt, EdgeType::WindowControl)
+        .into_iter()
+        .filter(|edge| edge.to == output.id)
+        .collect();
+
+    assert_eq!(controls.len(), 3, "named window controls should resolve");
+    assert_eq!(
+        controls
+            .iter()
+            .filter(|edge| edge
+                .metadata
+                .as_ref()
+                .and_then(|m| m.get("windowRole"))
+                .and_then(serde_json::Value::as_str)
+                == Some("partition"))
+            .count(),
+        1
+    );
+    assert_eq!(
+        controls
+            .iter()
+            .filter(|edge| edge
+                .metadata
+                .as_ref()
+                .and_then(|m| m.get("windowRole"))
+                .and_then(serde_json::Value::as_str)
+                == Some("order"))
+            .count(),
+        2
+    );
+    assert!(
+        stmt.edges
+            .iter()
+            .filter(|edge| edge.to == output.id)
+            .filter(|edge| { matches!(edge.edge_type, EdgeType::DataFlow | EdgeType::Derivation) })
+            .all(|edge| {
+                let source = stmt
+                    .nodes
+                    .iter()
+                    .find(|node| node.id == edge.from)
+                    .expect("source node");
+                source.label.as_ref() == "amount"
+            }),
+        "CASE/window control columns must not become value sources"
+    );
+    assert_eq!(
+        output
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("windowControlStatus"))
+            .and_then(serde_json::Value::as_str),
+        Some("complete")
+    );
+}
+
+#[test]
+fn one_column_can_be_value_partition_and_order_without_edge_merging() {
+    let result = run_analysis(
+        "SELECT FIRST_VALUE(o.amount) OVER (PARTITION BY o.amount ORDER BY o.amount) AS first_amount FROM orders o",
+        Dialect::Generic,
+        None,
+    );
+    let stmt = first_statement(&result);
+    let output = find_column_node(&stmt, "first_amount").expect("window output should exist");
+    let amount_controls: Vec<_> = edges_by_type(&stmt, EdgeType::WindowControl)
+        .into_iter()
+        .filter(|edge| edge.to == output.id)
+        .filter(|edge| {
+            stmt.nodes
+                .iter()
+                .find(|node| node.id == edge.from)
+                .is_some_and(|node| node.label.as_ref() == "amount")
+        })
+        .collect();
+
+    assert_eq!(
+        amount_controls.len(),
+        2,
+        "roles need distinct control edges"
+    );
+    assert_ne!(amount_controls[0].id, amount_controls[1].id);
+    assert!(stmt.edges.iter().any(|edge| {
+        edge.to == output.id
+            && matches!(edge.edge_type, EdgeType::DataFlow | EdgeType::Derivation)
+            && stmt
+                .nodes
+                .iter()
+                .find(|node| node.id == edge.from)
+                .is_some_and(|node| node.label.as_ref() == "amount")
+    }));
+}
+
+#[test]
+fn hidden_cte_preserves_window_controls_through_later_aggregation() {
+    let result = run_analysis_with_options(
+        r#"
+            WITH ranked AS (
+                SELECT ROW_NUMBER() OVER (PARTITION BY o.user_id ORDER BY o.created_at) AS rn
+                FROM orders o
+            )
+            SELECT COUNT(rn) AS total_ranked FROM ranked
+        "#,
+        Dialect::Generic,
+        None,
+        AnalysisOptions {
+            hide_ctes: Some(true),
+            ..Default::default()
+        },
+    );
+    let stmt = first_statement(&result);
+    let output = find_column_node(&stmt, "total_ranked").expect("aggregate output");
+    let controls: Vec<_> = edges_by_type(&stmt, EdgeType::WindowControl)
+        .into_iter()
+        .filter(|edge| edge.to == output.id)
+        .collect();
+
+    assert_eq!(
+        controls.len(),
+        2,
+        "CTE collapse must not duplicate control paths: {controls:?}"
+    );
+    assert!(controls.iter().any(|edge| edge
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("windowRole"))
+        .and_then(serde_json::Value::as_str)
+        == Some("partition")));
+    assert!(controls.iter().any(|edge| edge
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("windowRole"))
+        .and_then(serde_json::Value::as_str)
+        == Some("order")));
+    assert!(
+        stmt.edges.iter().any(|edge| {
+            edge.to == output.id
+                && matches!(edge.edge_type, EdgeType::DataFlow | EdgeType::Derivation)
+        }),
+        "the aggregate keeps ordinary value provenance alongside controls"
+    );
+}
+
+#[test]
 fn ansi_values_clause_requires_no_tables() {
     let sql = r#"
         SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v(id, label);

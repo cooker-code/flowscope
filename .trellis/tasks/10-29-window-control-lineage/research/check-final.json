@@ -1,0 +1,127 @@
+{
+  "task": "10-29-window-control-lineage",
+  "scope": "C5 FlowScope window-control parser, export, schema, renderer and generated-contract checks",
+  "status": "passed_with_explicit_non_code_acceptance_boundary",
+  "source_freeze": {
+    "cli_path": "/Users/blank/.codex/evidence/runtime/flowscope-c5-target/debug/flowscope",
+    "cli_sha256": "723911d21bca3fcfe40822353cf8dbb6fbf6c5ad66fb0351236d1e1831f4d5be",
+    "wasm_path": "packages/core/wasm/flowscope_wasm_bg.wasm",
+    "wasm_sha256": "f2aa9034db5df7e3d7075d395f3504010c6bfe2e3480026871399f837111e30b",
+    "note": "CLI hash is the parser/batch evidence artifact. Do not overwrite its fixed batch copy with later Cargo output."
+  },
+  "checks": [
+    {
+      "name": "Rust format",
+      "command": "CARGO_TARGET_DIR=/Users/blank/.codex/evidence/runtime/flowscope-c5-target cargo fmt --all -- --check",
+      "result": "passed"
+    },
+    {
+      "name": "Rust lint",
+      "command": "CARGO_TARGET_DIR=/Users/blank/.codex/evidence/runtime/flowscope-c5-target cargo clippy -p flowscope-core -p flowscope-export -p flowscope-cli -- -D warnings",
+      "result": "passed"
+    },
+    {
+      "name": "Rust type/build check",
+      "command": "CARGO_TARGET_DIR=/Users/blank/.codex/evidence/runtime/flowscope-c5-target cargo check -p flowscope-core -p flowscope-export -p flowscope-cli",
+      "result": "passed"
+    },
+    {
+      "name": "flowscope-core library tests",
+      "command": "CARGO_TARGET_DIR=/Users/blank/.codex/evidence/runtime/flowscope-c5-target cargo test -p flowscope-core --lib",
+      "result": "passed",
+      "detail": "1722 passed"
+    },
+    {
+      "name": "flowscope-export library tests",
+      "command": "CARGO_TARGET_DIR=/Users/blank/.codex/evidence/runtime/flowscope-c5-target cargo test -p flowscope-export --lib",
+      "result": "passed",
+      "detail": "36 passed"
+    },
+    {
+      "name": "CLI schema tests",
+      "command": "CARGO_TARGET_DIR=/Users/blank/.codex/evidence/runtime/flowscope-c5-target cargo test -p flowscope-cli schema::tests --lib",
+      "result": "passed",
+      "detail": "4 passed; includes Hive EXTERNAL TABLE, quoted qualified name, table COMMENT and partition column regression"
+    },
+    {
+      "name": "API schema contract",
+      "command": "CARGO_TARGET_DIR=/Users/blank/.codex/evidence/runtime/flowscope-c5-target cargo test -p flowscope-core --test schema_guard --locked",
+      "result": "passed",
+      "detail": "api_schema_snapshot_matches passed; docs/api_schema.json regenerated"
+    },
+    {
+      "name": "Window-control regressions",
+      "command": "cargo test -p flowscope-core --test lineage_engine <four named window-control cases>",
+      "result": "passed",
+      "detail": "inline partition/order separation; named window plus CASE expression; one column as value/partition/order; hidden CTE through subsequent aggregate"
+    },
+    {
+      "name": "Dali value/control isolation",
+      "command": "cargo test -p flowscope-export dali_compat::tests::window_controls_are_exported_separately_from_value_sources --lib",
+      "result": "passed"
+    },
+    {
+      "name": "TypeScript install",
+      "command": "yarn install --frozen-lockfile --ignore-scripts",
+      "result": "passed",
+      "detail": "No tracked lockfile or manifest change"
+    },
+    {
+      "name": "TypeScript lint",
+      "command": "yarn workspace @pondpilot/flowscope-core lint && yarn workspace @pondpilot/flowscope-react lint",
+      "result": "passed"
+    },
+    {
+      "name": "TypeScript type and schema checks",
+      "command": "core/react typecheck and core schema compatibility suite",
+      "result": "passed",
+      "detail": "core schema compatibility: 3/3"
+    },
+    {
+      "name": "React renderer suite",
+      "command": "yarn workspace @pondpilot/flowscope-react test graphBuilders.test.ts --silent and complete renderer suite",
+      "result": "passed",
+      "detail": "15 files / 201 tests"
+    },
+    {
+      "name": "VS Code type and test checks",
+      "command": "cd vscode && npm test",
+      "result": "passed",
+      "detail": "typecheck passed; 2/2 statementScopedLineage tests passed after fixture gained required sqlType: select"
+    },
+    {
+      "name": "Diff whitespace",
+      "command": "git diff --check",
+      "result": "passed"
+    }
+  ],
+  "real_input_checks": [
+    {
+      "case": "task 545 Hive schema",
+      "result": "passed",
+      "detail": "Fixed CLI loaded authorized real --schema input without Schema DDL produced no table definitions / exit 66"
+    },
+    {
+      "case": "task 25473 Hive schema",
+      "result": "passed",
+      "detail": "Fixed CLI loaded authorized real --schema input without Schema DDL produced no table definitions / exit 66"
+    }
+  ],
+  "excluded_or_pending": [
+    {
+      "item": "Browser visual acceptance",
+      "status": "not_run",
+      "reason": "Renderer unit/type checks prove contract behavior but do not substitute for human browser visual acceptance."
+    },
+    {
+      "item": "Frozen ETL batch and isolated Neo4j end-to-end replay",
+      "status": "owned_by_parent_batch_flow",
+      "reason": "Parser binary is frozen above; batch/Neo4j evidence must be generated from that fixed artifact."
+    },
+    {
+      "item": "Original FlowScope master Dali MERGE Oracle schema failures",
+      "status": "excluded_preexisting_wip",
+      "reason": "Pre-reproduced original-master WIP behavior; frozen ETL set contains no MERGE and this is not a C5 change."
+    }
+  ]
+}

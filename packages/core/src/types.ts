@@ -624,7 +624,8 @@ export type EdgeType =
   | 'data_flow'
   | 'derivation'
   | 'join_dependency'
-  | 'cross_statement';
+  | 'cross_statement'
+  | 'window_control';
 
 /** The type of SQL JOIN operation. */
 export type JoinType =

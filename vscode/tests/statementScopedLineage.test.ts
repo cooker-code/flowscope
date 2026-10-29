@@ -49,6 +49,7 @@ describe('statementScopedLineage', () => {
 
   it('scopes all nodes in a result using the statement source name', () => {
     const result: AnalyzeResult = {
+      sqlType: 'select',
       statements: [
         {
           statementIndex: 0,

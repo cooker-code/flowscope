@@ -14,11 +14,13 @@
 use super::context::{ColumnRef, StatementContext};
 use super::functions;
 use super::helpers::check_expr_types;
+use super::query::{WindowControlRef, WindowControlRole};
 use super::Analyzer;
 use crate::generated;
 use crate::types::{AggregationInfo, FilterClauseType};
 use crate::Dialect;
 use sqlparser::ast::{self, Expr, FunctionArg, FunctionArgExpr};
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 #[cfg(feature = "tracing")]
@@ -47,7 +49,339 @@ pub(crate) struct ExpressionAnalyzer<'a, 'b> {
     pub(crate) ctx: &'a mut StatementContext,
 }
 
+/// Control inputs of window functions, intentionally distinct from value
+/// references returned by `extract_column_refs_with_dialect`.
+pub(crate) struct WindowControlExtraction {
+    pub(crate) controls: Vec<WindowControlRef>,
+    pub(crate) issues: Vec<String>,
+}
+
 impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
+    pub(crate) fn extract_window_controls(
+        expr: &Expr,
+        dialect: Dialect,
+        named_windows: &HashMap<String, ast::NamedWindowExpr>,
+    ) -> WindowControlExtraction {
+        let mut extraction = WindowControlExtraction {
+            controls: Vec::new(),
+            issues: Vec::new(),
+        };
+        Self::collect_window_controls(
+            expr,
+            dialect,
+            named_windows,
+            &mut HashSet::new(),
+            &mut extraction,
+            0,
+        );
+        extraction
+    }
+
+    fn collect_window_controls(
+        expr: &Expr,
+        dialect: Dialect,
+        named_windows: &HashMap<String, ast::NamedWindowExpr>,
+        resolving_windows: &mut HashSet<String>,
+        extraction: &mut WindowControlExtraction,
+        depth: usize,
+    ) {
+        if depth > MAX_RECURSION_DEPTH {
+            extraction
+                .issues
+                .push("Window control traversal exceeded maximum recursion depth.".to_string());
+            return;
+        }
+        let next_depth = depth + 1;
+        match expr {
+            Expr::Function(function) => {
+                if let Some(over) = &function.over {
+                    Self::collect_window_type_controls(
+                        over,
+                        dialect,
+                        named_windows,
+                        resolving_windows,
+                        extraction,
+                    );
+                }
+                if let ast::FunctionArguments::List(arguments) = &function.args {
+                    for arg in &arguments.args {
+                        match arg {
+                            FunctionArg::Unnamed(FunctionArgExpr::Expr(value))
+                            | FunctionArg::Named {
+                                arg: FunctionArgExpr::Expr(value),
+                                ..
+                            } => Self::collect_window_controls(
+                                value,
+                                dialect,
+                                named_windows,
+                                resolving_windows,
+                                extraction,
+                                next_depth,
+                            ),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                Self::collect_window_controls(
+                    left,
+                    dialect,
+                    named_windows,
+                    resolving_windows,
+                    extraction,
+                    next_depth,
+                );
+                Self::collect_window_controls(
+                    right,
+                    dialect,
+                    named_windows,
+                    resolving_windows,
+                    extraction,
+                    next_depth,
+                );
+            }
+            Expr::UnaryOp { expr, .. }
+            | Expr::Nested(expr)
+            | Expr::Cast { expr, .. }
+            | Expr::IsNull(expr)
+            | Expr::IsNotNull(expr)
+            | Expr::IsFalse(expr)
+            | Expr::IsNotFalse(expr)
+            | Expr::IsTrue(expr)
+            | Expr::IsNotTrue(expr)
+            | Expr::Extract { expr, .. } => Self::collect_window_controls(
+                expr,
+                dialect,
+                named_windows,
+                resolving_windows,
+                extraction,
+                next_depth,
+            ),
+            Expr::Case {
+                operand,
+                conditions,
+                else_result,
+                ..
+            } => {
+                if let Some(value) = operand {
+                    Self::collect_window_controls(
+                        value,
+                        dialect,
+                        named_windows,
+                        resolving_windows,
+                        extraction,
+                        next_depth,
+                    );
+                }
+                for when in conditions {
+                    Self::collect_window_controls(
+                        &when.condition,
+                        dialect,
+                        named_windows,
+                        resolving_windows,
+                        extraction,
+                        next_depth,
+                    );
+                    Self::collect_window_controls(
+                        &when.result,
+                        dialect,
+                        named_windows,
+                        resolving_windows,
+                        extraction,
+                        next_depth,
+                    );
+                }
+                if let Some(value) = else_result {
+                    Self::collect_window_controls(
+                        value,
+                        dialect,
+                        named_windows,
+                        resolving_windows,
+                        extraction,
+                        next_depth,
+                    );
+                }
+            }
+            Expr::InList { expr, list, .. } => {
+                Self::collect_window_controls(
+                    expr,
+                    dialect,
+                    named_windows,
+                    resolving_windows,
+                    extraction,
+                    next_depth,
+                );
+                for value in list {
+                    Self::collect_window_controls(
+                        value,
+                        dialect,
+                        named_windows,
+                        resolving_windows,
+                        extraction,
+                        next_depth,
+                    );
+                }
+            }
+            Expr::Between {
+                expr, low, high, ..
+            } => {
+                Self::collect_window_controls(
+                    expr,
+                    dialect,
+                    named_windows,
+                    resolving_windows,
+                    extraction,
+                    next_depth,
+                );
+                Self::collect_window_controls(
+                    low,
+                    dialect,
+                    named_windows,
+                    resolving_windows,
+                    extraction,
+                    next_depth,
+                );
+                Self::collect_window_controls(
+                    high,
+                    dialect,
+                    named_windows,
+                    resolving_windows,
+                    extraction,
+                    next_depth,
+                );
+            }
+            Expr::Like { expr, pattern, .. } | Expr::ILike { expr, pattern, .. } => {
+                Self::collect_window_controls(
+                    expr,
+                    dialect,
+                    named_windows,
+                    resolving_windows,
+                    extraction,
+                    next_depth,
+                );
+                Self::collect_window_controls(
+                    pattern,
+                    dialect,
+                    named_windows,
+                    resolving_windows,
+                    extraction,
+                    next_depth,
+                );
+            }
+            Expr::Tuple(values) => {
+                for value in values {
+                    Self::collect_window_controls(
+                        value,
+                        dialect,
+                        named_windows,
+                        resolving_windows,
+                        extraction,
+                        next_depth,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_window_type_controls(
+        window: &ast::WindowType,
+        dialect: Dialect,
+        named_windows: &HashMap<String, ast::NamedWindowExpr>,
+        resolving_windows: &mut HashSet<String>,
+        extraction: &mut WindowControlExtraction,
+    ) {
+        match window {
+            ast::WindowType::WindowSpec(spec) => {
+                if let Some(name) = &spec.window_name {
+                    Self::collect_named_window_controls(
+                        &name.value,
+                        dialect,
+                        named_windows,
+                        resolving_windows,
+                        extraction,
+                    );
+                }
+                for value in &spec.partition_by {
+                    Self::append_control_refs(
+                        value,
+                        WindowControlRole::Partition,
+                        dialect,
+                        extraction,
+                    );
+                }
+                for order in &spec.order_by {
+                    Self::append_control_refs(
+                        &order.expr,
+                        WindowControlRole::Order,
+                        dialect,
+                        extraction,
+                    );
+                }
+            }
+            ast::WindowType::NamedWindow(name) => Self::collect_named_window_controls(
+                &name.value,
+                dialect,
+                named_windows,
+                resolving_windows,
+                extraction,
+            ),
+        }
+    }
+
+    fn collect_named_window_controls(
+        name: &str,
+        dialect: Dialect,
+        named_windows: &HashMap<String, ast::NamedWindowExpr>,
+        resolving_windows: &mut HashSet<String>,
+        extraction: &mut WindowControlExtraction,
+    ) {
+        if !resolving_windows.insert(name.to_string()) {
+            extraction
+                .issues
+                .push(format!("Named window '{name}' has a cyclic definition."));
+            return;
+        }
+        match named_windows.get(name) {
+            Some(ast::NamedWindowExpr::WindowSpec(spec)) => Self::collect_window_type_controls(
+                &ast::WindowType::WindowSpec(spec.clone()),
+                dialect,
+                named_windows,
+                resolving_windows,
+                extraction,
+            ),
+            Some(ast::NamedWindowExpr::NamedWindow(parent)) => Self::collect_named_window_controls(
+                &parent.value,
+                dialect,
+                named_windows,
+                resolving_windows,
+                extraction,
+            ),
+            None => extraction
+                .issues
+                .push(format!("Named window '{name}' could not be resolved.")),
+        }
+        resolving_windows.remove(name);
+    }
+
+    fn append_control_refs(
+        expr: &Expr,
+        role: WindowControlRole,
+        dialect: Dialect,
+        extraction: &mut WindowControlExtraction,
+    ) {
+        let (refs, depth_limited) = Self::extract_column_refs_with_dialect(expr, dialect);
+        extraction.controls.extend(
+            refs.into_iter()
+                .map(|source| WindowControlRef { source, role }),
+        );
+        if depth_limited {
+            extraction
+                .issues
+                .push("Window control expression exceeded maximum recursion depth.".to_string());
+        }
+    }
     /// Creates a new expression analyzer borrowing the parent analyzer and statement context.
     pub(crate) fn new(analyzer: &'a mut Analyzer<'b>, ctx: &'a mut StatementContext) -> Self {
         Self { analyzer, ctx }

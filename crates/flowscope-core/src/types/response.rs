@@ -683,7 +683,8 @@ pub struct Edge {
     /// Zero-based indices of the statement(s) this edge participates in.
     ///
     /// Invariants:
-    /// - Intra-statement edges (Ownership, DataFlow, Derivation, JoinDependency)
+    /// - Intra-statement edges (Ownership, DataFlow, Derivation, JoinDependency,
+    ///   WindowControl)
     ///   list every statement in which the same structural `(from, to, kind)`
     ///   edge appears, sorted ascending and deduplicated.
     /// - `EdgeType::CrossStatement` edges are not merged across
@@ -745,6 +746,16 @@ impl Edge {
         Self::new(id, from, to, EdgeType::Ownership)
     }
 
+    /// Create a window-control edge. Unlike value lineage, this means the
+    /// source participates in PARTITION BY or ORDER BY for the target window.
+    pub fn window_control(
+        id: impl Into<Arc<str>>,
+        from: impl Into<Arc<str>>,
+        to: impl Into<Arc<str>>,
+    ) -> Self {
+        Self::new(id, from, to, EdgeType::WindowControl)
+    }
+
     /// Set the expression.
     pub fn with_expression(mut self, expr: impl Into<Arc<str>>) -> Self {
         self.expression = Some(expr.into());
@@ -766,6 +777,12 @@ impl Edge {
     /// Set the join condition.
     pub fn with_join_condition(mut self, condition: impl Into<Arc<str>>) -> Self {
         self.join_condition = Some(condition.into());
+        self
+    }
+
+    /// Set edge metadata.
+    pub fn with_metadata(mut self, metadata: HashMap<String, serde_json::Value>) -> Self {
+        self.metadata = Some(metadata);
         self
     }
 
@@ -908,6 +925,8 @@ pub enum EdgeType {
     JoinDependency,
     /// Cross-statement dependency
     CrossStatement,
+    /// Window PARTITION BY / ORDER BY control dependency, not a value source.
+    WindowControl,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Hash)]

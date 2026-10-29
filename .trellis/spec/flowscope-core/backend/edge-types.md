@@ -11,7 +11,7 @@
 
 Defines:
 
-- The 5 `EdgeType` variants emitted by the analyzer.
+- The 6 `EdgeType` variants emitted by the analyzer.
 - When each one is created (decision points in the code).
 - How each one is rendered in the React UI (color, line style, legend label).
 - Which two types are **structural / not drawn** in the user-facing legend.
@@ -22,7 +22,7 @@ emitted, must update this file.
 
 ---
 
-## The 5 EdgeType Variants
+## The 6 EdgeType Variants
 
 ```rust
 // crates/flowscope-core/src/types/response.rs:759
@@ -32,6 +32,7 @@ pub enum EdgeType {
     Derivation,       // Output derived from inputs (with transformation)
     JoinDependency,   // Join-only dependency from a source to output
     CrossStatement,   // Cross-statement dependency
+    WindowControl,    // PARTITION BY / ORDER BY control dependency
 }
 ```
 
@@ -42,6 +43,7 @@ pub enum EdgeType {
 | `Derivation` | `derivation` | Yes | Dashed (`6 4`) purple line |
 | `JoinDependency` | `join_dependency` | Yes | Dotted (`2 2`) green line |
 | `CrossStatement` | `cross_statement` | No (only in multi-statement views) | — |
+| `WindowControl` | `window_control` | Yes | Dotted sky-blue line; metadata `windowRole` is `partition` or `order`. |
 
 ---
 
@@ -188,6 +190,10 @@ collapse** — once derivation enters the chain, it sticks.
 4. Only `DataFlow`, `Derivation`, and `JoinDependency` can carry
    `join_type` / `join_condition`. `Ownership` and `CrossStatement` must
    not.
+5. `WindowControl` is not value lineage: window `PARTITION BY` and `ORDER BY`
+   refs never enter `DataFlow`, `Derivation`, or Dali `source_columns`. Both
+   the edge identity and global flatten key include its role so an input that
+   is both partition and order remains two edges.
 
 See `crates/flowscope-core/src/types/response.rs:543` for the formal
 docstring on the `statementIds` invariant.

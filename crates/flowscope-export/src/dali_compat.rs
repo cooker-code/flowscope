@@ -76,11 +76,21 @@ pub struct DaliTransform {
 pub struct DaliRef {
     pub target_column: String,
     pub source_columns: Vec<DaliSourceColumn>,
+    /// Window PARTITION BY / ORDER BY inputs. Kept separate so legacy
+    /// `source_columns` remains value provenance only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub control_columns: Vec<DaliControlColumn>,
 }
 
 #[derive(Debug, Serialize, serde::Deserialize)]
 pub struct DaliSourceColumn {
     pub expression: String,
+    pub columns: Vec<String>,
+}
+
+#[derive(Debug, Serialize, serde::Deserialize)]
+pub struct DaliControlColumn {
+    pub role: String,
     pub columns: Vec<String>,
 }
 
@@ -460,9 +470,39 @@ fn build_refs(stmt: &StatementView<'_>) -> Vec<DaliRef> {
             }
         }
 
+        let mut control_columns = Vec::new();
+        for edge in &stmt.edges {
+            if edge.edge_type != EdgeType::WindowControl || edge.to != col.id {
+                continue;
+            }
+            let Some(source) = column_nodes.iter().find(|node| node.id == edge.from) else {
+                continue;
+            };
+            let Some(&(table_name, _)) = column_owner.get(source.id.as_ref()) else {
+                continue;
+            };
+            let role = edge
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("windowRole"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown")
+                .to_string();
+            let qualified = format!("{table_name}.{}", source.label);
+            if !control_columns.iter().any(|control: &DaliControlColumn| {
+                control.role == role && control.columns == [qualified.clone()]
+            }) {
+                control_columns.push(DaliControlColumn {
+                    role,
+                    columns: vec![qualified],
+                });
+            }
+        }
+
         refs.push(DaliRef {
             target_column: col.label.to_string(),
             source_columns,
+            control_columns,
         });
     }
 
@@ -660,5 +700,46 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn window_controls_are_exported_separately_from_value_sources() {
+        let sql = "INSERT INTO target_table (first_amount) SELECT FIRST_VALUE(o.amount) OVER (PARTITION BY o.user_id ORDER BY o.created_at) AS first_amount FROM orders o";
+        let result = analyze_oracle(sql);
+        let output = build_dali_output(&result, sql);
+        let reference = output.transforms[0]
+            .refs
+            .iter()
+            .find(|reference| reference.target_column == "FIRST_AMOUNT")
+            .expect("window output reference");
+
+        assert!(reference.source_columns.iter().all(|source| {
+            source.columns.iter().all(|column| {
+                let upper = column.to_ascii_uppercase();
+                !upper.ends_with(".USER_ID") && !upper.ends_with(".CREATED_AT")
+            })
+        }));
+        assert!(
+            reference.control_columns.iter().any(|control| {
+                control.role == "partition"
+                    && control
+                        .columns
+                        .iter()
+                        .any(|column| column.to_ascii_uppercase().ends_with(".USER_ID"))
+            }),
+            "partition controls: {:?}",
+            reference.control_columns
+        );
+        assert!(
+            reference.control_columns.iter().any(|control| {
+                control.role == "order"
+                    && control
+                        .columns
+                        .iter()
+                        .any(|column| column.to_ascii_uppercase().ends_with(".CREATED_AT"))
+            }),
+            "order controls: {:?}",
+            reference.control_columns
+        );
     }
 }
