@@ -200,7 +200,9 @@ collapse** — once derivation enters the chain, it sticks.
    trim operands are value refs, while FLOOR/CEIL date units and literal scales
    are not. When the same expression is used in `PARTITION BY` or `ORDER BY`,
    those refs are emitted only as role-bearing `WindowControl` edges; they must
-   not be promoted into the window function's value lineage.
+   not be promoted into the window function's value lineage. Window discovery
+   must recurse through those scalar wrappers too: an outer `CEIL`, `FLOOR`,
+   `TRIM`, or `SUBSTRING` cannot hide an inner `OVER (...)` specification.
 
 See `crates/flowscope-core/src/types/response.rs:543` for the formal
 docstring on the `statementIds` invariant.

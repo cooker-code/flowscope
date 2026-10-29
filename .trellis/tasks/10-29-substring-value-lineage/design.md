@@ -8,6 +8,8 @@
 
 在 `collect_column_refs` 处理 `Expr::Substring`、`Expr::Trim`、`Expr::Floor`/`Expr::Ceil`，递归收集被截取表达式、FROM/FOR、TRIM输入/修剪参数以及取整输入中的列引用；单位和字面量精度不是字段；沿用既有列解析、Physical/Derived、data_flow/derivation 与窗口控制合同。不能以字符串正则替代 AST，也不改变字段值与控制角色区分。测试嵌套 CAST/unix_timestamp/SUBSTR、标准 SUBSTRING、动态起点/长度及多源歧义；同步使用同一 helper 的控制提取、schema/WASM/TS 合同。先验证真实25303在真实DDL下新增 Physical dbctime 来源，再扫原3161 ETL 识别整类影响。
 
+窗口遍历器须对已证同类专用AST采用相同操作数递归。最终原SQL复审确认34161的CEIL包裹AVG OVER被窗口walker跳过，Physical与Derived端点真实存在；补齐Substring/Trim/Floor/Ceil包裹内部窗口的遍历，只有实际WindowSpec产生控制角色。纯复杂标量不发控制边，动态参数的普通值语义不变。该缺陷与750值边回补是不同检验面，须新CLI、全3161控制扫描及最终图重放后才合并。
+
 ## 历史回补
 
 固定修复后的 CLI、原 CSV、DDL/字段元数据与源代码哈希。仅为确含本类函数的表达式新增已由修复 parser 声明的值边；目标必须按同 SQL、statement、owner scope、表达式和标签唯一对应原 Derived fs_uid。Physical 源使用真实完整限定名和元数据身份，Hive casefold 仅唯一时回退。源、目标任一不能证明则拒绝并记录，禁止按数组顺序或旧 node ID 直接相信，禁止新造图节点。

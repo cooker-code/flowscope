@@ -144,6 +144,8 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
             Expr::UnaryOp { expr, .. }
             | Expr::Nested(expr)
             | Expr::Cast { expr, .. }
+            | Expr::Ceil { expr, .. }
+            | Expr::Floor { expr, .. }
             | Expr::IsNull(expr)
             | Expr::IsNotNull(expr)
             | Expr::IsFalse(expr)
@@ -158,6 +160,78 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
                 extraction,
                 next_depth,
             ),
+            Expr::Trim {
+                expr,
+                trim_what,
+                trim_characters,
+                ..
+            } => {
+                Self::collect_window_controls(
+                    expr,
+                    dialect,
+                    named_windows,
+                    resolving_windows,
+                    extraction,
+                    next_depth,
+                );
+                if let Some(trim_what) = trim_what {
+                    Self::collect_window_controls(
+                        trim_what,
+                        dialect,
+                        named_windows,
+                        resolving_windows,
+                        extraction,
+                        next_depth,
+                    );
+                }
+                if let Some(trim_characters) = trim_characters {
+                    for trim_character in trim_characters {
+                        Self::collect_window_controls(
+                            trim_character,
+                            dialect,
+                            named_windows,
+                            resolving_windows,
+                            extraction,
+                            next_depth,
+                        );
+                    }
+                }
+            }
+            Expr::Substring {
+                expr,
+                substring_from,
+                substring_for,
+                ..
+            } => {
+                Self::collect_window_controls(
+                    expr,
+                    dialect,
+                    named_windows,
+                    resolving_windows,
+                    extraction,
+                    next_depth,
+                );
+                if let Some(from) = substring_from {
+                    Self::collect_window_controls(
+                        from,
+                        dialect,
+                        named_windows,
+                        resolving_windows,
+                        extraction,
+                        next_depth,
+                    );
+                }
+                if let Some(for_expr) = substring_for {
+                    Self::collect_window_controls(
+                        for_expr,
+                        dialect,
+                        named_windows,
+                        resolving_windows,
+                        extraction,
+                        next_depth,
+                    );
+                }
+            }
             Expr::Case {
                 operand,
                 conditions,

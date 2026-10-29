@@ -1210,6 +1210,68 @@ fn window_controls_are_role_separated_from_value_lineage() {
 }
 
 #[test]
+fn scalar_wrappers_preserve_nested_window_controls_without_value_pollution() {
+    let result = run_analysis(
+        r#"
+            SELECT
+                CEIL(AVG(CAST(o.dimension_star AS DOUBLE)) OVER (PARTITION BY o.chapter_report_id)) AS chapter_star,
+                FLOOR(AVG(o.floor_value) OVER (PARTITION BY o.floor_partition)) AS floored_star,
+                TRIM(CAST(AVG(o.trim_value) OVER (PARTITION BY o.trim_partition) AS TEXT)) AS trimmed_star,
+                SUBSTRING(CAST(AVG(o.substring_value) OVER (PARTITION BY o.substring_partition) AS TEXT) FROM 1 FOR 2) AS shortened_star
+            FROM orders o
+        "#,
+        Dialect::Generic,
+        None,
+    );
+    let stmt = first_statement(&result);
+
+    for (output_label, value_label, control_label) in [
+        ("chapter_star", "dimension_star", "chapter_report_id"),
+        ("floored_star", "floor_value", "floor_partition"),
+        ("trimmed_star", "trim_value", "trim_partition"),
+        ("shortened_star", "substring_value", "substring_partition"),
+    ] {
+        let output = find_column_node(&stmt, output_label).expect("wrapped window output column");
+        let controls: Vec<_> = edges_by_type(&stmt, EdgeType::WindowControl)
+            .into_iter()
+            .filter(|edge| edge.to == output.id)
+            .collect();
+        assert_eq!(
+            controls.len(),
+            1,
+            "{output_label} needs one partition control"
+        );
+        assert!(controls.iter().all(|edge| {
+            edge.metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("windowRole"))
+                .and_then(serde_json::Value::as_str)
+                == Some("partition")
+                && stmt
+                    .nodes
+                    .iter()
+                    .find(|node| node.id == edge.from)
+                    .is_some_and(|node| node.label.as_ref() == control_label)
+        }));
+        assert!(
+            stmt.edges
+                .iter()
+                .filter(|edge| {
+                    edge.to == output.id
+                        && matches!(edge.edge_type, EdgeType::DataFlow | EdgeType::Derivation)
+                })
+                .all(|edge| {
+                    stmt.nodes
+                        .iter()
+                        .find(|node| node.id == edge.from)
+                        .is_some_and(|node| node.label.as_ref() == value_label)
+                }),
+            "{output_label} control must not become value lineage"
+        );
+    }
+}
+
+#[test]
 fn named_window_controls_keep_roles_and_do_not_pollute_value_lineage() {
     let sql = r#"
         SELECT CASE WHEN o.amount > 0 THEN

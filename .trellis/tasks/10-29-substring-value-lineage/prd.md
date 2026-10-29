@@ -10,6 +10,8 @@
 - **R1.1**：FlowScope 通过 AST 递归收集 Expr::Substring 的输入/起点/长度、Expr::Trim 的输入/修剪参数、Floor/Ceil 的输入等字段引用，保持值来源与窗口控制角色独立。
 - **R1.2**：原任务25303的dbctime在真实DDL与固定SQL下产生可定位Physical值来源，普通及嵌套/动态参数反例有回归。
 
+- **R1.3**：专用标量AST包住内部OVER时继续提取窗口控制；34161的CEIL(AVG(...) OVER(...))保留chapter_report_id/partition，不能将控制列混为普通值来源。
+
 ### R2 新增
 
 - **R2.1**：全量扫描3161原ETL，历史回补仅针对可由SQL、parser、精确旧scope和元数据证明的Substring值边；无法唯一定位须记录拒绝。
