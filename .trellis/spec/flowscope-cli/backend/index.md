@@ -30,8 +30,12 @@ This directory contains guidelines for backend development. Fill in each file wi
 > preprocessor removes DDL statements, so the CLI loads Hive schema files with
 > `sqlparser::dialect::HiveDialect` before running workload analysis. A
 > `CREATE EXTERNAL TABLE` table-level `COMMENT` may use the narrowly-scoped
-> parser compatibility fallback; all table columns and partition columns must
-> come from the parsed AST, never from a consumer-side regex reconstruction.
+> parser compatibility fallback. Before that fallback, a Hive DDL literal may
+> normalize only an odd-length backslash run immediately before a single quote
+> into SQL doubled-quote syntax. The scanner must leave even runs, quoted
+> identifiers, double-quoted text, and line/block comments unchanged. All
+> table columns and partition columns must come from the parsed AST, never from
+> a consumer-side regex reconstruction.
 
 ---
 

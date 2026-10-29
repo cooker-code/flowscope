@@ -97,17 +97,43 @@ fn parse_hive_schema_ddl(content: &str) -> Result<SchemaMetadata> {
     // COMMENT after CREATE EXTERNAL TABLE, so only that grammar gap gets a
     // syntax-aware fallback; column definitions, partitions, locations and
     // properties stay in the original input.
+    let literal_compatible = normalize_hive_escaped_quotes(content);
     let statements = match Parser::parse_sql(&HiveDialect {}, content) {
         Ok(statements) => statements,
         Err(original) => {
-            let compatible = remove_external_table_comments(content);
-            if compatible == content {
-                return Err(original.into());
+            let table_comment_compatible = remove_external_table_comments(content);
+            let literal_and_table_comment_compatible =
+                remove_external_table_comments(&literal_compatible);
+            let candidates = [
+                (&literal_compatible, "Hive escaped-quote normalization"),
+                (&table_comment_compatible, "external-table COMMENT fallback"),
+                (
+                    &literal_and_table_comment_compatible,
+                    "Hive escaped-quote normalization and external-table COMMENT fallback",
+                ),
+            ];
+            let mut fallback_error = None;
+            let mut parsed = None;
+            for (compatible, description) in candidates {
+                if compatible == content {
+                    continue;
+                }
+                match Parser::parse_sql(&HiveDialect {}, compatible) {
+                    Ok(statements) => {
+                        parsed = Some(statements);
+                        break;
+                    }
+                    Err(error) => fallback_error = Some((description, error)),
+                }
             }
-            Parser::parse_sql(&HiveDialect {}, &compatible).map_err(|fallback| {
-                anyhow::anyhow!(
-                    "{fallback} (original Hive parser error before external table COMMENT fallback: {original})"
-                )
+            parsed.ok_or_else(|| {
+                if let Some((description, fallback)) = fallback_error {
+                    anyhow::anyhow!(
+                        "{fallback} ({description} failed after original Hive parser error: {original})"
+                    )
+                } else {
+                    original.into()
+                }
             })?
         }
     };
@@ -165,6 +191,108 @@ fn parse_hive_schema_ddl(content: &str) -> Result<SchemaMetadata> {
         tables,
         allow_implied: false,
     })
+}
+
+/// Convert Hive's backslash-escaped single quotes inside single-quoted
+/// literals to SQL's doubled-quote spelling. This only changes an odd-length
+/// backslash run immediately followed by a quote; even runs close the literal
+/// normally and all double-quoted identifiers/comments remain untouched.
+///
+/// The schema parser needs this separate compatibility path because workload
+/// Hive preprocessing deliberately drops DDL before it reaches sqlparser.
+fn normalize_hive_escaped_quotes(content: &str) -> String {
+    let bytes = content.as_bytes();
+    let mut output = String::with_capacity(content.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\'' => {
+                output.push('\'');
+                index += 1;
+                while index < bytes.len() {
+                    if bytes[index] == b'\\' {
+                        let slash_start = index;
+                        while bytes.get(index) == Some(&b'\\') {
+                            index += 1;
+                        }
+                        if bytes.get(index) == Some(&b'\'') && (index - slash_start) % 2 == 1 {
+                            output.push_str(&content[slash_start..index - 1]);
+                            output.push_str("''");
+                            index += 1;
+                            continue;
+                        }
+                        output.push_str(&content[slash_start..index]);
+                        continue;
+                    }
+                    if bytes[index] == b'\'' {
+                        if bytes.get(index + 1) == Some(&b'\'') {
+                            output.push_str("''");
+                            index += 2;
+                        } else {
+                            output.push('\'');
+                            index += 1;
+                            break;
+                        }
+                    } else {
+                        let next = bytes[index..]
+                            .iter()
+                            .position(|byte| matches!(*byte, b'\\' | b'\''))
+                            .map_or(bytes.len(), |offset| index + offset);
+                        output.push_str(&content[index..next]);
+                        index = next;
+                    }
+                }
+            }
+            b'-' if bytes.get(index + 1) == Some(&b'-') => {
+                let end = bytes[index..]
+                    .iter()
+                    .position(|byte| *byte == b'\n')
+                    .map_or(bytes.len(), |offset| index + offset + 1);
+                output.push_str(&content[index..end]);
+                index = end;
+            }
+            b'/' if bytes.get(index + 1) == Some(&b'*') => {
+                let end = bytes[index + 2..]
+                    .windows(2)
+                    .position(|window| window == b"*/")
+                    .map_or(bytes.len(), |offset| index + offset + 4);
+                output.push_str(&content[index..end]);
+                index = end;
+            }
+            b'\"' | b'`' => {
+                let start = index;
+                let delimiter = bytes[index];
+                index += 1;
+                while index < bytes.len() {
+                    if bytes[index] == delimiter {
+                        if bytes.get(index + 1) == Some(&delimiter) {
+                            index += 2;
+                        } else {
+                            index += 1;
+                            break;
+                        }
+                    } else {
+                        index += 1;
+                    }
+                }
+                output.push_str(&content[start..index]);
+            }
+            _ => {
+                let next = bytes[index..]
+                    .iter()
+                    .position(|byte| matches!(*byte, b'\'' | b'\"' | b'`' | b'-' | b'/'))
+                    .map_or(bytes.len(), |offset| index + offset);
+                if next == index {
+                    output.push(bytes[index] as char);
+                    index += 1;
+                } else {
+                    output.push_str(&content[index..next]);
+                    index = next;
+                }
+            }
+        }
+    }
+    output
 }
 
 fn schema_column(column: sqlparser::ast::ColumnDef) -> ColumnSchema {
@@ -331,7 +459,15 @@ fn quoted_end(bytes: &[u8], start: usize) -> Option<usize> {
     let delimiter = *bytes.get(start)?;
     let mut index = start + 1;
     while index < bytes.len() {
-        if bytes[index] == delimiter {
+        if bytes[index] == b'\\' && delimiter == b'\'' {
+            let slash_start = index;
+            while bytes.get(index) == Some(&b'\\') {
+                index += 1;
+            }
+            if bytes.get(index) == Some(&delimiter) && (index - slash_start) % 2 == 1 {
+                index += 1;
+            }
+        } else if bytes[index] == delimiter {
             if bytes.get(index + 1) == Some(&delimiter) {
                 index += 2;
             } else {
@@ -407,6 +543,75 @@ mod tests {
                 .map(|column| column.name.as_str())
                 .collect::<Vec<_>>(),
             ["user_id", "name", "dt"]
+        );
+    }
+
+    #[test]
+    fn test_parse_hive_column_comment_with_backslash_escaped_quotes() {
+        let ddl = r#"
+            CREATE EXTERNAL TABLE `dw_conan_ads.ads_oral_season_user_week_detail_da`(
+                `user_id` string COMMENT 'learner \'hist\' identifier',
+                `course_id` bigint COMMENT 'course key'
+            )
+            COMMENT 'weekly detail'
+            PARTITIONED BY (`dt` string COMMENT 'partition date');
+        "#;
+
+        let schema = parse_schema_ddl(ddl, Dialect::Hive)
+            .expect("escaped Hive column comments should not reject the schema");
+        let table = &schema.tables[0];
+        assert_eq!(
+            table
+                .columns
+                .iter()
+                .map(|column| column.name.as_str())
+                .collect::<Vec<_>>(),
+            ["user_id", "course_id", "dt"]
+        );
+    }
+
+    #[test]
+    fn test_normalize_hive_escaped_quotes_preserves_even_backslashes_and_contexts() {
+        let ddl = r#"
+            CREATE TABLE `quoted\'name` (
+                `value` string COMMENT 'nested \'hist\' and \\ path'
+            );
+            -- COMMENT 'comment \'hist\''
+            /* COMMENT 'block \'hist\'' */
+        "#;
+
+        let normalized = normalize_hive_escaped_quotes(ddl);
+        assert!(normalized.contains("COMMENT 'nested ''hist'' and \\\\ path'"));
+        assert!(normalized.contains("`quoted\\'name`"));
+        assert!(normalized.contains("-- COMMENT 'comment \\'hist\\''"));
+        assert!(normalized.contains("/* COMMENT 'block \\'hist\\'' */"));
+    }
+
+    #[test]
+    fn test_normalize_hive_escaped_quotes_leaves_plain_ddl_unchanged() {
+        let ddl = "CREATE TABLE dw.example (id bigint COMMENT 'ordinary column') PARTITIONED BY (dt string);";
+        assert_eq!(normalize_hive_escaped_quotes(ddl), ddl);
+    }
+
+    #[test]
+    fn test_parse_hive_escaped_quote_with_unicode_preserves_partition_structure() {
+        let ddl = r#"
+            CREATE EXTERNAL TABLE `dw.中文表`(
+                `名称` string COMMENT '包含 \'引号\' 的中文说明'
+            ) PARTITIONED BY (`日期` string COMMENT '分区');
+        "#;
+
+        let schema = parse_schema_ddl(ddl, Dialect::Hive)
+            .expect("Unicode Hive comment with an escaped quote should parse");
+        let table = &schema.tables[0];
+        assert_eq!(table.name, "中文表");
+        assert_eq!(
+            table
+                .columns
+                .iter()
+                .map(|column| column.name.as_str())
+                .collect::<Vec<_>>(),
+            ["名称", "日期"]
         );
     }
 
