@@ -21,7 +21,8 @@ use regex::Regex;
 use sqlparser::ast::{
     self, AlterTableOperation, Assignment, AssignmentTarget, CopyIntoSnowflakeKind, CopySource,
     CopyTarget, Expr, FromTable, MergeAction, MergeClause, MergeInsertKind, ObjectName,
-    RenameTableNameKind, SetExpr, Statement, TableFactor, TableWithJoins, UpdateTableFromKind,
+    RenameTableNameKind, SelectItem, SetExpr, Statement, TableFactor, TableWithJoins,
+    UpdateTableFromKind,
 };
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
@@ -44,6 +45,30 @@ fn span_from_range(range: Option<&Range<usize>>) -> Option<Span> {
         return None;
     }
     Some(Span::new(range.start, range.end))
+}
+
+/// Return each UNION branch's explicit projection width in AST traversal order.
+/// A wildcard or another unsupported branch shape has no safe positional contract.
+fn set_operation_branch_widths(expression: &SetExpr) -> Option<Vec<usize>> {
+    match expression {
+        SetExpr::SetOperation { left, right, .. } => {
+            let mut widths = set_operation_branch_widths(left)?;
+            widths.extend(set_operation_branch_widths(right)?);
+            Some(widths)
+        }
+        SetExpr::Query(query) => set_operation_branch_widths(&query.body),
+        SetExpr::Select(select) => select
+            .projection
+            .iter()
+            .all(|item| {
+                !matches!(
+                    item,
+                    SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(_, _)
+                )
+            })
+            .then_some(vec![select.projection.len()]),
+        _ => None,
+    }
 }
 
 /// Information about a join node for dependency edge construction.
@@ -647,7 +672,28 @@ impl<'a> Analyzer<'a> {
         }
         let unique_ids: HashSet<_> = outputs.iter().map(|c| &c.node_id).collect();
         let unique_names: HashSet<_> = names.iter().collect();
-        let valid = outputs.len() == names.len()
+        // A UNION produces one output projection per branch. Bind every emitted
+        // output to a concrete AST branch before assigning its target position;
+        // flat output count alone cannot prove that aliases or branch widths align.
+        let branch_widths = insert
+            .source
+            .as_ref()
+            .and_then(|query| set_operation_branch_widths(&query.body));
+        let branch_positions = branch_widths.as_ref().and_then(|widths| {
+            (widths.len() > 1
+                && widths.iter().all(|width| *width == names.len())
+                && widths.iter().sum::<usize>() == outputs.len())
+            .then(|| {
+                widths
+                    .iter()
+                    .flat_map(|width| 0..*width)
+                    .collect::<Vec<_>>()
+            })
+        });
+        let output_width = branch_positions
+            .as_ref()
+            .map_or(outputs.len(), |_| names.len());
+        let valid = output_width == names.len()
             && unique_ids.len() == outputs.len()
             && unique_names.len() == names.len()
             && !outputs.iter().any(|c| c.name == "*");
@@ -655,7 +701,7 @@ impl<'a> Analyzer<'a> {
             target.metadata.get_or_insert_with(HashMap::new).insert(
                 "insertTargetMapping".to_string(),
                 serde_json::json!({"status": if valid { "resolved" } else { "unresolved" },
-                    "basis": basis, "columns": names, "outputCount": outputs.len()}),
+                    "basis": basis, "columns": names, "outputCount": output_width}),
             );
         }
         if !valid {
@@ -664,12 +710,16 @@ impl<'a> Analyzer<'a> {
                 .with_statement(ctx.statement_index));
             return;
         }
-        for (index, (output, name)) in outputs.iter().zip(names.iter()).enumerate() {
+        for (index, output) in outputs.iter().enumerate() {
+            let position = branch_positions
+                .as_ref()
+                .map_or(index, |positions| positions[index]);
+            let name = &names[position];
             if let Some(node) = ctx.nodes.iter_mut().find(|node| node.id == output.node_id) {
                 node.metadata.get_or_insert_with(HashMap::new).insert(
                     "insertTarget".to_string(),
                     serde_json::json!({"table": canonical, "column": name,
-                        "position": index + 1, "basis": basis}),
+                        "position": position + 1, "basis": basis}),
                 );
             }
         }

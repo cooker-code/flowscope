@@ -1490,6 +1490,38 @@ fn test_insert_target_mapping_excludes_static_partition_and_keeps_dynamic_suffix
 }
 
 #[test]
+fn test_insert_target_mapping_keeps_union_output_position() {
+    let request = make_request(
+        "CREATE TABLE target (destination STRING); \
+         INSERT INTO target SELECT left_value FROM left_source \
+         UNION ALL SELECT right_value FROM right_source",
+    );
+    let result = analyze(&request);
+    assert!(!result.summary.has_errors, "{:?}", result.issues);
+    let target = result
+        .nodes
+        .iter()
+        .find(|node| node.qualified_name.as_deref() == Some("target"))
+        .unwrap();
+    assert_eq!(
+        target.metadata.as_ref().unwrap()["insertTargetMapping"]["status"],
+        "resolved",
+        "{}",
+        serde_json::to_string_pretty(&result).unwrap()
+    );
+    let mappings: Vec<_> = result
+        .nodes
+        .iter()
+        .filter_map(|node| node.metadata.as_ref()?.get("insertTarget"))
+        .collect();
+    assert_eq!(mappings.len(), 2);
+    for mapping in mappings {
+        assert_eq!(mapping["column"], "destination");
+        assert_eq!(mapping["position"], 1);
+    }
+}
+
+#[test]
 fn test_conflicting_insert_orders_leave_mapping_unresolved() {
     let result = analyze(&make_request(
         "CREATE TABLE target (a INT,b INT); \
