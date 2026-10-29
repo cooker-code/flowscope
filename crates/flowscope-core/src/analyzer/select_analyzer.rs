@@ -280,6 +280,10 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
     /// For dialects that support lateral column aliases (BigQuery, Snowflake, etc.),
     /// when an unqualified identifier in the expression matches a previously-defined
     /// alias, we replace that identifier's source with the sources of the alias.
+    /// Hive additionally gives a concrete source column in the current FROM scope
+    /// priority over a same-named projection alias. This matters for Hive projections such as
+    /// `CAST(memberuserid AS STRING) AS userid, CAST(userid AS STRING)`: the
+    /// second `userid` is the physical source column when that source exists.
     ///
     /// Example: `SELECT a + 1 AS b, b + 1 AS c FROM t`
     /// When processing `c`, the identifier `b` matches the lateral alias, so we
@@ -302,6 +306,19 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
         for ident in &identifiers {
             let normalized_ident = self.analyzer.normalize_identifier(ident);
             if let Some(alias_sources) = lateral_alias_sources.get(&normalized_ident) {
+                // The Hive compatibility rule is deliberately scoped to Hive:
+                // other lateral-alias dialects retain their existing behavior.
+                // The source check requires known schema or materialized subquery
+                // output and therefore keeps the alias behavior when a schema
+                // cannot prove that the source column exists.
+                if self.analyzer.request.dialect == crate::types::Dialect::Hive
+                    && self
+                        .analyzer
+                        .has_unambiguous_source_column_in_current_scope(self.ctx, ident)
+                {
+                    continue;
+                }
+
                 // This identifier is a lateral alias reference. Add the alias's sources
                 // to our sources list, and remove any ColumnRef that just has the alias
                 // name without a table (since it's not a real table column).

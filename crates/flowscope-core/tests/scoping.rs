@@ -1,6 +1,7 @@
 use flowscope_core::analyze;
 use flowscope_core::types::{
-    issue_codes, AnalysisOptions, AnalyzeRequest, Dialect, SchemaMetadata, Severity,
+    issue_codes, AnalysisOptions, AnalyzeRequest, ColumnSchema, Dialect, SchemaMetadata,
+    SchemaTable, Severity,
 };
 
 // ============================================================================
@@ -730,6 +731,214 @@ fn test_lateral_column_alias_lineage_bigquery() {
         c_derives_from_a,
         "Column 'c' should derive from 'a' (via lateral alias 'b'). Edges: {:?}",
         edges
+    );
+}
+
+#[test]
+fn hive_source_column_wins_over_same_named_lateral_alias() {
+    // Hive permits earlier SELECT aliases, but a real column in the current
+    // FROM scope must still be resolved as that source column. In particular,
+    // the second `userid` below is not the earlier `memberuserid AS userid`.
+    let sql = "SELECT CAST(memberuserid AS STRING) AS userid, \
+               CONCAT(CAST(userid AS STRING), completedtime) AS event_id FROM src";
+    let request = AnalyzeRequest {
+        sql: sql.to_string(),
+        files: None,
+        dialect: Dialect::Hive,
+        source_name: Some("hive_lateral_alias_source_precedence".to_string()),
+        options: Some(AnalysisOptions {
+            enable_column_lineage: Some(true),
+            ..Default::default()
+        }),
+        schema: Some(SchemaMetadata {
+            tables: vec![SchemaTable {
+                catalog: None,
+                schema: None,
+                name: "src".to_string(),
+                columns: ["userid", "memberuserid", "completedtime"]
+                    .into_iter()
+                    .map(|name| ColumnSchema {
+                        name: name.to_string(),
+                        data_type: None,
+                        is_primary_key: None,
+                        foreign_key: None,
+                    })
+                    .collect(),
+            }],
+            ..Default::default()
+        }),
+        #[cfg(feature = "templating")]
+        template_config: None,
+    };
+
+    let result = analyze(&request);
+    let event_id = result
+        .nodes_in_statement(0)
+        .find(|node| {
+            node.node_type == flowscope_core::types::NodeType::Column && &*node.label == "event_id"
+        })
+        .expect("event_id output must exist");
+    let source = |column: &str| {
+        result.nodes_in_statement(0).find(|node| {
+            node.node_type == flowscope_core::types::NodeType::Column
+                && node.label.as_ref() == column
+                && node
+                    .qualified_name
+                    .as_deref()
+                    .is_some_and(|name| name.ends_with(&format!("src.{column}")))
+        })
+    };
+    let userid = source("userid").expect("physical src.userid must exist");
+    let memberuserid = source("memberuserid").expect("physical src.memberuserid must exist");
+    let completedtime = source("completedtime").expect("physical src.completedtime must exist");
+    let edges: Vec<_> = result.edges_in_statement(0).collect();
+
+    for source_id in [&userid.id, &completedtime.id] {
+        assert!(
+            edges
+                .iter()
+                .any(|edge| edge.from == *source_id && edge.to == event_id.id),
+            "event_id should use its physical source, edges: {edges:?}"
+        );
+    }
+    assert!(
+        !edges
+            .iter()
+            .any(|edge| edge.from == memberuserid.id && edge.to == event_id.id),
+        "memberuserid must only feed the first alias, not event_id: {edges:?}"
+    );
+}
+
+#[test]
+fn hive_lateral_alias_still_resolves_without_same_named_source_column() {
+    let sql = "SELECT a + 1 AS b, b + 1 AS c FROM src";
+    let request = AnalyzeRequest {
+        sql: sql.to_string(),
+        files: None,
+        dialect: Dialect::Hive,
+        source_name: Some("hive_lateral_alias_without_collision".to_string()),
+        options: Some(AnalysisOptions {
+            enable_column_lineage: Some(true),
+            ..Default::default()
+        }),
+        schema: Some(SchemaMetadata {
+            tables: vec![SchemaTable {
+                catalog: None,
+                schema: None,
+                name: "src".to_string(),
+                columns: vec![ColumnSchema {
+                    name: "a".to_string(),
+                    data_type: None,
+                    is_primary_key: None,
+                    foreign_key: None,
+                }],
+            }],
+            ..Default::default()
+        }),
+        #[cfg(feature = "templating")]
+        template_config: None,
+    };
+    let result = analyze(&request);
+    let a = result
+        .nodes_in_statement(0)
+        .find(|node| {
+            node.node_type == flowscope_core::types::NodeType::Column
+                && node.label.as_ref() == "a"
+                && node
+                    .qualified_name
+                    .as_deref()
+                    .is_some_and(|name| name.ends_with("src.a"))
+        })
+        .expect("physical a must exist");
+    let c = result
+        .nodes_in_statement(0)
+        .find(|node| {
+            node.node_type == flowscope_core::types::NodeType::Column && &*node.label == "c"
+        })
+        .expect("c output must exist");
+    assert!(
+        result
+            .edges_in_statement(0)
+            .any(|edge| edge.from == a.id && edge.to == c.id),
+        "a must still flow through the Hive lateral alias to c"
+    );
+}
+
+#[test]
+fn hive_lateral_alias_remains_when_same_named_sources_are_ambiguous() {
+    // Two real `userid` columns are in scope, so neither is an unambiguous
+    // replacement for the earlier alias. The existing Hive lateral alias rule
+    // must remain available in this case.
+    let sql = "SELECT left_t.a AS userid, userid + 1 AS out \
+               FROM left_t JOIN right_t ON left_t.id = right_t.id";
+    let request = AnalyzeRequest {
+        sql: sql.to_string(),
+        files: None,
+        dialect: Dialect::Hive,
+        source_name: Some("hive_lateral_alias_ambiguous_source".to_string()),
+        options: Some(AnalysisOptions {
+            enable_column_lineage: Some(true),
+            ..Default::default()
+        }),
+        schema: Some(SchemaMetadata {
+            tables: vec![
+                SchemaTable {
+                    catalog: None,
+                    schema: None,
+                    name: "left_t".to_string(),
+                    columns: ["id", "a", "userid"]
+                        .into_iter()
+                        .map(|name| ColumnSchema {
+                            name: name.to_string(),
+                            data_type: None,
+                            is_primary_key: None,
+                            foreign_key: None,
+                        })
+                        .collect(),
+                },
+                SchemaTable {
+                    catalog: None,
+                    schema: None,
+                    name: "right_t".to_string(),
+                    columns: ["id", "userid"]
+                        .into_iter()
+                        .map(|name| ColumnSchema {
+                            name: name.to_string(),
+                            data_type: None,
+                            is_primary_key: None,
+                            foreign_key: None,
+                        })
+                        .collect(),
+                },
+            ],
+            ..Default::default()
+        }),
+        #[cfg(feature = "templating")]
+        template_config: None,
+    };
+    let result = analyze(&request);
+    let a = result
+        .nodes_in_statement(0)
+        .find(|node| {
+            node.node_type == flowscope_core::types::NodeType::Column
+                && node.label.as_ref() == "a"
+                && node
+                    .qualified_name
+                    .as_deref()
+                    .is_some_and(|name| name.ends_with("left_t.a"))
+        })
+        .expect("left_t.a must exist");
+    let out = result
+        .nodes_in_statement(0)
+        .find(|node| {
+            node.node_type == flowscope_core::types::NodeType::Column && &*node.label == "out"
+        })
+        .expect("out output must exist");
+    assert!(
+        result
+            .edges_in_statement(0)
+            .any(|edge| edge.from == a.id && edge.to == out.id),
+        "ambiguous physical userid columns must not suppress the Hive lateral alias"
     );
 }
 

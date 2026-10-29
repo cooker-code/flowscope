@@ -797,6 +797,28 @@ impl<'a> Analyzer<'a> {
         candidate_tables
     }
 
+    /// Returns whether an unqualified identifier has one concrete source-column
+    /// binding in the current FROM scope.
+    ///
+    /// This intentionally does not use the single-relation fallback in
+    /// [`resolve_column_table`]. That fallback is useful for incomplete schema
+    /// metadata, but it cannot prove that an identifier is a real source column
+    /// rather than a same-SELECT lateral alias. Callers that choose between the
+    /// two meanings must preserve the lateral alias when the source column is
+    /// not present in known schema or materialized subquery output.
+    pub(super) fn has_unambiguous_source_column_in_current_scope(
+        &self,
+        ctx: &StatementContext,
+        column: &str,
+    ) -> bool {
+        let candidates = self.candidate_tables_for_column(ctx, column);
+        if candidates.len() != 1 {
+            return false;
+        }
+
+        ctx.relation_instance_count_in_current_scope(&candidates[0]) == 1
+    }
+
     /// Resolve the canonical source table for filter routing without treating
     /// multiple instances of the same relation as separate sources.
     pub(super) fn resolve_filter_column_table(

@@ -203,6 +203,14 @@ collapse** — once derivation enters the chain, it sticks.
    not be promoted into the window function's value lineage. Window discovery
    must recurse through those scalar wrappers too: an outer `CEIL`, `FLOOR`,
    `TRIM`, or `SUBSTRING` cannot hide an inner `OVER (...)` specification.
+7. For **Hive** lateral column aliases, a uniquely known source column in the
+   current `FROM` scope takes precedence over a same-named earlier SELECT
+   alias. Only an identifier with no such concrete source may expand to the
+   lateral alias's value sources. This Hive compatibility rule does not alter
+   resolution behavior for other lateral-alias dialects. It keeps
+   `CAST(memberuserid AS STRING) AS userid, CAST(userid AS STRING)` bound to
+   the physical `userid` column when both physical columns exist, while
+   preserving ordinary alias chains such as `a AS b, b + 1`.
 
 See `crates/flowscope-core/src/types/response.rs:543` for the formal
 docstring on the `statementIds` invariant.
