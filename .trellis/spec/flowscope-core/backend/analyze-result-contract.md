@@ -144,3 +144,29 @@ Classify sinks and sources independently from lineage edges:
 
 This keeps write-only targets out of `sourceTables`, while preserving
 self-dependent physical reads.
+
+## INSERT destination column provenance
+
+1. Scope: `analyze()` annotates INSERT output destinations without changing SELECT
+   labels or replacing value dependency edges. `Substring` visits its value,
+   start and length expressions, including when nested in another function.
+2. Contract: the target table's `metadata.insertTargetMapping` has
+   `status`, `basis`, `columns` and `outputCount`; each resolved output's
+   `metadata.insertTarget` has `table`, `column`, one-based `position` and `basis`.
+3. Authority: use explicit INSERT columns before imported/DDL-seeded schema.
+   Inferred source columns and SELECT aliases are not authoritative target order.
+   Without either authority, omit the new contract for legacy compatibility.
+   Exclude static partition columns; dynamic partition values occupy the suffix.
+4. Errors: mismatched counts, wildcard/duplicate output identities or conflicting
+   mappings across statements must remain unresolved. A column-level conflict
+   must also invalidate its target table contract after graph flattening.
+5. Example: `SELECT u.user_local` into a target position named `local` keeps the
+   SELECT label while annotating the target column as `local`. Consumers must not
+   infer target names from the SELECT label once a positional contract exists.
+6. Tests: cover nested substring inputs, explicit column order, schema order,
+   count mismatch, static/dynamic partitions and multi-statement conflicts. Real
+   SQL regression must retain the original SQL and authoritative DDL and verify
+   continuous column paths through the loader, not merely matching node labels.
+7. Incorrect: silently keep the first statement's mapping on conflict or rename
+   SQL outputs to make a target match. Correct: retain expressions/labels, carry
+   the positional provenance and reject unresolved mappings in downstream loaders.

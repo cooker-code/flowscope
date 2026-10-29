@@ -1308,3 +1308,213 @@ on t.oaid_md5 = d.oaid_md5
         "source_tables must be physical relations, not CTEs"
     );
 }
+
+#[test]
+fn test_insert_target_mapping_uses_ddl_position_and_keeps_select_label() {
+    let mut request = make_request(
+        "WITH u AS (SELECT trial,user_local,reg_dt FROM dw.accounts) \
+         INSERT OVERWRITE TABLE dw.target PARTITION(dt='2026-10-29') \
+         SELECT u.trial,u.user_local,u.reg_dt FROM u",
+    );
+    request.dialect = Dialect::Hive;
+    request.schema = Some(SchemaMetadata {
+        tables: vec![SchemaTable {
+            catalog: None,
+            schema: Some("dw".to_string()),
+            name: "target".to_string(),
+            columns: ["trial", "local", "corp_reg_dt"]
+                .iter()
+                .map(|name| ColumnSchema {
+                    name: name.to_string(),
+                    data_type: Some("STRING".to_string()),
+                    is_primary_key: None,
+                    foreign_key: None,
+                })
+                .collect(),
+        }],
+        allow_implied: true,
+        ..Default::default()
+    });
+    let result = analyze(&request);
+    assert!(!result.summary.has_errors, "{:?}", result.issues);
+    let mappings: Vec<_> = result
+        .nodes
+        .iter()
+        .filter_map(|n| n.metadata.as_ref()?.get("insertTarget").map(|m| (n, m)))
+        .collect();
+    assert_eq!(
+        mappings.len(),
+        3,
+        "{}",
+        serde_json::to_string_pretty(&result).unwrap()
+    );
+    let (node, mapping) = mappings
+        .iter()
+        .find(|(_, m)| m["column"] == "local")
+        .unwrap();
+    assert_eq!(node.label.as_ref(), "user_local");
+    assert_eq!(mapping["position"], 2);
+    assert_eq!(mapping["basis"], "schema");
+}
+
+#[test]
+fn test_insert_target_mapping_explicit_columns_override_schema_order() {
+    let request = make_request(
+        "CREATE TABLE target (a INT,b INT); INSERT INTO target (b,a) SELECT x,y FROM source",
+    );
+    let result = analyze(&request);
+    assert!(!result.summary.has_errors, "{:?}", result.issues);
+    for (label, name, position) in [("x", "b", 1), ("y", "a", 2)] {
+        let node = result
+            .nodes
+            .iter()
+            .find(|n| {
+                n.label.as_ref() == label
+                    && n.metadata
+                        .as_ref()
+                        .is_some_and(|m| m.contains_key("insertTarget"))
+            })
+            .unwrap();
+        let mapping = &node.metadata.as_ref().unwrap()["insertTarget"];
+        assert_eq!(mapping["column"], name);
+        assert_eq!(mapping["position"], position);
+        assert_eq!(mapping["basis"], "explicit_columns");
+    }
+}
+
+#[test]
+fn test_insert_target_mapping_rejects_count_mismatch_and_unknown_schema() {
+    for sql in [
+        "CREATE TABLE target (a INT,b INT); INSERT INTO target SELECT x FROM source",
+        "INSERT INTO target (a,b) SELECT x FROM source",
+    ] {
+        let result = analyze(&make_request(sql));
+        assert!(!result.nodes.iter().any(|n| n
+            .metadata
+            .as_ref()
+            .is_some_and(|m| m.contains_key("insertTarget"))));
+        assert!(result
+            .nodes
+            .iter()
+            .any(|n| n.metadata.as_ref().is_some_and(|m| m
+                .get("insertTargetMapping")
+                .is_some_and(|m| m["status"] == "unresolved"))));
+    }
+    let result = analyze(&make_request(
+        "INSERT INTO target SELECT user_local FROM source",
+    ));
+    assert!(!result.nodes.iter().any(|n| n
+        .metadata
+        .as_ref()
+        .is_some_and(|m| m.contains_key("insertTarget"))));
+}
+
+#[test]
+fn test_insert_target_mapping_excludes_static_partition_and_keeps_dynamic_suffix() {
+    let schema = SchemaMetadata {
+        tables: vec![SchemaTable {
+            catalog: None,
+            schema: Some("dw".to_string()),
+            name: "target".to_string(),
+            // Real Hive DDL loaders may retain partition fields in SchemaTable.
+            // Static INSERT partitioning must remove `dt`; dynamic partitioning
+            // must keep it as the final SELECT destination.
+            columns: ["local", "corp_reg_dt", "dt"]
+                .iter()
+                .map(|name| ColumnSchema {
+                    name: name.to_string(),
+                    data_type: Some("STRING".to_string()),
+                    is_primary_key: None,
+                    foreign_key: None,
+                })
+                .collect(),
+        }],
+        allow_implied: true,
+        ..Default::default()
+    };
+    let mut static_request = make_request(
+        "INSERT OVERWRITE TABLE dw.target PARTITION(dt='2026-10-29') SELECT user_local,reg_dt FROM source",
+    );
+    static_request.dialect = Dialect::Hive;
+    static_request.schema = Some(schema.clone());
+    let static_result = analyze(&static_request);
+    assert!(
+        !static_result.summary.has_errors,
+        "{:?}",
+        static_result.issues
+    );
+    let static_target = static_result
+        .nodes
+        .iter()
+        .find(|n| n.qualified_name.as_deref() == Some("dw.target"))
+        .unwrap();
+    assert_eq!(
+        static_target.metadata.as_ref().unwrap()["insertTargetMapping"]["columns"],
+        serde_json::json!(["local", "corp_reg_dt"])
+    );
+
+    let mut dynamic_request = make_request(
+        "INSERT OVERWRITE TABLE dw.target PARTITION(dt) SELECT user_local,reg_dt,output_dt FROM source",
+    );
+    dynamic_request.dialect = Dialect::Hive;
+    dynamic_request.schema = Some(schema);
+    let dynamic_result = analyze(&dynamic_request);
+    assert!(
+        !dynamic_result.summary.has_errors,
+        "{:?}",
+        dynamic_result.issues
+    );
+    let dynamic_target = dynamic_result
+        .nodes
+        .iter()
+        .find(|n| n.qualified_name.as_deref() == Some("dw.target"))
+        .unwrap();
+    assert_eq!(
+        dynamic_target.metadata.as_ref().unwrap()["insertTargetMapping"]["columns"],
+        serde_json::json!(["local", "corp_reg_dt", "dt"])
+    );
+    let dynamic_dt = dynamic_result
+        .nodes
+        .iter()
+        .find(|n| {
+            n.label.as_ref() == "output_dt"
+                && n.metadata
+                    .as_ref()
+                    .is_some_and(|m| m.contains_key("insertTarget"))
+        })
+        .unwrap();
+    assert_eq!(
+        dynamic_dt.metadata.as_ref().unwrap()["insertTarget"]["column"],
+        "dt"
+    );
+}
+
+#[test]
+fn test_conflicting_insert_orders_leave_mapping_unresolved() {
+    let result = analyze(&make_request(
+        "CREATE TABLE target (a INT,b INT); \
+         INSERT INTO target SELECT x,y FROM source; \
+         INSERT INTO target SELECT y,x FROM source",
+    ));
+    assert!(!result.summary.has_errors, "{:?}", result.issues);
+    let target = result
+        .nodes
+        .iter()
+        .find(|n| n.qualified_name.as_deref() == Some("target"))
+        .unwrap();
+    let mapping = &target.metadata.as_ref().unwrap()["insertTargetMapping"];
+    assert_eq!(
+        mapping["status"],
+        "unresolved",
+        "{}",
+        serde_json::to_string_pretty(&result).unwrap()
+    );
+    assert_eq!(mapping["reason"], "conflicting_statement_mappings");
+    assert!(!result.nodes.iter().any(|node| {
+        node.metadata.as_ref().is_some_and(|metadata| {
+            metadata
+                .get("insertTarget")
+                .is_some_and(|mapping| mapping["status"] != "unresolved")
+        })
+    }));
+}

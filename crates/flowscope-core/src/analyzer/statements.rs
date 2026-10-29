@@ -322,6 +322,18 @@ impl<'a> Analyzer<'a> {
         // Propagate inferred columns backward through SELECT * chains
         self.propagate_inferred_columns(&mut ctx);
 
+        let insert = match statement {
+            Statement::Insert(insert) => Some(insert),
+            Statement::Query(query) => match query.body.as_ref() {
+                SetExpr::Insert(Statement::Insert(insert)) => Some(insert),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(insert) = insert {
+            self.annotate_insert_target_columns(&mut ctx, insert);
+        }
+
         self.add_join_dependency_edges(&mut ctx);
 
         // Propagate join metadata from context onto edges originating from joined tables.
@@ -552,6 +564,114 @@ impl<'a> Analyzer<'a> {
         // INSERT … WITH cte AS (…) SELECT … has its CTEs properly recognised.
         if let Some(ref source_body) = insert.source {
             self.analyze_query(ctx, source_body, Some(&target_id));
+        }
+    }
+
+    /// Preserve SELECT labels while recording the actual positional INSERT destinations.
+    /// Only explicit column lists or authoritative schema can establish target order.
+    fn annotate_insert_target_columns(&mut self, ctx: &mut StatementContext, insert: &ast::Insert) {
+        let canonical = self.normalize_table_name(&insert.table.to_string());
+        let target_id = generate_node_id("table", &canonical);
+        let explicit = if insert.columns.is_empty() {
+            &insert.after_columns
+        } else {
+            &insert.columns
+        };
+        let (mut names, basis): (Vec<String>, &str) = if !explicit.is_empty() {
+            (
+                explicit
+                    .iter()
+                    .map(|c| self.normalize_identifier(&c.value))
+                    .collect(),
+                "explicit_columns",
+            )
+        } else if self.schema.is_imported(&canonical) || self.schema.is_ddl_seeded(&canonical) {
+            (
+                self.schema
+                    .get(&canonical)
+                    .map(|entry| {
+                        entry
+                            .table
+                            .columns
+                            .iter()
+                            .map(|c| self.normalize_identifier(&c.name))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                "schema",
+            )
+        } else {
+            // Inferred source-column sets and SELECT aliases do not establish DDL order.
+            return;
+        };
+        let mut dynamic_partitions = Vec::new();
+        for partition in insert.partitioned.iter().flatten() {
+            match partition {
+                Expr::BinaryOp {
+                    left,
+                    op: ast::BinaryOperator::Eq,
+                    ..
+                } => {
+                    if let Expr::Identifier(name) = left.as_ref() {
+                        let name = self.normalize_identifier(&name.value);
+                        names.retain(|column| column != &name);
+                    }
+                }
+                Expr::Identifier(name) => {
+                    dynamic_partitions.push(self.normalize_identifier(&name.value));
+                }
+                _ => {}
+            }
+        }
+        // Schema loaders may include Hive partition columns. A static partition
+        // was removed above; a dynamic partition must remain a SELECT suffix.
+        for name in dynamic_partitions {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        let owned: HashSet<_> = ctx
+            .edges
+            .iter()
+            .filter(|edge| edge.edge_type == EdgeType::Ownership && edge.from == target_id)
+            .map(|edge| edge.to.clone())
+            .collect();
+        let outputs: Vec<_> = ctx
+            .output_columns
+            .iter()
+            .filter(|column| owned.contains(&column.node_id))
+            .cloned()
+            .collect();
+        if outputs.is_empty() {
+            return;
+        }
+        let unique_ids: HashSet<_> = outputs.iter().map(|c| &c.node_id).collect();
+        let unique_names: HashSet<_> = names.iter().collect();
+        let valid = outputs.len() == names.len()
+            && unique_ids.len() == outputs.len()
+            && unique_names.len() == names.len()
+            && !outputs.iter().any(|c| c.name == "*");
+        if let Some(target) = ctx.nodes.iter_mut().find(|node| node.id == target_id) {
+            target.metadata.get_or_insert_with(HashMap::new).insert(
+                "insertTargetMapping".to_string(),
+                serde_json::json!({"status": if valid { "resolved" } else { "unresolved" },
+                    "basis": basis, "columns": names, "outputCount": outputs.len()}),
+            );
+        }
+        if !valid {
+            self.issues.push(Issue::warning(issue_codes::UNSUPPORTED_SYNTAX,
+                "INSERT target mapping is unresolved: column counts or output identities do not align")
+                .with_statement(ctx.statement_index));
+            return;
+        }
+        for (index, (output, name)) in outputs.iter().zip(names.iter()).enumerate() {
+            if let Some(node) = ctx.nodes.iter_mut().find(|node| node.id == output.node_id) {
+                node.metadata.get_or_insert_with(HashMap::new).insert(
+                    "insertTarget".to_string(),
+                    serde_json::json!({"table": canonical, "column": name,
+                        "position": index + 1, "basis": basis}),
+                );
+            }
         }
     }
 

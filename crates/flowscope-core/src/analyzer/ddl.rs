@@ -225,6 +225,8 @@ impl<'a> Analyzer<'a> {
             is_temporary,
             "DDL",
         );
+        // CREATE TABLE definitions establish column order, unlike query-inferred columns.
+        self.schema.mark_as_ddl_seeded(&canonical);
 
         // Create target table node
 

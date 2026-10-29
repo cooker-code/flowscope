@@ -158,6 +158,7 @@ impl<'a> Analyzer<'a> {
         }
 
         self.append_cross_statement_edges(&mut state.flat_edges);
+        propagate_conflicting_insert_mappings(&mut state.flat_nodes);
 
         let nodes = finalize_nodes(&mut state.flat_nodes, state.node_insertion_order);
         let edges = finalize_edges(state.flat_edges, &nodes);
@@ -765,8 +766,81 @@ fn merge_node_into(
             existing.filters.push(filter);
         }
     }
+    // INSERT mapping is executable provenance, not first-occurrence display metadata.
+    // Preserve it when a DDL table node already supplied unrelated metadata. Conflicting
+    // mappings across statements must not silently pick the first statement's order.
+    if let (Some(metadata), Some(incoming_meta)) =
+        (existing.metadata.as_mut(), incoming.metadata.as_ref())
+    {
+        for key in ["insertTarget", "insertTargetMapping"] {
+            if let Some(value) = incoming_meta.get(key) {
+                match metadata.get(key) {
+                    Some(previous) if previous != value => {
+                        let target_table = previous
+                            .get("table")
+                            .or_else(|| value.get("table"))
+                            .cloned();
+                        let mut unresolved = serde_json::json!({
+                            "status": "unresolved", "reason": "conflicting_statement_mappings"
+                        });
+                        if let Some(target_table) = target_table {
+                            unresolved["table"] = target_table;
+                        }
+                        metadata.insert(key.to_string(), unresolved);
+                    }
+                    None => {
+                        metadata.insert(key.to_string(), value.clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
     if existing.metadata.is_none() {
         existing.metadata = incoming.metadata;
+    }
+}
+
+/// An output column may merge across statements before its owning table. When
+/// its positional target changes, mark the owner contract unresolved as well:
+/// consumers must not read a table-level resolved status while every
+/// corresponding column mapping is ambiguous.
+fn propagate_conflicting_insert_mappings(flat_nodes: &mut HashMap<Arc<str>, Node>) {
+    let conflicting_targets: HashSet<String> = flat_nodes
+        .values()
+        .filter_map(|node| {
+            let mapping = node.metadata.as_ref()?.get("insertTarget")?;
+            (mapping.get("status").and_then(Value::as_str) == Some("unresolved")
+                && mapping.get("reason").and_then(Value::as_str)
+                    == Some("conflicting_statement_mappings"))
+            .then(|| {
+                mapping
+                    .get("table")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .flatten()
+        })
+        .collect();
+
+    for node in flat_nodes.values_mut() {
+        if !node.node_type.is_table_or_view()
+            || !node
+                .qualified_name
+                .as_deref()
+                .is_some_and(|name| conflicting_targets.contains(name))
+        {
+            continue;
+        }
+        if let Some(mapping) = node
+            .metadata
+            .as_mut()
+            .and_then(|metadata| metadata.get_mut("insertTargetMapping"))
+        {
+            *mapping = serde_json::json!({
+                "status": "unresolved", "reason": "conflicting_statement_mappings"
+            });
+        }
     }
 }
 
