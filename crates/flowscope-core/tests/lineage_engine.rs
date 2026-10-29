@@ -936,6 +936,221 @@ fn ansi_window_functions_produce_derivation_edges() {
 }
 
 #[test]
+fn nested_hive_substr_value_expression_keeps_physical_source_lineage() {
+    let schema = SchemaMetadata {
+        allow_implied: true,
+        default_catalog: None,
+        default_schema: None,
+        search_path: None,
+        case_sensitivity: None,
+        tables: vec![schema_table(None, None, "conversion_track", &["dbctime"])],
+    };
+    let result = run_analysis(
+        "SELECT CAST(unix_timestamp(SUBSTR(dbctime, 1, 10), 'yyyy-MM-dd') AS BIGINT) * 1000 AS day_start FROM conversion_track",
+        Dialect::Hive,
+        Some(schema),
+    );
+    let stmt = first_statement(&result);
+    let day_start = find_column_node(&stmt, "day_start").expect("derived output column");
+
+    assert!(
+        stmt.edges.iter().any(|edge| {
+            edge.to == day_start.id
+                && edge.edge_type == EdgeType::Derivation
+                && stmt
+                    .nodes
+                    .iter()
+                    .find(|node| node.id == edge.from)
+                    .is_some_and(|node| node.label.as_ref() == "dbctime")
+        }),
+        "nested CAST/unix_timestamp/SUBSTR must retain dbctime value lineage: {:?}",
+        stmt.edges
+    );
+}
+
+#[test]
+fn nested_trim_and_floor_keep_physical_value_lineage() {
+    let schema = SchemaMetadata {
+        allow_implied: true,
+        default_catalog: None,
+        default_schema: None,
+        search_path: None,
+        case_sensitivity: None,
+        tables: vec![schema_table(None, None, "events", &["birthday", "pay_tp"])],
+    };
+    let result = run_analysis(
+        "SELECT SUBSTR(TRIM(birthday), 1, 10) AS birthday_dt, CONCAT(SUBSTRING(FROM_UNIXTIME(FLOOR(CAST(pay_tp AS BIGINT) / 60000) * 60), 1, 16), ':00') AS action_minute FROM events",
+        Dialect::Hive,
+        Some(schema),
+    );
+    let stmt = first_statement(&result);
+    for (source_label, target_label) in [("birthday", "birthday_dt"), ("pay_tp", "action_minute")] {
+        let target = find_column_node(&stmt, target_label).expect("derived output column");
+        assert!(
+            stmt.edges.iter().any(|edge| {
+                edge.to == target.id
+                    && edge.edge_type == EdgeType::Derivation
+                    && stmt
+                        .nodes
+                        .iter()
+                        .find(|node| node.id == edge.from)
+                        .is_some_and(|node| node.label.as_ref() == source_label)
+            }),
+            "{source_label} must remain a value source for {target_label}: {:?}",
+            stmt.edges
+        );
+    }
+}
+
+#[test]
+fn nested_trim_in_window_control_stays_out_of_value_lineage() {
+    let result = run_analysis(
+        "SELECT ROW_NUMBER() OVER (ORDER BY SUBSTR(TRIM(o.sort_key), 1, 7)) AS rn FROM orders o",
+        Dialect::Generic,
+        None,
+    );
+    let stmt = first_statement(&result);
+    let output = find_column_node(&stmt, "rn").expect("window output column");
+    assert!(edges_by_type(&stmt, EdgeType::WindowControl)
+        .into_iter()
+        .any(|edge| {
+            edge.to == output.id
+                && stmt
+                    .nodes
+                    .iter()
+                    .find(|node| node.id == edge.from)
+                    .is_some_and(|node| node.label.as_ref() == "sort_key")
+        }));
+    assert!(stmt
+        .edges
+        .iter()
+        .filter(|edge| {
+            edge.to == output.id
+                && matches!(edge.edge_type, EdgeType::DataFlow | EdgeType::Derivation)
+        })
+        .all(|edge| stmt
+            .nodes
+            .iter()
+            .find(|node| node.id == edge.from)
+            .is_none_or(|node| node.label.as_ref() != "sort_key")));
+}
+
+#[test]
+fn substring_dynamic_bounds_are_value_sources_but_window_controls_stay_separate() {
+    let result = run_analysis(
+        "SELECT FIRST_VALUE(o.value) OVER (PARTITION BY SUBSTRING(o.payload FROM o.start_col FOR o.length_col) ORDER BY o.sort_key) AS first_value FROM strings o",
+        Dialect::Generic,
+        None,
+    );
+    let stmt = first_statement(&result);
+    let output = find_column_node(&stmt, "first_value").expect("window output column");
+    let control_sources: HashSet<_> = edges_by_type(&stmt, EdgeType::WindowControl)
+        .into_iter()
+        .filter(|edge| edge.to == output.id)
+        .filter_map(|edge| stmt.nodes.iter().find(|node| node.id == edge.from))
+        .map(|node| node.label.to_string())
+        .collect();
+
+    assert_eq!(
+        control_sources,
+        HashSet::from([
+            "payload".to_string(),
+            "start_col".to_string(),
+            "length_col".to_string(),
+            "sort_key".to_string(),
+        ])
+    );
+    assert!(
+        stmt.edges
+            .iter()
+            .filter(|edge| {
+                edge.to == output.id
+                    && matches!(edge.edge_type, EdgeType::DataFlow | EdgeType::Derivation)
+            })
+            .all(|edge| stmt
+                .nodes
+                .iter()
+                .find(|node| node.id == edge.from)
+                .is_some_and(|node| node.label.as_ref() == "value")),
+        "substring control operands must not leak into value lineage"
+    );
+}
+
+#[test]
+fn substring_operands_keep_missing_and_ambiguous_reference_issues() {
+    let missing_schema = SchemaMetadata {
+        allow_implied: true,
+        default_catalog: None,
+        default_schema: None,
+        search_path: None,
+        case_sensitivity: None,
+        tables: vec![schema_table(None, None, "strings", &["payload"])],
+    };
+    let missing = run_analysis(
+        "SELECT SUBSTRING(payload FROM start_col FOR length_col) AS slice FROM strings",
+        Dialect::Generic,
+        Some(missing_schema),
+    );
+    assert!(
+        missing.issues.iter().any(|issue| {
+            issue.code == issue_codes::UNKNOWN_COLUMN
+                && (issue.message.contains("start_col") || issue.message.contains("length_col"))
+        }),
+        "missing substring operands must remain unresolved rather than silently disappearing: {:?}",
+        missing.issues
+    );
+
+    let ambiguous = run_analysis(
+        "SELECT SUBSTRING(value FROM start_col FOR length_col) AS slice FROM strings s1 JOIN strings s2 ON s1.id = s2.id",
+        Dialect::Generic,
+        None,
+    );
+    assert!(
+        ambiguous.issues.iter().any(|issue| {
+            issue.code == issue_codes::UNRESOLVED_REFERENCE
+                && issue.message.to_lowercase().contains("ambiguous")
+        }),
+        "ambiguous substring operands must retain ambiguity issues: {:?}",
+        ambiguous.issues
+    );
+
+    let nested_missing = run_analysis(
+        "SELECT SUBSTR(TRIM(trim_chars FROM payload), 1, FLOOR(length_col)) AS slice FROM strings",
+        Dialect::Generic,
+        Some(SchemaMetadata {
+            allow_implied: true,
+            default_catalog: None,
+            default_schema: None,
+            search_path: None,
+            case_sensitivity: None,
+            tables: vec![schema_table(None, None, "strings", &["payload"])],
+        }),
+    );
+    assert!(
+        nested_missing.issues.iter().any(|issue| {
+            issue.code == issue_codes::UNKNOWN_COLUMN
+                && (issue.message.contains("trim_chars") || issue.message.contains("length_col"))
+        }),
+        "missing TRIM/FLOOR operands must remain unresolved rather than silently disappearing: {:?}",
+        nested_missing.issues
+    );
+
+    let nested_ambiguous = run_analysis(
+        "SELECT SUBSTR(TRIM(value), 1, FLOOR(length_col)) AS slice FROM strings s1 JOIN strings s2 ON s1.id = s2.id",
+        Dialect::Generic,
+        None,
+    );
+    assert!(
+        nested_ambiguous.issues.iter().any(|issue| {
+            issue.code == issue_codes::UNRESOLVED_REFERENCE
+                && issue.message.to_lowercase().contains("ambiguous")
+        }),
+        "ambiguous TRIM/FLOOR operands must retain ambiguity issues: {:?}",
+        nested_ambiguous.issues
+    );
+}
+
+#[test]
 fn window_controls_are_role_separated_from_value_lineage() {
     let sql = r#"
         SELECT FIRST_VALUE(o.amount) OVER (

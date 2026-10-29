@@ -623,6 +623,48 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
             Expr::Cast { expr, .. } => {
                 depth_limited |= Self::collect_column_refs(expr, refs, dialect, next_depth);
             }
+            Expr::Ceil { expr, .. } | Expr::Floor { expr, .. } => {
+                // `field` is a SQL datetime field or literal scale, not a
+                // data expression. Only the input can contribute lineage.
+                depth_limited |= Self::collect_column_refs(expr, refs, dialect, next_depth);
+            }
+            Expr::Trim {
+                expr,
+                trim_what,
+                trim_characters,
+                ..
+            } => {
+                depth_limited |= Self::collect_column_refs(expr, refs, dialect, next_depth);
+                if let Some(trim_what) = trim_what {
+                    depth_limited |=
+                        Self::collect_column_refs(trim_what, refs, dialect, next_depth);
+                }
+                if let Some(trim_characters) = trim_characters {
+                    for trim_character in trim_characters {
+                        depth_limited |=
+                            Self::collect_column_refs(trim_character, refs, dialect, next_depth);
+                    }
+                }
+            }
+            // SQLParser represents both SUBSTR(value, start, length) and the
+            // standard SUBSTRING(value FROM start FOR length) form as a
+            // dedicated AST node rather than a Function. All three operands
+            // can be expressions, so omitting either bound loses real value
+            // lineage for dynamic offsets and lengths.
+            Expr::Substring {
+                expr,
+                substring_from,
+                substring_for,
+                ..
+            } => {
+                depth_limited |= Self::collect_column_refs(expr, refs, dialect, next_depth);
+                if let Some(from) = substring_from {
+                    depth_limited |= Self::collect_column_refs(from, refs, dialect, next_depth);
+                }
+                if let Some(for_expr) = substring_for {
+                    depth_limited |= Self::collect_column_refs(for_expr, refs, dialect, next_depth);
+                }
+            }
             Expr::Nested(inner) => {
                 depth_limited |= Self::collect_column_refs(inner, refs, dialect, next_depth);
             }
@@ -1181,6 +1223,7 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqlparser::{dialect::GenericDialect, parser::Parser};
 
     #[test]
     fn collect_column_refs_reports_depth_limit() {
@@ -1196,6 +1239,72 @@ mod tests {
         assert!(
             refs.is_empty(),
             "no column refs should be recorded when guard triggers"
+        );
+    }
+
+    #[test]
+    fn collect_column_refs_visits_all_substring_operands() {
+        let statements = Parser::parse_sql(
+            &GenericDialect {},
+            "SELECT SUBSTRING(payload FROM start_col FOR length_col) FROM strings",
+        )
+        .expect("standard SUBSTRING should parse");
+        let ast::Statement::Query(query) = &statements[0] else {
+            panic!("expected query statement");
+        };
+        let ast::SetExpr::Select(select) = query.body.as_ref() else {
+            panic!("expected SELECT query body");
+        };
+        let ast::SelectItem::UnnamedExpr(expr) = &select.projection[0] else {
+            panic!("expected unnamed expression");
+        };
+
+        let (refs, depth_limited) =
+            ExpressionAnalyzer::extract_column_refs_with_dialect(expr, Dialect::Generic);
+
+        assert!(!depth_limited);
+        assert_eq!(
+            refs.into_iter()
+                .map(|reference| (reference.table, reference.column))
+                .collect::<Vec<_>>(),
+            vec![
+                (None, "payload".to_string()),
+                (None, "start_col".to_string()),
+                (None, "length_col".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn collect_column_refs_visits_trim_and_floor_inputs() {
+        let statements = Parser::parse_sql(
+            &GenericDialect {},
+            "SELECT SUBSTR(TRIM(trim_chars FROM payload), 1, FLOOR(length_col)) FROM strings",
+        )
+        .expect("nested TRIM and FLOOR should parse");
+        let ast::Statement::Query(query) = &statements[0] else {
+            panic!("expected query statement");
+        };
+        let ast::SetExpr::Select(select) = query.body.as_ref() else {
+            panic!("expected SELECT query body");
+        };
+        let ast::SelectItem::UnnamedExpr(expr) = &select.projection[0] else {
+            panic!("expected unnamed expression");
+        };
+
+        let (refs, depth_limited) =
+            ExpressionAnalyzer::extract_column_refs_with_dialect(expr, Dialect::Generic);
+
+        assert!(!depth_limited);
+        assert_eq!(
+            refs.into_iter()
+                .map(|reference| (reference.table, reference.column))
+                .collect::<Vec<_>>(),
+            vec![
+                (None, "payload".to_string()),
+                (None, "trim_chars".to_string()),
+                (None, "length_col".to_string()),
+            ]
         );
     }
 }

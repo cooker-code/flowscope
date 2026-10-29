@@ -1,4 +1,4 @@
-# Lineage Graph Edge Types
+# Lineage Graph Edge Types and Complex Expression Value References
 
 > Canonical reference for the edge types produced by `flowscope-core`'s
 > lineage analyzer. Source of truth for both the Rust analyzer
@@ -194,6 +194,13 @@ collapse** — once derivation enters the chain, it sticks.
    refs never enter `DataFlow`, `Derivation`, or Dali `source_columns`. Both
    the edge identity and global flatten key include its role so an input that
    is both partition and order remains two edges.
+6. Value-reference traversal must recurse through data operands of SQL AST
+   expressions. This includes `SUBSTR` / `SUBSTRING(value FROM start FOR
+   length)`, `TRIM`, and `FLOOR` / `CEIL` inputs; dynamic substring bounds and
+   trim operands are value refs, while FLOOR/CEIL date units and literal scales
+   are not. When the same expression is used in `PARTITION BY` or `ORDER BY`,
+   those refs are emitted only as role-bearing `WindowControl` edges; they must
+   not be promoted into the window function's value lineage.
 
 See `crates/flowscope-core/src/types/response.rs:543` for the formal
 docstring on the `statementIds` invariant.
