@@ -1522,6 +1522,47 @@ fn test_insert_target_mapping_keeps_union_output_position() {
 }
 
 #[test]
+fn test_insert_target_mapping_keeps_union_positions_after_same_name_node_merge() {
+    let request = make_request(
+        "CREATE TABLE target (first_value STRING,second_value STRING); \
+         INSERT INTO target SELECT first_source AS shared,second_source AS left_only FROM left_source \
+         UNION ALL SELECT first_source AS shared,second_source AS right_only FROM right_source",
+    );
+    let result = analyze(&request);
+    assert!(!result.summary.has_errors, "{:?}", result.issues);
+    let target = result
+        .nodes
+        .iter()
+        .find(|node| node.qualified_name.as_deref() == Some("target"))
+        .unwrap();
+    assert_eq!(
+        target.metadata.as_ref().unwrap()["insertTargetMapping"]["status"],
+        "resolved",
+        "{}",
+        serde_json::to_string_pretty(&result).unwrap()
+    );
+    let mut mappings: Vec<_> = result
+        .nodes
+        .iter()
+        .filter_map(|node| {
+            node.metadata
+                .as_ref()?
+                .get("insertTarget")
+                .map(|mapping| (node.label.as_ref(), mapping["position"].clone()))
+        })
+        .collect();
+    mappings.sort_by_key(|(label, _)| *label);
+    assert_eq!(
+        mappings,
+        vec![
+            ("left_only", serde_json::json!(2)),
+            ("right_only", serde_json::json!(2)),
+            ("shared", serde_json::json!(1)),
+        ]
+    );
+}
+
+#[test]
 fn test_conflicting_insert_orders_leave_mapping_unresolved() {
     let result = analyze(&make_request(
         "CREATE TABLE target (a INT,b INT); \

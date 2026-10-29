@@ -49,25 +49,42 @@ fn span_from_range(range: Option<&Range<usize>>) -> Option<Span> {
 
 /// Return each UNION branch's explicit projection width in AST traversal order.
 /// A wildcard or another unsupported branch shape has no safe positional contract.
-fn set_operation_branch_widths(expression: &SetExpr) -> Option<Vec<usize>> {
+fn set_operation_branch_outputs(expression: &SetExpr) -> Option<Vec<Vec<String>>> {
     match expression {
         SetExpr::SetOperation { left, right, .. } => {
-            let mut widths = set_operation_branch_widths(left)?;
-            widths.extend(set_operation_branch_widths(right)?);
-            Some(widths)
+            let mut outputs = set_operation_branch_outputs(left)?;
+            outputs.extend(set_operation_branch_outputs(right)?);
+            Some(outputs)
         }
-        SetExpr::Query(query) => set_operation_branch_widths(&query.body),
+        SetExpr::Query(query) => set_operation_branch_outputs(&query.body),
         SetExpr::Select(select) => select
             .projection
             .iter()
-            .all(|item| {
-                !matches!(
-                    item,
-                    SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(_, _)
-                )
+            .enumerate()
+            .map(|(index, item)| match item {
+                SelectItem::ExprWithAlias { alias, .. } => Some(alias.value.clone()),
+                SelectItem::UnnamedExpr(expr) => Some(match expr {
+                    Expr::Identifier(ident) => ident.value.clone(),
+                    Expr::CompoundIdentifier(parts) => parts
+                        .last()
+                        .map(|ident| ident.value.clone())
+                        .unwrap_or_else(|| format!("col_{index}")),
+                    Expr::Function(function) => function.name.to_string().to_lowercase(),
+                    _ => format!("col_{index}"),
+                }),
+                SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(_, _) => None,
             })
-            .then_some(vec![select.projection.len()]),
+            .collect::<Option<Vec<_>>>()
+            .map(|outputs| vec![outputs]),
         _ => None,
+    }
+}
+
+fn set_expr_contains_set_operation(expression: &SetExpr) -> bool {
+    match expression {
+        SetExpr::SetOperation { .. } => true,
+        SetExpr::Query(query) => set_expr_contains_set_operation(&query.body),
+        _ => false,
     }
 }
 
@@ -667,36 +684,55 @@ impl<'a> Analyzer<'a> {
             .filter(|column| owned.contains(&column.node_id))
             .cloned()
             .collect();
-        if outputs.is_empty() {
-            return;
-        }
         let unique_ids: HashSet<_> = outputs.iter().map(|c| &c.node_id).collect();
         let unique_names: HashSet<_> = names.iter().collect();
-        // A UNION produces one output projection per branch. Bind every emitted
-        // output to a concrete AST branch before assigning its target position;
-        // flat output count alone cannot prove that aliases or branch widths align.
-        let branch_widths = insert
+        // A UNION may merge same-named outputs from different branches into one
+        // graph node. Build positions from the AST labels and target ownership,
+        // not from `output_columns`, whose cardinality is intentionally lossy.
+        let has_set_operation = insert
             .source
             .as_ref()
-            .and_then(|query| set_operation_branch_widths(&query.body));
-        let branch_positions = branch_widths.as_ref().and_then(|widths| {
-            (widths.len() > 1
-                && widths.iter().all(|width| *width == names.len())
-                && widths.iter().sum::<usize>() == outputs.len())
-            .then(|| {
-                widths
-                    .iter()
-                    .flat_map(|width| 0..*width)
-                    .collect::<Vec<_>>()
-            })
+            .is_some_and(|query| set_expr_contains_set_operation(&query.body));
+        let branch_mappings = insert.source.as_ref().and_then(|query| {
+            let branches = set_operation_branch_outputs(&query.body)?;
+            (branches.len() > 1 && branches.iter().all(|branch| branch.len() == names.len()))
+                .then(|| {
+                    branches
+                        .into_iter()
+                        .try_fold(HashMap::new(), |mut mappings, branch| {
+                            for (position, label) in branch.into_iter().enumerate() {
+                                let node_id = generate_column_node_id(
+                                    Some(target_id.as_ref()),
+                                    &self.normalize_identifier(&label),
+                                );
+                                if let Some(previous) = mappings.insert(node_id, position) {
+                                    if previous != position {
+                                        return None;
+                                    }
+                                }
+                            }
+                            Some(mappings)
+                        })
+                })
+                .flatten()
         });
-        let output_width = branch_positions
-            .as_ref()
-            .map_or(outputs.len(), |_| names.len());
-        let valid = output_width == names.len()
-            && unique_ids.len() == outputs.len()
-            && unique_names.len() == names.len()
-            && !outputs.iter().any(|c| c.name == "*");
+        let (valid, output_width) = if has_set_operation {
+            let valid = branch_mappings.as_ref().is_some_and(|mappings| {
+                mappings.len() == owned.len()
+                    && mappings.keys().all(|node_id| owned.contains(node_id))
+                    && unique_names.len() == names.len()
+            });
+            (valid, names.len())
+        } else {
+            (
+                !outputs.is_empty()
+                    && outputs.len() == names.len()
+                    && unique_ids.len() == outputs.len()
+                    && unique_names.len() == names.len()
+                    && !outputs.iter().any(|column| column.name == "*"),
+                outputs.len(),
+            )
+        };
         if let Some(target) = ctx.nodes.iter_mut().find(|node| node.id == target_id) {
             target.metadata.get_or_insert_with(HashMap::new).insert(
                 "insertTargetMapping".to_string(),
@@ -710,12 +746,16 @@ impl<'a> Analyzer<'a> {
                 .with_statement(ctx.statement_index));
             return;
         }
-        for (index, output) in outputs.iter().enumerate() {
-            let position = branch_positions
-                .as_ref()
-                .map_or(index, |positions| positions[index]);
+        let mappings: HashMap<_, _> = branch_mappings.unwrap_or_else(|| {
+            outputs
+                .iter()
+                .enumerate()
+                .map(|(position, output)| (output.node_id.clone(), position))
+                .collect()
+        });
+        for (node_id, position) in mappings {
             let name = &names[position];
-            if let Some(node) = ctx.nodes.iter_mut().find(|node| node.id == output.node_id) {
+            if let Some(node) = ctx.nodes.iter_mut().find(|node| node.id == node_id) {
                 node.metadata.get_or_insert_with(HashMap::new).insert(
                     "insertTarget".to_string(),
                     serde_json::json!({"table": canonical, "column": name,
