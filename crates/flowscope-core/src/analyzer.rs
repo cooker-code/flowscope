@@ -54,7 +54,8 @@ pub(crate) use schema_registry::TableResolution;
 /// For `Dialect::Hive`, the request SQL (and any per-file `content`) is first
 /// normalized via `crate::hive_preprocess::preprocess` to bridge Hive-isms that
 /// sqlparser-rs cannot parse natively (SET/ADD directives, `arr[n]`, double-
-/// quoted string literals, `! IN`, `GROUPING SETS`, etc.). See
+/// quoted string literals, `! IN`, etc.). Advanced GROUP BY and inline VALUES
+/// keep their formal AST rather than being reduced by preprocessing. See
 /// `crates/flowscope-core/src/hive_preprocess.rs` for the full pipeline.
 #[must_use]
 pub fn analyze(request: &AnalyzeRequest) -> AnalyzeResult {

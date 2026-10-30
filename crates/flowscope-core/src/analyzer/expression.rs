@@ -833,6 +833,14 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
                     depth_limited |= Self::collect_column_refs(e, refs, dialect, next_depth);
                 }
             }
+            Expr::GroupingSets(sets) | Expr::Cube(sets) | Expr::Rollup(sets) => {
+                for set in sets {
+                    for grouping_expr in set {
+                        depth_limited |=
+                            Self::collect_column_refs(grouping_expr, refs, dialect, next_depth);
+                    }
+                }
+            }
             Expr::Extract { expr, .. } => {
                 depth_limited |= Self::collect_column_refs(expr, refs, dialect, next_depth);
             }

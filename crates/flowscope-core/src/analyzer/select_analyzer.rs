@@ -7,6 +7,7 @@ use super::helpers::{
 use super::query::{OutputColumnParams, WindowControlRef};
 use super::Analyzer;
 use crate::types::FilterClauseType;
+use serde_json::{json, Value};
 use sqlparser::ast::{self, Select, SelectItem};
 use std::collections::{HashMap, HashSet};
 
@@ -62,13 +63,38 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
     fn analyze_group_by(&mut self, group_by: &ast::GroupByExpr) {
         let dialect = self.analyzer.request.dialect;
         match group_by {
-            ast::GroupByExpr::Expressions(exprs, _) => {
+            ast::GroupByExpr::Expressions(exprs, modifiers) => {
+                // The structured metadata is a Hive-compatibility contract for
+                // this parser entry point. Other dialects already parse these
+                // forms and must retain their established serialized result.
+                if dialect == crate::types::Dialect::Hive
+                    && group_by_has_structured_aggregation(exprs, modifiers)
+                {
+                    self.record_grouping_metadata(grouping_metadata(exprs, modifiers));
+                }
+                // Hive's newly-supported structures need leaf keys so ordinary
+                // projected dimensions keep their grouping identity. Existing
+                // dialects retain their previous whole-expression behavior.
+                let grouping_expressions: Vec<&ast::Expr> =
+                    if dialect == crate::types::Dialect::Hive {
+                        exprs
+                            .iter()
+                            .chain(modifiers.iter().filter_map(|modifier| match modifier {
+                                ast::GroupByWithModifier::GroupingSets(expr) => Some(expr),
+                                _ => None,
+                            }))
+                            .flat_map(grouping_leaf_expressions)
+                            .collect()
+                    } else {
+                        exprs.iter().collect()
+                    };
+
                 let mut processed_grouping_exprs = HashSet::new();
-                for group_by_expr in exprs {
+                for grouping_expr in grouping_expressions {
                     // Normalize expression first without creating expr_analyzer yet
                     let expr_str = {
                         let ea = ExpressionAnalyzer::new(self.analyzer, self.ctx);
-                        ea.normalize_group_by_expr(group_by_expr)
+                        ea.normalize_group_by_expr(grouping_expr)
                     };
 
                     // Alias visibility check (limited - see function doc comment for details)
@@ -92,11 +118,20 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
                     // Now create expr_analyzer for the actual analysis
                     let mut expr_analyzer = ExpressionAnalyzer::new(self.analyzer, self.ctx);
                     expr_analyzer.ctx.add_grouping_column(expr_str);
-                    expr_analyzer.analyze(group_by_expr);
+                    // Grouping keys influence aggregation grain only. Analyze them
+                    // for validation/subqueries, but do not turn them into the
+                    // projection's value sources.
+                    expr_analyzer.analyze(grouping_expr);
                 }
             }
-            ast::GroupByExpr::All(_) => {
+            ast::GroupByExpr::All(modifiers) => {
                 self.ctx.has_group_by = true;
+                if dialect == crate::types::Dialect::Hive && !modifiers.is_empty() {
+                    self.record_grouping_metadata(json!({
+                        "kind": "all",
+                        "modifiers": grouping_modifiers_metadata(modifiers),
+                    }));
+                }
             }
         }
     }
@@ -187,6 +222,7 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
                             target_node: self.target_node.clone(),
                             approximate: false,
                             aggregation,
+                            values_metadata: None,
                         },
                     );
                 }
@@ -262,6 +298,7 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
                             target_node: self.target_node.clone(),
                             approximate: false,
                             aggregation,
+                            values_metadata: None,
                         },
                     );
                 }
@@ -556,5 +593,105 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
         }
 
         None
+    }
+
+    fn record_grouping_metadata(&mut self, grouping_metadata: Value) {
+        let target_node = self
+            .target_node
+            .as_deref()
+            .map(Into::into)
+            .or_else(|| self.ctx.sink_node_id().cloned());
+        if let Some(target_node) = target_node {
+            if let Some(node) = self.ctx.node_mut(&target_node) {
+                let metadata = node.metadata.get_or_insert_with(Default::default);
+                match metadata.get_mut("groupBy") {
+                    Some(Value::Array(groupings)) => {
+                        if !groupings.contains(&grouping_metadata) {
+                            groupings.push(grouping_metadata);
+                        }
+                    }
+                    Some(existing) => {
+                        let previous = std::mem::replace(
+                            existing,
+                            Value::Array(vec![grouping_metadata.clone()]),
+                        );
+                        if previous != grouping_metadata {
+                            if let Value::Array(groupings) = existing {
+                                groupings.insert(0, previous);
+                            }
+                        }
+                    }
+                    None => {
+                        metadata
+                            .insert("groupBy".to_string(), Value::Array(vec![grouping_metadata]));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Returns the leaf expressions that determine grouping-key identity. The
+/// outer `GROUPING SETS`/`CUBE`/`ROLLUP` nodes describe control structure and
+/// must remain intact in metadata, but only their leaves can make a SELECT
+/// projection a grouping key.
+fn grouping_leaf_expressions(expr: &ast::Expr) -> Vec<&ast::Expr> {
+    match expr {
+        ast::Expr::GroupingSets(sets) | ast::Expr::Cube(sets) | ast::Expr::Rollup(sets) => {
+            sets.iter().flat_map(|set| set.iter()).collect()
+        }
+        _ => vec![expr],
+    }
+}
+
+fn grouping_metadata(exprs: &[ast::Expr], modifiers: &[ast::GroupByWithModifier]) -> Value {
+    json!({
+        "kind": "expressions",
+        "expressions": exprs.iter().map(grouping_expr_metadata).collect::<Vec<_>>(),
+        "modifiers": grouping_modifiers_metadata(modifiers),
+    })
+}
+
+fn group_by_has_structured_aggregation(
+    exprs: &[ast::Expr],
+    modifiers: &[ast::GroupByWithModifier],
+) -> bool {
+    !modifiers.is_empty()
+        || exprs.iter().any(|expr| {
+            matches!(
+                expr,
+                ast::Expr::GroupingSets(_) | ast::Expr::Cube(_) | ast::Expr::Rollup(_)
+            )
+        })
+}
+
+fn grouping_modifiers_metadata(modifiers: &[ast::GroupByWithModifier]) -> Vec<Value> {
+    modifiers
+        .iter()
+        .map(|modifier| match modifier {
+            ast::GroupByWithModifier::Rollup => json!({"kind": "withRollup"}),
+            ast::GroupByWithModifier::Cube => json!({"kind": "withCube"}),
+            ast::GroupByWithModifier::Totals => json!({"kind": "withTotals"}),
+            ast::GroupByWithModifier::GroupingSets(expr) => grouping_expr_metadata(expr),
+        })
+        .collect()
+}
+
+fn grouping_expr_metadata(expr: &ast::Expr) -> Value {
+    let (kind, sets) = match expr {
+        ast::Expr::GroupingSets(sets) => ("groupingSets", Some(sets)),
+        ast::Expr::Cube(sets) => ("cube", Some(sets)),
+        ast::Expr::Rollup(sets) => ("rollup", Some(sets)),
+        _ => ("expression", None),
+    };
+    match sets {
+        Some(sets) => json!({
+            "kind": kind,
+            "sets": sets
+                .iter()
+                .map(|set| set.iter().map(ToString::to_string).collect::<Vec<_>>())
+                .collect::<Vec<_>>(),
+        }),
+        None => json!({"kind": kind, "expression": expr.to_string()}),
     }
 }

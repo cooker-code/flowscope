@@ -1,0 +1,1361 @@
+{
+  "tables": [
+    {
+      "schema": "dw_conan_ads",
+      "name": "ads_conan_service_try_order_cost_da",
+      "columns": [
+        {
+          "name": "class_mode",
+          "dataType": "STRING"
+        },
+        {
+          "name": "class_mode_detail",
+          "dataType": "STRING"
+        },
+        {
+          "name": "start_class_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "is_end",
+          "dataType": "STRING"
+        },
+        {
+          "name": "user_from",
+          "dataType": "STRING"
+        },
+        {
+          "name": "ad_channel",
+          "dataType": "STRING"
+        },
+        {
+          "name": "is_try_cpd",
+          "dataType": "STRING"
+        },
+        {
+          "name": "userid",
+          "dataType": "STRING"
+        },
+        {
+          "name": "orderid",
+          "dataType": "STRING"
+        },
+        {
+          "name": "is_renewal_w2",
+          "dataType": "STRING"
+        },
+        {
+          "name": "renewal_orderid",
+          "dataType": "STRING"
+        },
+        {
+          "name": "ts_ratio",
+          "dataType": "STRING"
+        },
+        {
+          "name": "try_pmt_raw",
+          "dataType": "STRING"
+        },
+        {
+          "name": "cpd_cost_raw",
+          "dataType": "STRING"
+        },
+        {
+          "name": "cac_cost_raw",
+          "dataType": "STRING"
+        },
+        {
+          "name": "teacher_cost_raw",
+          "dataType": "STRING"
+        },
+        {
+          "name": "book_cost_raw",
+          "dataType": "STRING"
+        },
+        {
+          "name": "tax_rate",
+          "dataType": "STRING"
+        },
+        {
+          "name": "try_cac_factor",
+          "dataType": "STRING"
+        },
+        {
+          "name": "try_teacher_factor",
+          "dataType": "STRING"
+        },
+        {
+          "name": "try_book_factor",
+          "dataType": "STRING"
+        },
+        {
+          "name": "season_paidfee_raw",
+          "dataType": "STRING"
+        },
+        {
+          "name": "try_pmt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "cac_cost",
+          "dataType": "STRING"
+        },
+        {
+          "name": "cpd_cost",
+          "dataType": "STRING"
+        },
+        {
+          "name": "teacher_cost",
+          "dataType": "STRING"
+        },
+        {
+          "name": "book_cost",
+          "dataType": "STRING"
+        },
+        {
+          "name": "season_profit",
+          "dataType": "STRING"
+        },
+        {
+          "name": "season_profit_raw",
+          "dataType": "STRING"
+        },
+        {
+          "name": "pay_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "cac_fin_cost",
+          "dataType": "STRING"
+        },
+        {
+          "name": "teacher_cost_checked",
+          "dataType": "STRING"
+        },
+        {
+          "name": "cac_cost_checked",
+          "dataType": "STRING"
+        },
+        {
+          "name": "teacher_fin_cost",
+          "dataType": "STRING"
+        },
+        {
+          "name": "bj_fin_cost",
+          "dataType": "STRING"
+        },
+        {
+          "name": "stage_name",
+          "dataType": "STRING"
+        },
+        {
+          "name": "end_class_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "stage_name_comb",
+          "dataType": "STRING"
+        },
+        {
+          "name": "channel_price",
+          "dataType": "STRING"
+        },
+        {
+          "name": "lesson_desc",
+          "dataType": "STRING"
+        },
+        {
+          "name": "service_mode",
+          "dataType": "STRING"
+        },
+        {
+          "name": "bj_fin_cost_teacher",
+          "dataType": "STRING"
+        },
+        {
+          "name": "bj_fin_cost_acquisition",
+          "dataType": "STRING"
+        },
+        {
+          "name": "book_fin_cost",
+          "dataType": "STRING"
+        },
+        {
+          "name": "cpd_fin_cost",
+          "dataType": "STRING"
+        },
+        {
+          "name": "try_net_profit",
+          "dataType": "STRING"
+        },
+        {
+          "name": "try_net_fin_profit",
+          "dataType": "STRING"
+        },
+        {
+          "name": "bj_cost_checked",
+          "dataType": "INT"
+        },
+        {
+          "name": "book_cost_checked",
+          "dataType": "INT"
+        },
+        {
+          "name": "third_channel",
+          "dataType": "STRING"
+        },
+        {
+          "name": "dt",
+          "dataType": "STRING"
+        }
+      ]
+    },
+    {
+      "schema": "dw_conan_ads",
+      "name": "ads_biz1_cpa_order_settlement_cost_detail_da",
+      "columns": [
+        {
+          "name": "order_id",
+          "dataType": "STRING"
+        },
+        {
+          "name": "order_status",
+          "dataType": "STRING"
+        },
+        {
+          "name": "skill_estimated_settlement_amount",
+          "dataType": "DECIMAL(28, 8)"
+        },
+        {
+          "name": "actual_settlement_amount",
+          "dataType": "DECIMAL(28, 8)"
+        },
+        {
+          "name": "subject_name",
+          "dataType": "STRING"
+        },
+        {
+          "name": "parent_order_id",
+          "dataType": "STRING"
+        },
+        {
+          "name": "purchase_group",
+          "dataType": "STRING"
+        },
+        {
+          "name": "estimated_cost_source",
+          "dataType": "STRING"
+        },
+        {
+          "name": "estimated_cost_gross",
+          "dataType": "DECIMAL(28, 8)"
+        },
+        {
+          "name": "actual_cost_gross",
+          "dataType": "DECIMAL(28, 8)"
+        },
+        {
+          "name": "estimated_tax_rate",
+          "dataType": "DECIMAL(10, 6)"
+        },
+        {
+          "name": "actual_tax_rate",
+          "dataType": "DECIMAL(10, 6)"
+        },
+        {
+          "name": "estimated_cost_status",
+          "dataType": "STRING"
+        },
+        {
+          "name": "actual_cost_status",
+          "dataType": "STRING"
+        },
+        {
+          "name": "bill_id",
+          "dataType": "STRING"
+        },
+        {
+          "name": "tax_rate_source",
+          "dataType": "STRING"
+        },
+        {
+          "name": "fact_snapshot_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "calculation_version",
+          "dataType": "STRING"
+        },
+        {
+          "name": "channel_type",
+          "dataType": "STRING"
+        },
+        {
+          "name": "third_channel",
+          "dataType": "STRING"
+        },
+        {
+          "name": "dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "start_class_dt",
+          "dataType": "STRING"
+        }
+      ]
+    },
+    {
+      "schema": "dw_conan_ads",
+      "name": "ads_eng_telesales_drop_stock_score_state_da",
+      "columns": [
+        {
+          "name": "user_id",
+          "dataType": "STRING"
+        },
+        {
+          "name": "user_type",
+          "dataType": "STRING"
+        },
+        {
+          "name": "age",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "lst_active_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "s3_plus_subject_cnt",
+          "dataType": "BIGINT"
+        },
+        {
+          "name": "season_min_pay_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "try_max_pay_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "is_eligible",
+          "dataType": "INT"
+        },
+        {
+          "name": "has_valid_comm",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "hist_finish_course_cnt",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "last_try_pay_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "hist_try_pay_channel",
+          "dataType": "STRING"
+        },
+        {
+          "name": "prior_try_subject_cnt",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "prior_try_order_cnt",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "app_profile_bucket",
+          "dataType": "STRING"
+        },
+        {
+          "name": "call_detail_hash",
+          "dataType": "STRING"
+        },
+        {
+          "name": "touch_dt_array_4m",
+          "dataType": "ARRAY<STRING>"
+        },
+        {
+          "name": "connect_dt_array_4m",
+          "dataType": "ARRAY<STRING>"
+        },
+        {
+          "name": "hist_touch_day_cnt_4m",
+          "dataType": "BIGINT"
+        },
+        {
+          "name": "hist_touch_connect_day_cnt_4m",
+          "dataType": "BIGINT"
+        },
+        {
+          "name": "days_since_last_active",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "days_since_last_try_pay",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "p_connect",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "p_d7_given_connect",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "p_d7_joint",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "frequency_coef",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "repeat_order_coef",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "frequency_hard_exclude_flag",
+          "dataType": "INT"
+        },
+        {
+          "name": "rank_score",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "raw_grade",
+          "dataType": "STRING"
+        },
+        {
+          "name": "grade",
+          "dataType": "STRING"
+        },
+        {
+          "name": "model_version",
+          "dataType": "STRING"
+        },
+        {
+          "name": "raw_feature_hash",
+          "dataType": "STRING"
+        },
+        {
+          "name": "entry_type",
+          "dataType": "STRING"
+        },
+        {
+          "name": "first_entry_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "last_feature_update_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "last_score_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "batch_no",
+          "dataType": "STRING"
+        }
+      ]
+    },
+    {
+      "schema": "dw_conan_ads",
+      "name": "ads_eng_telesales_drop_stock_rescore_delta_di",
+      "columns": [
+        {
+          "name": "user_id",
+          "dataType": "STRING"
+        },
+        {
+          "name": "previous_grade",
+          "dataType": "STRING"
+        },
+        {
+          "name": "new_grade",
+          "dataType": "STRING"
+        },
+        {
+          "name": "previous_rank_score",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "new_rank_score",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "rescore_reason",
+          "dataType": "STRING"
+        },
+        {
+          "name": "changed_feature_list",
+          "dataType": "ARRAY<STRING>"
+        },
+        {
+          "name": "previous_is_eligible",
+          "dataType": "INT"
+        },
+        {
+          "name": "new_is_eligible",
+          "dataType": "INT"
+        },
+        {
+          "name": "previous_feature_hash",
+          "dataType": "STRING"
+        },
+        {
+          "name": "new_feature_hash",
+          "dataType": "STRING"
+        },
+        {
+          "name": "user_type",
+          "dataType": "STRING"
+        },
+        {
+          "name": "age",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "lst_active_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "s3_plus_subject_cnt",
+          "dataType": "BIGINT"
+        },
+        {
+          "name": "season_min_pay_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "try_max_pay_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "has_valid_comm",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "hist_finish_course_cnt",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "last_try_pay_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "hist_try_pay_channel",
+          "dataType": "STRING"
+        },
+        {
+          "name": "prior_try_subject_cnt",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "prior_try_order_cnt",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "app_profile_bucket",
+          "dataType": "STRING"
+        },
+        {
+          "name": "call_detail_hash",
+          "dataType": "STRING"
+        },
+        {
+          "name": "touch_dt_array_4m",
+          "dataType": "ARRAY<STRING>"
+        },
+        {
+          "name": "connect_dt_array_4m",
+          "dataType": "ARRAY<STRING>"
+        },
+        {
+          "name": "hist_touch_day_cnt_4m",
+          "dataType": "BIGINT"
+        },
+        {
+          "name": "hist_touch_connect_day_cnt_4m",
+          "dataType": "BIGINT"
+        },
+        {
+          "name": "days_since_last_active",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "days_since_last_try_pay",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "p_connect",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "p_d7_given_connect",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "p_d7_joint",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "frequency_coef",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "repeat_order_coef",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "frequency_hard_exclude_flag",
+          "dataType": "INT"
+        },
+        {
+          "name": "raw_grade",
+          "dataType": "STRING"
+        },
+        {
+          "name": "model_version",
+          "dataType": "STRING"
+        },
+        {
+          "name": "entry_type",
+          "dataType": "STRING"
+        },
+        {
+          "name": "first_entry_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "last_feature_update_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "last_score_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "batch_no",
+          "dataType": "STRING"
+        }
+      ]
+    },
+    {
+      "schema": "temp",
+      "name": "tmk_bpo_new_stock_model_2_0_sql_param_da",
+      "columns": [
+        {
+          "name": "model_version",
+          "dataType": "STRING"
+        },
+        {
+          "name": "model_stage",
+          "dataType": "STRING"
+        },
+        {
+          "name": "param_type",
+          "dataType": "STRING"
+        },
+        {
+          "name": "feature_name",
+          "dataType": "STRING"
+        },
+        {
+          "name": "feature_value",
+          "dataType": "STRING"
+        },
+        {
+          "name": "mapped_value",
+          "dataType": "STRING"
+        },
+        {
+          "name": "raw_coefficient",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "effective_coefficient",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "impute_value",
+          "dataType": "STRING"
+        },
+        {
+          "name": "scale_value",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "param_value",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "param_text",
+          "dataType": "STRING"
+        },
+        {
+          "name": "sort_order",
+          "dataType": "INT"
+        },
+        {
+          "name": "training_start_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "training_end_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "created_at",
+          "dataType": "STRING"
+        },
+        {
+          "name": "dt",
+          "dataType": "STRING"
+        }
+      ]
+    },
+    {
+      "schema": "dw_conan_ads",
+      "name": "ads_eng_telesales_new_stock_score_state_da",
+      "columns": [
+        {
+          "name": "user_id",
+          "dataType": "STRING"
+        },
+        {
+          "name": "pd",
+          "dataType": "STRING"
+        },
+        {
+          "name": "user_type",
+          "dataType": "STRING"
+        },
+        {
+          "name": "aes_phone",
+          "dataType": "STRING"
+        },
+        {
+          "name": "market_register_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "user_create_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "lst_active_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "birthday",
+          "dataType": "STRING"
+        },
+        {
+          "name": "age_years",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "is_eligible",
+          "dataType": "INT"
+        },
+        {
+          "name": "call_detail_hash",
+          "dataType": "STRING"
+        },
+        {
+          "name": "touch_dt_array_4m",
+          "dataType": "ARRAY<STRING>"
+        },
+        {
+          "name": "connect_dt_array_4m",
+          "dataType": "ARRAY<STRING>"
+        },
+        {
+          "name": "hist_touch_connected_day_cnt_4m",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "hist_touch_day_cnt_4m",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "ip_address_update_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "ip_province",
+          "dataType": "STRING"
+        },
+        {
+          "name": "latest_device_manufacturer",
+          "dataType": "STRING"
+        },
+        {
+          "name": "latest_device_model",
+          "dataType": "STRING"
+        },
+        {
+          "name": "age_bucket",
+          "dataType": "STRING"
+        },
+        {
+          "name": "jinjuan_tag",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "days_since_last_active",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "register_days",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "ip_address_age_days",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "p_connect",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "p_d0_given_connect",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "frequency_coef",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "rank_score",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "raw_grade",
+          "dataType": "STRING"
+        },
+        {
+          "name": "frequency_hard_exclude_flag",
+          "dataType": "INT"
+        },
+        {
+          "name": "grade",
+          "dataType": "STRING"
+        },
+        {
+          "name": "model_feature_json",
+          "dataType": "STRING"
+        },
+        {
+          "name": "model_version",
+          "dataType": "STRING"
+        },
+        {
+          "name": "raw_feature_hash",
+          "dataType": "STRING"
+        },
+        {
+          "name": "entry_type",
+          "dataType": "STRING"
+        },
+        {
+          "name": "first_entry_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "last_feature_update_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "last_score_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "batch_no",
+          "dataType": "STRING"
+        }
+      ]
+    },
+    {
+      "schema": "dw_conan_ads",
+      "name": "ads_eng_telesales_new_stock_rescore_delta_di",
+      "columns": [
+        {
+          "name": "user_id",
+          "dataType": "STRING"
+        },
+        {
+          "name": "previous_grade",
+          "dataType": "STRING"
+        },
+        {
+          "name": "new_grade",
+          "dataType": "STRING"
+        },
+        {
+          "name": "previous_rank_score",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "new_rank_score",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "rescore_reason",
+          "dataType": "STRING"
+        },
+        {
+          "name": "changed_feature_list",
+          "dataType": "ARRAY<STRING>"
+        },
+        {
+          "name": "previous_is_eligible",
+          "dataType": "INT"
+        },
+        {
+          "name": "new_is_eligible",
+          "dataType": "INT"
+        },
+        {
+          "name": "previous_feature_hash",
+          "dataType": "STRING"
+        },
+        {
+          "name": "new_feature_hash",
+          "dataType": "STRING"
+        },
+        {
+          "name": "pd",
+          "dataType": "STRING"
+        },
+        {
+          "name": "user_type",
+          "dataType": "STRING"
+        },
+        {
+          "name": "aes_phone",
+          "dataType": "STRING"
+        },
+        {
+          "name": "market_register_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "user_create_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "lst_active_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "birthday",
+          "dataType": "STRING"
+        },
+        {
+          "name": "age_years",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "call_detail_hash",
+          "dataType": "STRING"
+        },
+        {
+          "name": "touch_dt_array_4m",
+          "dataType": "ARRAY<STRING>"
+        },
+        {
+          "name": "connect_dt_array_4m",
+          "dataType": "ARRAY<STRING>"
+        },
+        {
+          "name": "hist_touch_connected_day_cnt_4m",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "hist_touch_day_cnt_4m",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "ip_address_update_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "ip_province",
+          "dataType": "STRING"
+        },
+        {
+          "name": "latest_device_manufacturer",
+          "dataType": "STRING"
+        },
+        {
+          "name": "latest_device_model",
+          "dataType": "STRING"
+        },
+        {
+          "name": "age_bucket",
+          "dataType": "STRING"
+        },
+        {
+          "name": "jinjuan_tag",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "days_since_last_active",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "register_days",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "ip_address_age_days",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "p_connect",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "p_d0_given_connect",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "frequency_coef",
+          "dataType": "DOUBLE"
+        },
+        {
+          "name": "frequency_hard_exclude_flag",
+          "dataType": "INT"
+        },
+        {
+          "name": "raw_grade",
+          "dataType": "STRING"
+        },
+        {
+          "name": "model_feature_json",
+          "dataType": "STRING"
+        },
+        {
+          "name": "model_version",
+          "dataType": "STRING"
+        },
+        {
+          "name": "entry_type",
+          "dataType": "STRING"
+        },
+        {
+          "name": "first_entry_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "last_feature_update_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "last_score_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "batch_no",
+          "dataType": "STRING"
+        }
+      ]
+    },
+    {
+      "schema": "dw_conan_ads",
+      "name": "tmp_biz1_cpa_order_settlement_policy",
+      "columns": [
+        {
+          "name": "target_cohort",
+          "dataType": "DATE"
+        },
+        {
+          "name": "snapshot_dt",
+          "dataType": "DATE"
+        },
+        {
+          "name": "source_cohort",
+          "dataType": "DATE"
+        },
+        {
+          "name": "order_id",
+          "dataType": "STRING"
+        },
+        {
+          "name": "user_id",
+          "dataType": "STRING"
+        },
+        {
+          "name": "order_status",
+          "dataType": "STRING"
+        },
+        {
+          "name": "subject",
+          "dataType": "STRING"
+        },
+        {
+          "name": "pay_dt",
+          "dataType": "STRING"
+        },
+        {
+          "name": "pay_tp",
+          "dataType": "STRING"
+        },
+        {
+          "name": "pay_amt",
+          "dataType": "DECIMAL(28, 8)"
+        },
+        {
+          "name": "keyfrom",
+          "dataType": "STRING"
+        },
+        {
+          "name": "semester_type",
+          "dataType": "STRING"
+        },
+        {
+          "name": "platform_5",
+          "dataType": "STRING"
+        },
+        {
+          "name": "platform_5_6",
+          "dataType": "STRING"
+        },
+        {
+          "name": "type",
+          "dataType": "STRING"
+        },
+        {
+          "name": "season_order_id",
+          "dataType": "STRING"
+        },
+        {
+          "name": "season_refund_type",
+          "dataType": "STRING"
+        },
+        {
+          "name": "season_pay_dt",
+          "dataType": "DATE"
+        },
+        {
+          "name": "season_pay_tp",
+          "dataType": "STRING"
+        },
+        {
+          "name": "end_xb_dt",
+          "dataType": "DATE"
+        },
+        {
+          "name": "is_no_settle",
+          "dataType": "STRING"
+        },
+        {
+          "name": "authorid",
+          "dataType": "STRING"
+        },
+        {
+          "name": "contract_type",
+          "dataType": "STRING"
+        },
+        {
+          "name": "platform_name",
+          "dataType": "STRING"
+        },
+        {
+          "name": "policy_keyfrom",
+          "dataType": "STRING"
+        },
+        {
+          "name": "party_b",
+          "dataType": "STRING"
+        },
+        {
+          "name": "contract_code",
+          "dataType": "STRING"
+        },
+        {
+          "name": "contract_code_raw",
+          "dataType": "STRING"
+        },
+        {
+          "name": "ori_sign_date",
+          "dataType": "STRING"
+        },
+        {
+          "name": "is_normal",
+          "dataType": "STRING"
+        },
+        {
+          "name": "is_tmk",
+          "dataType": "STRING"
+        },
+        {
+          "name": "is_bollte_allowance",
+          "dataType": "STRING"
+        },
+        {
+          "name": "is_max_allowance",
+          "dataType": "STRING"
+        },
+        {
+          "name": "is_ka",
+          "dataType": "STRING"
+        },
+        {
+          "name": "deduction_amount",
+          "dataType": "DECIMAL(28, 8)"
+        },
+        {
+          "name": "excluded_commission",
+          "dataType": "DECIMAL(28, 8)"
+        },
+        {
+          "name": "policy_match_status",
+          "dataType": "STRING"
+        },
+        {
+          "name": "policy_candidate_count",
+          "dataType": "BIGINT"
+        },
+        {
+          "name": "candidate_platform_names",
+          "dataType": "STRING"
+        },
+        {
+          "name": "source_variant_count",
+          "dataType": "BIGINT"
+        },
+        {
+          "name": "source_family",
+          "dataType": "STRING"
+        },
+        {
+          "name": "late_renewal_cleared",
+          "dataType": "INT"
+        }
+      ]
+    },
+    {
+      "schema": "dw_conan_ads",
+      "name": "ads_finance_sci_user_season_ma",
+      "columns": [
+        {
+          "name": "user_id",
+          "dataType": "STRING"
+        },
+        {
+          "name": "order_list",
+          "dataType": "ARRAY<STRING>"
+        },
+        {
+          "name": "cur_total_weekcount",
+          "dataType": "STRING"
+        },
+        {
+          "name": "cur_left_weekcount",
+          "dataType": "STRING"
+        },
+        {
+          "name": "cur_get_weekcount",
+          "dataType": "STRING"
+        },
+        {
+          "name": "cur_refund_weekcount",
+          "dataType": "STRING"
+        },
+        {
+          "name": "last_total_weekcount",
+          "dataType": "STRING"
+        },
+        {
+          "name": "last_left_weekcount",
+          "dataType": "STRING"
+        },
+        {
+          "name": "receipt_list",
+          "dataType": "ARRAY<STRING>"
+        },
+        {
+          "name": "settled_weekcount",
+          "dataType": "STRING"
+        },
+        {
+          "name": "settled_fee",
+          "dataType": "STRING"
+        },
+        {
+          "name": "first_level",
+          "dataType": "STRING"
+        },
+        {
+          "name": "level_weeks",
+          "dataType": "ARRAY<STRING>"
+        },
+        {
+          "name": "dt",
+          "dataType": "STRING"
+        }
+      ]
+    },
+    {
+      "schema": "dw_conan_ads",
+      "name": "ads_finance_sci_season_pushed_left_ma",
+      "columns": [
+        {
+          "name": "user_id",
+          "dataType": "STRING"
+        },
+        {
+          "name": "goods_type",
+          "dataType": "STRING"
+        },
+        {
+          "name": "stage_level",
+          "dataType": "STRING"
+        },
+        {
+          "name": "sale_method",
+          "dataType": "STRING"
+        },
+        {
+          "name": "weekcount",
+          "dataType": "BIGINT"
+        },
+        {
+          "name": "fee",
+          "dataType": "STRING"
+        },
+        {
+          "name": "confirm_type",
+          "dataType": "STRING"
+        },
+        {
+          "name": "dt",
+          "dataType": "STRING"
+        }
+      ]
+    }
+  ],
+  "allowImplied": true
+}

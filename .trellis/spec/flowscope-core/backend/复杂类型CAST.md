@@ -24,7 +24,8 @@ Hive请求在正式Core中允许Spark的ARRAY/STRUCT/MAP类型。sqlparser-rs 0.
 | 缺右尖括号、MAP缺value、STRUCT缺字段类型 | 保留解析拒绝 |
 | 第129层复杂类型 | 明确深度错误 |
 | 普通DECIMAL/STRING ARRAY CAST | 保留既有解析行为 |
-| exists/FROM VALUES/View COMMENT/多个GROUPING SETS | 本任务不扩大兼容范围 |
+| exists/FROM VALUES/多个GROUPING SETS | 现有 Hive 入口正式兼容，见 hive-compat-preprocess.md |
+| View COMMENT | 保持原边界 |
 
 ## 必需回归
 
@@ -34,7 +35,7 @@ Hive请求在正式Core中允许Spark的ARRAY/STRUCT/MAP类型。sqlparser-rs 0.
 
 错误：删除类型结构或把整SQL送Generic解析，只检查hasErrors=false。正确：局部CAST类型AST解析、原SQL哈希不变，并比较完整字段来源、窗口角色和目标位置。
 
-当天557500在复杂类型修复后仍遇到exists，须保留BLOCKED_BY_DEFERRED_EXISTS，不能虚报整份通过。
+557500 的 exists 阻塞已纳入 Hive 入口兼容修复。验收以原 SQL 回归及物理值根断言为准，不能只看复杂类型单测。
 
 ## 复杂表达式的字段依赖
 

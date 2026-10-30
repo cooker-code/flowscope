@@ -67,7 +67,7 @@ parse 通过率提升到 **99.96%+**（warehouse corpus 5105 文件实测 100% �
 
 **关键顺序**：三重 → 双重 → 单 `$`。反过来会让 `{{{x}}}` 变成 `'__ph__'}`，多漏一个 `}` 破坏后续 SQL。
 
-**实现要求：单次字符级扫描器统一处理三种上下文**（与 Step 6 / Step 12.5 / Step 13 同形）：
+**实现要求：单次字符级扫描器统一处理三种上下文**（与 Step 6 / Step 12.5 同形）：
 
 - 行注释 `-- ... \n` / 块注释 `/* ... */`：整段保留，**不替换**注释里的占位符
 - 字符串字面量 `'...'` / `"..."`：body 含 `{{{` / `{{` / `${` 任一 marker 即整段替换为
@@ -118,7 +118,7 @@ Hive UDTF 内联形态 `<func>(<args>) AS (c1, c2, ...)`（如
 形态都不会落入此模式。
 
 **arg 列表支持 1 级嵌套**（足够 `split('__ph__', ',')`）。更深嵌套（极少见）走 fallthrough；
-未来如出现真实 corpus hit，参考 Step 13 改写为字符级括号计数即可。
+未来如出现真实 corpus hit，采用上下文感知的字符级括号计数。
 
 ### Step 5 — 数组/Map 下标去除
 
@@ -195,23 +195,55 @@ CROSS/ON/WHEN/ELSE/END/AND/OR/THEN）之前删除 AS。删除时只删 AS 两字
 - `select sum(x) as sum from t` → **保留**（`sum` 不是子句关键字）
 - `case when ... end as\nfrom (...)` → 删 AS ✓
 
-### Step 13 — `GROUP BY GROUPING SETS/CUBE/ROLLUP` → `GROUP BY 1`
+### 原 Step 13 已移除：高级分组必须保留正式结构
 
-Hive 高级 GROUP BY 扩展 parser 不支持。替换为 `GROUP BY 1` 保留语义骨架。
-血缘提取不依赖具体 GROUP BY 列。
+禁止将 `GROUP BY GROUPING SETS (...)` 改成 `GROUP BY 1`。旧实现既删除了
+分组键和小计空集，也只吞掉第一个集合，破坏后续并列集合。`FlowscopeHiveDialect`
+启用 `supports_group_by_expr()`，由上游构造 `GroupingSets` / `Cube` / `Rollup` AST。
 
-**实现要求：字符级括号计数，不再用 regex 平衡嵌套**：
+- 并列集合保持多个节点，空集保持空数组；不展开笛卡尔积，不删除重复集合。
+- 分组字段用于聚合粒度分析，不得混入 `SUM(amount)` 等指标的值来源。
+- 高级分组在结果关系节点的 `metadata.groupBy` 有序数组中保留结构；各项包含
+  `kind: expressions`、有序 `expressions`、`modifiers`。集合表达式为
+  `{kind: groupingSets|cube|rollup, sets: [[表达式文本], []]}`。
+- 同一关系的 UNION 分支不能互相覆盖分组结构；周/日分支须同时保留。
+- 普通 SELECT、普通 GROUP BY 不附加该元数据。
 
-- `grouping_sets_head_re()` 只匹配头部 `(?is)group\s+by\s+grouping\s+sets\s*\(`
-- `find_matching_paren(bytes, open_idx)` 字符级逐字节扫描，遇到单引号字符串体 / 行注释 /
-  块注释整段跳过，遇到 `(` 加深、`)` 减深，深度归零返回闭合位置
-- 替换段为字面量 `GROUP BY 1`；括号不平衡则保守降级（保留原文 + cursor 推进 1 字节，
-  不死循环不 panic）
+### 现有 Hive 入口的 Spark 语法兼容
 
-**为什么不再用 regex**：`regex` crate 不支持 PCRE 递归，任何 `\([^()]*\)` / `\((?:[^()]|\([^()]*\))*\)`
-形态都是硬编码深度上限。生产 SQL 出现 `grouping sets ((date_sub(x, 1), b), ...)` 这种
-2 级嵌套（set 内含函数调用）就会漏匹配。char-level paren counting 是 O(n) 单次扫描，
-支持任意嵌套深度。CUBE / ROLLUP 形态保留原 regex（一级嵌套足够）。
+不新增服务、HTTP 请求字段或 Spark 方言枚举。兼容位于正式 Core 的 Hive 入口，
+`sql` 和 `files[].content` 均应受益，不能要求调用方修改原 SQL。
+
+- `supports_values_as_table_factor()` 接收裸 `FROM VALUES`，使用正式派生表 AST。
+  具名列由关系别名的列清单提供；每列逐行保留原表达式文本到该虚拟列的
+  `metadata.columnValues`，包括重复值和类型化 NULL。常量列没有 Physical 来源。
+  行宽或别名宽度不一致必须显式拒绝，不能填 NULL、截断或只用首行。
+- 数组 `exists(array, x -> predicate)` 与子查询 `EXISTS` 在方言前缀解析处分支。
+  `NOT exists(...)` 也保留正式 `UnaryOp(Not)` + 函数/Lambda AST；不能改写私有
+  函数名或替换成子查询。正常 `EXISTS/NOT EXISTS (SELECT/WITH/VALUES/嵌套查询)`
+  保持原有子查询解析。Lambda 局部变量及成员不建物理来源，集合和外部捕获列保留。
+- NULL 表达式保持原样，分析器不执行 Spark 求值，也不假定会话兼容参数。
+
+回归 `hive_compat_original_sql.rs` 固定原审计 SQL 558128/557486/556525/
+557826/557557/557500/557728，原文不在测试端清洗。断言 8 个 VALUES 的全行列、
+别名和类型化 NULL；周/日分支各 368×2×2 分组；物理值根；真实目标 DDL 下的
+INSERT 位置和动态分区后缀。DDL 于 2026-10-30 从 hive_f04 点查冻结，schema.json
+从独立 DDL AST 提取，不从工作负载的 SELECT 别名猜目标列。
+HTTP `serve_api` 用相同 7 份原文且不传 dialect，比较完整结果与共享 Core 一致。
+这些是解析/血缘表示验收，不代替实际 Spark 的业务数据结果核对。
+
+无 Schema 的 `SELECT *` 反向推导必须在本轮修改任何节点前，快照全部 target
+已有列，并以稳定顺序遍历；不能把本轮刚猜出的列反馈给另一 target。作用域中的
+关系实例也须稳定排序。`PendingWildcard` 创建时记录精确 `target_node_id`，
+顶层快照、递归查找和循环检测均使用真实节点 ID（循环键含 source 实例 ID）；
+不能按同名 derived alias 反查、更不能按哈希最小值任选或合并自连接实例。
+`wildcard_determinism.rs` 覆盖重复推导稳定性与显式多层星号链不断裂。
+
+本轮 HTTP 原文回归启用临时审计。接口完整响应与审计存储是不同边界：现有
+审计 `result_json` 上限仍为 1 MiB，超限保留 `result_truncated=true`；557486 的
+完整结果约 2.9 MB，不能把其截断审计当完整可回放图。截断必须退回 UTF-8 字符
+边界，不能因中文常量跨字节边界使请求 panic；不改变既有审计容量或请求合同。
+
 
 ---
 
@@ -225,7 +257,7 @@ Hive 高级 GROUP BY 扩展 parser 不支持。替换为 `GROUP BY 1` 保留语�
 
 - 当前阶段**接受这个偏移**
 - 后续 backlog：offset map 反向映射
-- **血缘骨架（表/列/JOIN）不受影响**
+- **偏移的接受不能推导为所有表达式或字段血缘无损，必须按原 SQL 回归验证**
 
 ### 字符串字面值失真
 
@@ -269,8 +301,7 @@ pub fn analyze(request: &AnalyzeRequest) -> AnalyzeResult {
   inline_multi_col_as_lateral_view_form_not_touched
 - auto_split_does_not_break_with_insert / with_cube
 - orphan_as_preserves_legitimate_alias / skips_inside_comment
-- grouping_sets_two_level_nested / grouping_sets_inside_string_literal_not_touched /
-  grouping_sets_inside_line_comment_not_touched / grouping_sets_unbalanced_paren_keeps_input
+- 高级分组原文保留、空集/并列集合、数组 exists/NOT exists 和正常子查询分支
 - full_pipeline_smoke
 
 `cargo test -p flowscope-core --lib hive_preprocess::tests`

@@ -17,8 +17,9 @@ pub(crate) const DBT_MODEL_SINK_METADATA_KEY: &str = "dbtModelSink";
 pub(crate) struct PendingWildcard {
     /// The source canonical name (table or CTE) with unknown columns
     pub(crate) source_canonical: String,
-    /// The target entity (CTE name or derived table alias) receiving the wildcard
-    pub(crate) target_name: String,
+    /// Exact CTE/derived relation node receiving the wildcard. Alias names can
+    /// repeat in nested scopes and therefore cannot safely identify this target.
+    pub(crate) target_node_id: Arc<str>,
     /// Node ID of the source
     pub(crate) source_node_id: Arc<str>,
 }
@@ -683,12 +684,18 @@ impl StatementContext {
         };
 
         let mut seen = HashSet::new();
-        scope
+        let mut instances: Vec<_> = scope
             .alias_instances
             .values()
             .filter(|instance| seen.insert(instance.node_id.clone()))
             .cloned()
-            .collect()
+            .collect();
+        instances.sort_by(|left, right| {
+            left.canonical
+                .cmp(&right.canonical)
+                .then_with(|| left.node_id.cmp(&right.node_id))
+        });
+        instances
     }
 
     /// Count distinct relation instances for a canonical name in the current scope.

@@ -104,6 +104,170 @@ async fn health_returns_ok_status() {
 
 // === Analyze endpoint tests ===
 
+fn first_json_difference(left: &Value, right: &Value, path: &str) -> Option<String> {
+    if left == right {
+        return None;
+    }
+    match (left, right) {
+        (Value::Object(left), Value::Object(right)) => {
+            for key in left.keys().chain(right.keys()) {
+                if let Some(diff) = first_json_difference(
+                    left.get(key).unwrap_or(&Value::Null),
+                    right.get(key).unwrap_or(&Value::Null),
+                    &format!("{path}.{key}"),
+                ) {
+                    return Some(diff);
+                }
+            }
+        }
+        (Value::Array(left), Value::Array(right)) if left.len() == right.len() => {
+            for (index, (left, right)) in left.iter().zip(right).enumerate() {
+                if let Some(diff) = first_json_difference(left, right, &format!("{path}[{index}]"))
+                {
+                    return Some(diff);
+                }
+            }
+        }
+        (Value::Array(left), Value::Array(right)) => {
+            let only = |a: &[Value], b: &[Value]| {
+                a.iter()
+                    .filter(|item| {
+                        item.get("id").is_some()
+                            && !b.iter().any(|other| other.get("id") == item.get("id"))
+                    })
+                    .take(5)
+                    .map(|item| {
+                        format!(
+                            "{}:{}",
+                            item["id"],
+                            item.get("qualifiedName").unwrap_or(&item["label"])
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            };
+            return Some(format!(
+                "{path}: lengths {} vs {}; only left {:?}; only right {:?}",
+                left.len(),
+                right.len(),
+                only(left, right),
+                only(right, left)
+            ));
+        }
+        _ => {}
+    }
+    Some(format!(
+        "{path}: left={} right={}",
+        left.to_string().chars().take(200).collect::<String>(),
+        right.to_string().chars().take(200).collect::<String>()
+    ))
+}
+
+async fn assert_original_hive_compat_http(id: u32) {
+    let mut config = default_config();
+    config.dialect = Dialect::Hive;
+    let audit_dir = tempfile::tempdir().unwrap();
+    let mut state = test_state(config, vec![]);
+    Arc::get_mut(&mut state).unwrap().audit = Some(Arc::new(
+        flowscope_cli::server::AuditWriter::new(audit_dir.path().join("audit.db")).unwrap(),
+    ));
+    let app = test_router(state);
+    let fixture_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../flowscope-core/tests/fixtures/hive_compat_original");
+
+    {
+        let sql = std::fs::read_to_string(fixture_dir.join(format!("{id}.sql"))).unwrap();
+        for files_mode in [false, true] {
+            let files = files_mode.then(|| {
+                vec![FileSource {
+                    name: format!("{id}.sql"),
+                    content: sql.clone(),
+                }]
+            });
+            let inline_sql = if files_mode {
+                String::new()
+            } else {
+                sql.clone()
+            };
+            let source_name = format!("audit_{id}");
+            let expected = flowscope_core::analyze(&flowscope_core::AnalyzeRequest {
+                sql: inline_sql.clone(),
+                files: files.clone(),
+                dialect: Dialect::Hive,
+                source_name: Some(source_name.clone()),
+                options: None,
+                schema: None,
+                #[cfg(feature = "templating")]
+                template_config: None,
+            });
+            if !files_mode {
+                eprintln!(
+                    "audit={id} serialized result bytes={}",
+                    serde_json::to_vec(&expected).unwrap().len()
+                );
+            }
+            let (status, mut result) = post_json(
+                &app,
+                "/api/analyze",
+                json!({
+                    "sql": inline_sql,
+                    "files": files,
+                    "sourceName": source_name,
+                }),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "audit={id} files={files_mode}");
+            let mut expected = serde_json::to_value(expected).unwrap();
+            // Schema discovery records the current clock separately on each
+            // invocation. Compare every semantic field, excluding only that clock.
+            for value in [&mut expected, &mut result] {
+                if let Some(tables) = value
+                    .get_mut("resolvedSchema")
+                    .and_then(|schema| schema.get_mut("tables"))
+                    .and_then(Value::as_array_mut)
+                {
+                    for table in tables {
+                        table.as_object_mut().unwrap().remove("updatedAt");
+                    }
+                }
+            }
+            assert!(result == expected,
+                "HTTP must preserve the complete core result (apart from schema discovery time): audit={id} files={files_mode}; {}",
+                first_json_difference(&result, &expected, "$" ).unwrap_or_default());
+            let errors: Vec<_> = result["issues"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|issue| {
+                    issue["severity"] == "error"
+                        && !(id == 557486 && issue["code"] == "MULTIPLE_TARGET_TABLES")
+                })
+                .collect();
+            assert!(
+                errors.is_empty(),
+                "audit={id} files={files_mode}: {errors:?}"
+            );
+            assert!(!result["statements"].as_array().unwrap().is_empty());
+        }
+    }
+}
+
+macro_rules! original_hive_http_case {
+    ($name:ident, $id:literal) => {
+        #[tokio::test]
+        async fn $name() {
+            assert_original_hive_compat_http($id).await;
+        }
+    };
+}
+
+original_hive_http_case!(original_hive_compat_model_http, 558128);
+original_hive_http_case!(original_hive_compat_policy_http, 557486);
+original_hive_http_case!(original_hive_compat_cost_http, 556525);
+original_hive_http_case!(original_hive_compat_drop_http, 557826);
+original_hive_http_case!(original_hive_compat_new_http, 557557);
+original_hive_http_case!(original_hive_compat_sci_http, 557500);
+original_hive_http_case!(original_hive_compat_grouping_http, 557728);
+
 #[tokio::test]
 async fn analyze_simple_select() {
     let state = test_state(default_config(), vec![]);

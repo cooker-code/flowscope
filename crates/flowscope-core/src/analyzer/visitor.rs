@@ -9,11 +9,14 @@ use super::expression::ExpressionAnalyzer;
 use super::helpers::{
     alias_visibility_warning, find_cte_body_span, find_cte_definition_span,
     find_derived_table_alias_span, generate_node_id, generate_statement_scoped_node_id,
+    infer_expr_type,
 };
+use super::query::OutputColumnParams;
 use super::select_analyzer::SelectAnalyzer;
 use super::Analyzer;
 use crate::generated::is_value_table_function;
 use crate::types::{issue_codes, Issue, Node, NodeType, Span};
+use serde_json::json;
 use sqlparser::ast::{
     self, CreateView, Cte, Expr, Ident, Join, LateralView, Query, Select, SetExpr, SetOperator,
     Statement, TableAlias, TableFactor, TableWithJoins, Values,
@@ -928,9 +931,16 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
                 // below relies on `current_join_info` being intact.
                 let saved_operation = self.ctx.last_operation.take();
                 let saved_join_info = std::mem::take(&mut self.ctx.current_join_info);
-                let mut derived_visitor =
-                    LineageVisitor::new(self.analyzer, self.ctx, Some(derived_node_id.to_string()));
-                derived_visitor.visit_query(subquery);
+                if let (SetExpr::Values(values), Some(alias)) = (subquery.body.as_ref(), alias) {
+                    self.visit_values_relation(values, alias, derived_node_id.to_string());
+                } else {
+                    let mut derived_visitor = LineageVisitor::new(
+                        self.analyzer,
+                        self.ctx,
+                        Some(derived_node_id.to_string()),
+                    );
+                    derived_visitor.visit_query(subquery);
+                }
                 self.ctx.last_operation = saved_operation;
                 self.ctx.current_join_info = saved_join_info;
                 let columns = self.ctx.take_output_columns_since(projection_checkpoint);
@@ -1084,6 +1094,76 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
             for expr in row {
                 expr_analyzer.analyze(expr);
             }
+        }
+    }
+}
+
+impl<'a, 'b> LineageVisitor<'a, 'b> {
+    /// Materialize a VALUES-derived relation only when its SQL alias supplies
+    /// authoritative column names. The relation is virtual: constants are
+    /// retained as metadata and never become synthetic physical tables or
+    /// columns. Each output position keeps every row expression so typed NULL
+    /// and multi-row policy data survive later wildcard/INSERT traversal.
+    fn visit_values_relation(&mut self, values: &Values, alias: &TableAlias, target_node: String) {
+        if alias.columns.is_empty() {
+            // Spark supplies implementation-defined names when omitted. Do not
+            // guess them: without an authoritative alias, wildcard expansion
+            // must remain unresolved rather than inventing columns.
+            return;
+        }
+        if values
+            .rows
+            .iter()
+            .any(|row| row.len() != alias.columns.len())
+        {
+            self.analyzer.issues.push(
+                Issue::error(
+                    issue_codes::INVALID_REQUEST,
+                    format!(
+                        "VALUES relation '{}' declares {} columns but contains a row with a different width",
+                        alias.name,
+                        alias.columns.len(),
+                    ),
+                )
+                .with_statement(self.ctx.statement_index),
+            );
+            return;
+        }
+        for (position, column) in alias.columns.iter().enumerate() {
+            let mut sources = Vec::new();
+            let mut column_values = Vec::with_capacity(values.rows.len());
+            let mut data_type = None;
+
+            for row in &values.rows {
+                let expr = &row[position];
+                let refs = {
+                    let mut expr_analyzer = ExpressionAnalyzer::new(self.analyzer, self.ctx);
+                    let refs = expr_analyzer.extract_column_refs_with_warning(expr);
+                    expr_analyzer.analyze(expr);
+                    refs
+                };
+                sources.extend(refs);
+                if data_type.is_none() {
+                    data_type = infer_expr_type(expr).map(|value| value.to_string());
+                }
+                column_values.push(expr.to_string());
+            }
+
+            self.analyzer.add_output_column_with_aggregation(
+                self.ctx,
+                OutputColumnParams {
+                    name: column.name.value.clone(),
+                    sources,
+                    window_controls: Vec::new(),
+                    window_control_issues: Vec::new(),
+                    expression: None,
+                    data_type,
+                    target_node: Some(target_node.clone()),
+                    approximate: false,
+                    aggregation: None,
+                    values_metadata: Some(json!(column_values)),
+                },
+            );
         }
     }
 }

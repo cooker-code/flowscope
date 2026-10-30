@@ -51,6 +51,9 @@ pub(super) struct OutputColumnParams {
     pub target_node: Option<String>,
     pub approximate: bool,
     pub aggregation: Option<AggregationInfo>,
+    /// Ordered source expressions for an inline VALUES relation. This keeps
+    /// all rows (including typed NULLs) without inventing physical sources.
+    pub values_metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -707,19 +710,12 @@ impl<'a> Analyzer<'a> {
                             });
                         }
 
-                        // Find the CTE/alias name from the node ID for backward inference
-                        // Use the cte_node_to_name reverse mapping for efficient lookup
-                        let target_alias_name =
-                            ctx.cte_node_to_name.get(&Arc::from(target)).cloned();
-
                         // Record pending wildcard for backward column inference
-                        if let Some(alias_name) = target_alias_name {
-                            ctx.pending_wildcards.push(PendingWildcard {
-                                source_canonical: table_canonical.clone(),
-                                target_name: alias_name,
-                                source_node_id,
-                            });
-                        }
+                        ctx.pending_wildcards.push(PendingWildcard {
+                            source_canonical: table_canonical.clone(),
+                            target_node_id: Arc::from(target),
+                            source_node_id,
+                        });
                     }
                 }
             }
@@ -996,6 +992,7 @@ impl<'a> Analyzer<'a> {
                 target_node: target_node.map(|s| s.to_string()),
                 approximate,
                 aggregation: None,
+                values_metadata: None,
             },
         );
     }
@@ -1038,6 +1035,9 @@ impl<'a> Analyzer<'a> {
                         "windowControlIssues".to_string(),
                         json!(params.window_control_issues),
                     );
+                }
+                if let Some(values_metadata) = params.values_metadata {
+                    m.insert("columnValues".to_string(), values_metadata);
                 }
                 Some(m)
             },
@@ -1568,16 +1568,16 @@ impl<'a> Analyzer<'a> {
     ///
     /// # Algorithm Overview
     ///
-    /// 1. **Group wildcards by target**: Wildcards are grouped by their `target_name`
-    ///    (the CTE or derived table alias that receives the `SELECT *` columns).
+    /// 1. **Group wildcards by target**: Wildcards are grouped by their exact
+    ///    CTE/derived relation node ID, not an alias that can be reused in nested scopes.
     ///
     /// 2. **Build node index**: Creates an O(1) lookup map from node ID to node
     ///    to avoid repeated linear scans when collecting owned columns.
     ///
     /// 3. **Propagate columns**: For each target, finds its owned columns and
-    ///    creates corresponding columns on the source tables. The `source_canonical`
-    ///    field in `PendingWildcard` matches the `target_name` of upstream wildcards,
-    ///    enabling recursive chain propagation.
+    ///    creates corresponding columns on the source tables. The source relation node ID
+    ///    in `PendingWildcard` matches the exact target of upstream wildcards, enabling
+    ///    recursive chain propagation without alias guessing.
     ///
     /// 4. **Cycle detection**: Uses `visited_pairs` to track (target, source) pairs
     ///    and prevent infinite recursion on cyclic references.
@@ -1586,11 +1586,11 @@ impl<'a> Analyzer<'a> {
             return;
         }
 
-        // Build map: target_name -> Vec<PendingWildcard>
-        let mut wildcards_by_target: HashMap<String, Vec<PendingWildcard>> = HashMap::new();
+        // Build map: exact target node ID -> pending wildcard edges.
+        let mut wildcards_by_target: HashMap<Arc<str>, Vec<PendingWildcard>> = HashMap::new();
         for pw in ctx.pending_wildcards.drain(..) {
             wildcards_by_target
-                .entry(pw.target_name.clone())
+                .entry(pw.target_node_id.clone())
                 .or_default()
                 .push(pw);
         }
@@ -1604,23 +1604,28 @@ impl<'a> Analyzer<'a> {
             .map(|(i, n)| (n.id.clone(), i))
             .collect();
 
-        // Track visited target/source pairs to prevent cycles
-        let mut visited_pairs: HashSet<(String, String)> = HashSet::new();
-
-        for (target_name, wildcards) in &wildcards_by_target {
-            let Some(cte_node_id) = self.lookup_inference_target_node(ctx, target_name) else {
-                continue;
-            };
-
-            let owned_columns = self.collect_owned_columns(ctx, &cte_node_id, &node_index);
-            if owned_columns.is_empty() {
-                continue;
+        // Snapshot every top-level target before mutation. Creating inferred
+        // columns mutates `ctx.nodes`; reading owned columns one target at a
+        // time would otherwise let an earlier HashMap entry feed its transient
+        // columns into a later entry. That changes symbolic lineage with the
+        // randomized HashMap iteration order.
+        let mut target_snapshots = Vec::new();
+        for (target_node_id, wildcards) in &wildcards_by_target {
+            let owned_columns = self.collect_owned_columns(ctx, target_node_id, &node_index);
+            if !owned_columns.is_empty() {
+                target_snapshots.push((target_node_id.clone(), wildcards.clone(), owned_columns));
             }
+        }
+        target_snapshots.sort_by_key(|snapshot| snapshot.0.clone());
 
-            for wildcard in wildcards {
+        // Track visited target/source pairs to prevent cycles
+        let mut visited_pairs: HashSet<(Arc<str>, Arc<str>)> = HashSet::new();
+
+        for (target_node_id, wildcards, owned_columns) in target_snapshots {
+            for wildcard in &wildcards {
                 self.propagate_wildcard_columns(
                     ctx,
-                    target_name,
+                    &target_node_id,
                     wildcard,
                     &owned_columns,
                     &wildcards_by_target,
@@ -1629,21 +1634,6 @@ impl<'a> Analyzer<'a> {
                 );
             }
         }
-    }
-
-    /// Locates the node ID to use as the inference target for a wildcard.
-    fn lookup_inference_target_node(
-        &self,
-        ctx: &StatementContext,
-        target_name: &str,
-    ) -> Option<Arc<str>> {
-        if let Some(node_id) = ctx.cte_definitions.get(target_name) {
-            return Some(node_id.clone());
-        }
-
-        ctx.cte_node_to_name
-            .iter()
-            .find_map(|(node_id, name)| (name == target_name).then(|| node_id.clone()))
     }
 
     /// Collects column information owned by a CTE node.
@@ -1681,11 +1671,11 @@ impl<'a> Analyzer<'a> {
     fn propagate_wildcard_columns(
         &mut self,
         ctx: &mut StatementContext,
-        target_name: &str,
+        target_node_id: &Arc<str>,
         wildcard: &PendingWildcard,
         columns: &[(String, Option<String>, Arc<str>)],
-        wildcards_by_target: &HashMap<String, Vec<PendingWildcard>>,
-        visited_pairs: &mut HashSet<(String, String)>,
+        wildcards_by_target: &HashMap<Arc<str>, Vec<PendingWildcard>>,
+        visited_pairs: &mut HashSet<(Arc<str>, Arc<str>)>,
         depth: usize,
     ) {
         // Enforce recursion depth limit to prevent stack overflow
@@ -1693,7 +1683,7 @@ impl<'a> Analyzer<'a> {
             return;
         }
 
-        let pair = (target_name.to_string(), wildcard.source_canonical.clone());
+        let pair = (target_node_id.clone(), wildcard.source_node_id.clone());
         if !visited_pairs.insert(pair.clone()) {
             return;
         }
@@ -1713,11 +1703,11 @@ impl<'a> Analyzer<'a> {
             .collect();
 
         // Recursively propagate if this source is itself a target of another wildcard
-        if let Some(upstream_wildcards) = wildcards_by_target.get(&wildcard.source_canonical) {
+        if let Some(upstream_wildcards) = wildcards_by_target.get(&wildcard.source_node_id) {
             for upstream_wildcard in upstream_wildcards {
                 self.propagate_wildcard_columns(
                     ctx,
-                    &wildcard.source_canonical,
+                    &wildcard.source_node_id,
                     upstream_wildcard,
                     &source_columns,
                     wildcards_by_target,

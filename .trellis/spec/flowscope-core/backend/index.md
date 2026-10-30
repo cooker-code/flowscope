@@ -21,7 +21,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
 | [Analyzer Visitor Context](./analyzer-visitor-context.md) | Save/restore rules for ambient visitor state (`current_join_info`, `last_operation`) when recursing into derived subqueries | Filled |
 | [Edge Types](./edge-types.md) | Canonical contract for the 6 `EdgeType` variants (DataFlow / Derivation / JoinDependency / Ownership / CrossStatement / WindowControl): when emitted, how rendered, invariants | Filled |
-| [Hive Compatibility Preprocess](./hive-compat-preprocess.md) | 13-step preprocessing pipeline that runs inside `flowscope_core::analyze` when `dialect=hive`. Normalizes SET/ADD directives, placeholders, double-quote strings, `arr[n]`, `! IN`, `GROUPING SETS`, etc. so the parser can ingest real-world Hive SQL. | Filled |
+| [Hive Compatibility Preprocess](./hive-compat-preprocess.md) | Compatibility pipeline that runs inside `flowscope_core::analyze` when `dialect=hive`. Normalizes SET/ADD directives, placeholders, double-quote strings, `arr[n]`, `! IN`, etc.; VALUES, array exists and grouping sets preserve formal AST and lineage metadata. | Filled |
 | [前导下划线标识符](./前导下划线标识符.md) | Hive 标识符起始字符的局部兼容及字段血缘回归 | Filled |
 | [复杂类型 CAST](./复杂类型CAST.md) | Hive 复杂类型、Lambda 作用域、结构字段及数值字面量血缘契约 | Filled |
 | [Analyze Result Contract](./analyze-result-contract.md) | Top-level `AnalyzeResult` contract for `targetTable` / `sourceTables`, including self-dependent INSERT behavior and regression assertions | Filled |

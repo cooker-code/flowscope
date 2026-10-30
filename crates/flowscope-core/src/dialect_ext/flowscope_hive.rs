@@ -10,7 +10,9 @@
 //! |-------------------------------|------------------------------------------|
 //! | `supports_struct_literal`     | `STRUCT(col AS name)` field naming       |
 //! | `supports_lambda_functions`   | Spark/Hive higher-order function lambdas |
-//! | `parse_prefix` (complex CAST) | Spark `ARRAY/STRUCT/MAP` type grammar    |
+//! | `supports_values_as_table_factor` | Spark inline VALUES relations       |
+//! | `supports_group_by_expr`      | Preserve advanced grouping structure   |
+//! | `parse_prefix`                | Complex CAST, typed numbers, array exists |
 //! | `parse_infix` (DIV operator)  | `a DIV b` integer division               |
 //! | `is_table_alias` (OFFSET)     | Hive has no OFFSET keyword, so `offset`  |
 //! |                               | can legally name a table (`(...) offset`)|
@@ -19,10 +21,10 @@
 //! `HiveDialect` so behavior stays in sync with sqlparser-rs.
 
 use sqlparser::ast::{
-    ArrayElemTypeDef, BinaryOperator, CastKind, DataType, Expr, StructBracketKind, StructField,
-    Value,
+    ArrayElemTypeDef, BinaryOperator, CastKind, DataType, Expr, Ident, ObjectName,
+    StructBracketKind, StructField, UnaryOperator, Value,
 };
-use sqlparser::dialect::{Dialect, HiveDialect};
+use sqlparser::dialect::{Dialect, HiveDialect, Precedence};
 use sqlparser::keywords::Keyword;
 use sqlparser::parser::{Parser, ParserError};
 use sqlparser::tokenizer::Token;
@@ -83,6 +85,21 @@ impl Dialect for FlowscopeHiveDialect {
         self.inner.supports_group_by_with_modifier()
     }
 
+    // Spark SQL accepts `GROUPING SETS`, `CUBE`, and `ROLLUP` as formal
+    // group-by expressions. Keep their native AST representation instead of
+    // reducing grouping sets to an unrelated positional GROUP BY expression.
+    fn supports_group_by_expr(&self) -> bool {
+        true
+    }
+
+    // Spark SQL permits an inline relation without wrapping it in parentheses:
+    // `FROM VALUES (..), (..) AS t(col1, col2)`. sqlparser already has the
+    // corresponding Derived/SetExpr::Values AST path; HiveDialect merely
+    // does not advertise that capability.
+    fn supports_values_as_table_factor(&self) -> bool {
+        true
+    }
+
     // ── PR1 override ────────────────────────────────────────────────────────
     //
     // Hive's `struct(field1 AS name1, field2 AS name2, ...)` literal is widely
@@ -113,6 +130,19 @@ impl Dialect for FlowscopeHiveDialect {
     fn parse_prefix(&self, parser: &mut Parser) -> Option<Result<Expr, ParserError>> {
         if parser.peek_keyword(Keyword::CAST) {
             return Some(parse_hive_cast_expr(parser));
+        }
+
+        if parser.peek_keyword(Keyword::NOT)
+            && matches!(
+                parser.peek_nth_token(1).token,
+                Token::Word(ref word) if word.keyword == Keyword::EXISTS
+            )
+        {
+            return Some(parse_hive_not_exists_or_array_function(self, parser));
+        }
+
+        if parser.peek_keyword(Keyword::EXISTS) {
+            return Some(parse_hive_exists_or_array_function(parser));
         }
 
         parse_hive_typed_numeric_literal(parser).map(Ok)
@@ -176,6 +206,54 @@ impl Dialect for FlowscopeHiveDialect {
         }
         None
     }
+}
+
+/// Parses `EXISTS (SELECT ...)` as a subquery predicate, while accepting
+/// Spark's higher-order `exists(array, element -> predicate)` as an ordinary
+/// function whose second argument remains a formal lambda AST.
+///
+/// sqlparser-rs reserves `EXISTS` for subqueries except when the concrete
+/// dialect is its `DatabricksDialect`. `FlowscopeHiveDialect` is deliberately
+/// a wrapper rather than that global dialect, so use the same token-shape
+/// distinction locally without broadening all Hive parsing to Databricks.
+fn parse_hive_exists_or_array_function(parser: &mut Parser) -> Result<Expr, ParserError> {
+    parser.expect_keyword_is(Keyword::EXISTS)?;
+    // Let the upstream query parser recognize every legal subquery form,
+    // including `EXISTS (VALUES ...)` and the parenthesized query variant.
+    // On failure `maybe_parse` restores the opening `(` for the function
+    // parser, so identifiers, literals, and nested array expressions are not
+    // mistaken for subqueries.
+    if let Some(expr) = parser.maybe_parse(|parser| parser.parse_exists_expr(false))? {
+        return Ok(expr);
+    }
+    parser.parse_function(ObjectName::from(vec![Ident::new("exists")]))
+}
+
+/// `Parser::parse_not` dispatches `NOT EXISTS` directly to its subquery
+/// branch. Try that native branch first so every standard subquery predicate
+/// retains its `Expr::Exists { negated: true }` AST. If it cannot parse a
+/// query, restore the cursor and parse Spark's array `exists` function under
+/// the ordinary unary-NOT precedence.
+fn parse_hive_not_exists_or_array_function(
+    dialect: &FlowscopeHiveDialect,
+    parser: &mut Parser,
+) -> Result<Expr, ParserError> {
+    if let Some(expr) = parser.maybe_parse(|parser| {
+        // This is the `NOT EXISTS` arm from sqlparser's `parse_not`, written
+        // inline to avoid re-entering this dialect's prefix hook.
+        parser.expect_keyword_is(Keyword::NOT)?;
+        parser.expect_keyword_is(Keyword::EXISTS)?;
+        parser.parse_exists_expr(true)
+    })? {
+        return Ok(expr);
+    }
+
+    parser.expect_keyword_is(Keyword::NOT)?;
+    let expr = parser.parse_subexpr(dialect.prec_value(Precedence::UnaryNot))?;
+    Ok(Expr::UnaryOp {
+        op: UnaryOperator::Not,
+        expr: Box::new(expr),
+    })
 }
 
 /// Spark accepts typed numeric suffixes such as `0.00005D` (DOUBLE), `0F`
@@ -481,6 +559,87 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn hive_array_exists_keeps_the_lambda_as_a_function_argument() {
+        let statements = Parser::parse_sql(
+            &FlowscopeHiveDialect::default(),
+            "SELECT exists(push_groups, g -> g.weeks < 0) FROM t",
+        )
+        .expect("Spark array exists should parse");
+        let sqlparser::ast::Statement::Query(query) = &statements[0] else {
+            panic!("expected query");
+        };
+        let sqlparser::ast::SetExpr::Select(select) = query.body.as_ref() else {
+            panic!("expected SELECT");
+        };
+        let sqlparser::ast::SelectItem::UnnamedExpr(Expr::Function(function)) =
+            &select.projection[0]
+        else {
+            panic!("expected exists function");
+        };
+        assert_eq!(function.name.to_string(), "exists");
+        let sqlparser::ast::FunctionArguments::List(arguments) = &function.args else {
+            panic!("expected function arguments");
+        };
+        assert!(matches!(
+            arguments.args[1],
+            sqlparser::ast::FunctionArg::Unnamed(sqlparser::ast::FunctionArgExpr::Expr(
+                Expr::Lambda(_)
+            ))
+        ));
+    }
+
+    #[test]
+    fn hive_subquery_exists_and_array_function_forms_remain_distinct() {
+        assert!(parse_ok(
+            "SELECT * FROM t WHERE EXISTS (SELECT 1 FROM u WHERE u.id = t.id)"
+        ));
+        assert!(parse_ok(
+            "SELECT * FROM t WHERE EXISTS /* deliberate parenthesized query */ (WITH u AS (SELECT 1) SELECT * FROM u)"
+        ));
+        assert!(parse_ok("SELECT * FROM t WHERE EXISTS (VALUES (1))"));
+        assert!(parse_ok("SELECT * FROM t WHERE EXISTS ((SELECT 1))"));
+        // Non-subquery arguments deliberately remain on the function path.
+        // SQL type/arity validation belongs to the execution engine, while
+        // FlowScope must retain fields nested in real array expressions.
+        assert!(parse_ok(
+            "SELECT exists(identifier, x -> x.id IS NOT NULL) FROM t"
+        ));
+        assert!(parse_ok(
+            "SELECT exists(coalesce(items, ARRAY[1]), x -> x > 0) FROM t"
+        ));
+        assert!(parse_ok(
+            "SELECT exists('string literal', x -> x IS NOT NULL) FROM t"
+        ));
+    }
+
+    #[test]
+    fn hive_not_array_exists_preserves_function_name_and_boolean_precedence() {
+        let statements = Parser::parse_sql(
+            &FlowscopeHiveDialect::default(),
+            "SELECT * FROM t WHERE NOT exists(items, x -> x.id = t.id) AND active = 1 OR archived = 0",
+        )
+        .expect("negated Spark array exists should parse");
+        assert_eq!(statements[0].to_string(), "SELECT * FROM t WHERE NOT exists(items, x -> x.id = t.id) AND active = 1 OR archived = 0");
+        assert!(parse_ok(
+            "SELECT * FROM t WHERE NOT EXISTS (VALUES (1)) AND active = 1"
+        ));
+        assert!(parse_ok(
+            "SELECT * FROM t WHERE NOT EXISTS ((SELECT 1)) OR archived = 0"
+        ));
+    }
+
+    #[test]
+    fn values_and_grouping_expression_use_native_ast_support() {
+        assert!(parse_ok(
+            "SELECT v.id FROM VALUES (1, CAST(NULL AS STRING)), (2, 'x') AS v(id, label)"
+        ));
+        assert!(parse_ok(
+            "SELECT a, b, c FROM t GROUP BY GROUPING SETS ((a), ()), GROUPING SETS ((b), (c))"
+        ));
+        assert!(parse_ok("SELECT a FROM t GROUP BY CUBE (a, b), ROLLUP (c)"));
     }
 
     #[test]

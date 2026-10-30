@@ -133,7 +133,13 @@ pub fn truncate_result_json(result: &AnalyzeResult) -> (Option<String>, bool) {
     match serde_json::to_string(result) {
         Ok(json) => {
             if json.len() > RESULT_JSON_MAX_BYTES {
-                let truncated = json[..RESULT_JSON_MAX_BYTES].to_string();
+                // JSON is UTF-8. Keep the persisted value under the existing
+                // byte cap without slicing through a multi-byte character.
+                let mut end = RESULT_JSON_MAX_BYTES;
+                while !json.is_char_boundary(end) {
+                    end -= 1;
+                }
+                let truncated = json[..end].to_string();
                 (Some(truncated), true)
             } else {
                 (Some(json), false)
@@ -560,6 +566,7 @@ impl AuditWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use flowscope_core::Node;
 
     /// Construct a synthetic AuditEntry; callers override only the fields
     /// they care about for the test.
@@ -629,6 +636,37 @@ mod tests {
         }
         conn.execute_batch(CREATE_INDEXES_SQL).unwrap();
         (dir, path, conn)
+    }
+
+    #[test]
+    fn truncate_result_json_keeps_utf8_boundary_at_byte_cap() {
+        // Vary a preceding ASCII field until the fixed 1 MiB offset lands
+        // inside a three-byte character. The old byte slice would panic for
+        // this valid serialized result.
+        let (result, serialized) = (0..3)
+            .find_map(|padding| {
+                let mut result = AnalyzeResult::default();
+                result.nodes.push(Node {
+                    id: std::sync::Arc::from("x".repeat(padding)),
+                    label: std::sync::Arc::from(
+                        "汉".repeat(RESULT_JSON_MAX_BYTES / "汉".len() + 1),
+                    ),
+                    ..Default::default()
+                });
+                let serialized = serde_json::to_string(&result).unwrap();
+                (!serialized.is_char_boundary(RESULT_JSON_MAX_BYTES))
+                    .then_some((result, serialized))
+            })
+            .expect("test fixture must cross a multi-byte UTF-8 boundary");
+
+        assert!(serialized.len() > RESULT_JSON_MAX_BYTES);
+        let (stored, truncated) = truncate_result_json(&result);
+        let stored = stored.expect("serializable result is retained");
+
+        assert!(truncated);
+        assert!(stored.len() <= RESULT_JSON_MAX_BYTES);
+        assert!(serialized.is_char_boundary(stored.len()));
+        assert_eq!(stored, serialized[..stored.len()]);
     }
 
     #[test]
