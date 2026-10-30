@@ -559,7 +559,38 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
                     }
                 }
             }
+            Expr::CompoundFieldAccess { root, access_chain } => {
+                self.visit_expression_for_subqueries(root, next_depth);
+                for access in access_chain {
+                    Self::visit_subscript_for_subqueries(self, access, next_depth);
+                }
+            }
+            Expr::Lambda(lambda) => self.visit_expression_for_subqueries(&lambda.body, next_depth),
             _ => {}
+        }
+    }
+
+    /// Access-chain dots name a member and do not evaluate a column expression.
+    /// Subscripts, by contrast, can contain dynamic index or slice expressions
+    /// which may contain subqueries and must be visited.
+    fn visit_subscript_for_subqueries(&mut self, access: &ast::AccessExpr, depth: usize) {
+        let visit =
+            |this: &mut Self, expr: &Expr| this.visit_expression_for_subqueries(expr, depth);
+        match access {
+            ast::AccessExpr::Dot(_) => {}
+            ast::AccessExpr::Subscript(ast::Subscript::Index { index }) => visit(self, index),
+            ast::AccessExpr::Subscript(ast::Subscript::Slice {
+                lower_bound,
+                upper_bound,
+                stride,
+            }) => {
+                for bound in [lower_bound.as_ref(), upper_bound.as_ref(), stride.as_ref()]
+                    .into_iter()
+                    .flatten()
+                {
+                    visit(self, bound);
+                }
+            }
         }
     }
 
@@ -675,6 +706,32 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
                     ast::FunctionArguments::None => {}
                 }
             }
+            Expr::CompoundFieldAccess { root, access_chain } => {
+                // `aggregate(...).items` and `element_at(...).weeks` have a
+                // value-producing root. Dot members are names, whereas dynamic
+                // index and slice expressions are value inputs themselves.
+                depth_limited |= Self::collect_column_refs(root, refs, dialect, next_depth);
+                for access in access_chain {
+                    depth_limited |=
+                        Self::collect_access_expr_refs(access, refs, dialect, next_depth);
+                }
+            }
+            Expr::Lambda(lambda) => {
+                // Lambda parameters are lexical bindings, not references to
+                // columns of the surrounding FROM relation. This includes
+                // member access (`p.weeks`, `acc.remaining`): the qualifier
+                // is the lambda variable and the member name is a struct
+                // field, never a physical column.
+                let bound: HashSet<_> = lambda
+                    .params
+                    .iter()
+                    .map(|parameter| parameter.value.to_ascii_lowercase())
+                    .collect();
+                let mut body_refs = Vec::new();
+                depth_limited |=
+                    Self::collect_column_refs(&lambda.body, &mut body_refs, dialect, next_depth);
+                Self::extend_non_lambda_refs(refs, body_refs, &bound);
+            }
             Expr::Case {
                 operand,
                 conditions,
@@ -785,6 +842,54 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
         }
 
         depth_limited
+    }
+
+    fn collect_access_expr_refs(
+        access: &ast::AccessExpr,
+        refs: &mut Vec<ColumnRef>,
+        dialect: Dialect,
+        depth: usize,
+    ) -> bool {
+        match access {
+            ast::AccessExpr::Dot(_) => false,
+            ast::AccessExpr::Subscript(ast::Subscript::Index { index }) => {
+                Self::collect_column_refs(index, refs, dialect, depth)
+            }
+            ast::AccessExpr::Subscript(ast::Subscript::Slice {
+                lower_bound,
+                upper_bound,
+                stride,
+            }) => {
+                let mut depth_limited = false;
+                for bound in [lower_bound.as_ref(), upper_bound.as_ref(), stride.as_ref()]
+                    .into_iter()
+                    .flatten()
+                {
+                    depth_limited |= Self::collect_column_refs(bound, refs, dialect, depth);
+                }
+                depth_limited
+            }
+        }
+    }
+
+    fn extend_non_lambda_refs(
+        refs: &mut Vec<ColumnRef>,
+        body_refs: Vec<ColumnRef>,
+        bound: &HashSet<String>,
+    ) {
+        refs.extend(body_refs.into_iter().filter(|reference| {
+            let is_bound_identifier =
+                reference.table.is_none() && bound.contains(&reference.column.to_ascii_lowercase());
+            let is_bound_member = reference.table.as_ref().is_some_and(|table| {
+                let normalized_table = table.to_ascii_lowercase();
+                bound.contains(&normalized_table)
+                    || normalized_table
+                        .split('.')
+                        .next()
+                        .is_some_and(|first| bound.contains(first))
+            });
+            !is_bound_identifier && !is_bound_member
+        }));
     }
 
     /// Normalizes a GROUP BY expression to a canonical string for comparison.
@@ -1348,6 +1453,135 @@ mod tests {
                 (None, "payload".to_string()),
                 (None, "start_col".to_string()),
                 (None, "length_col".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn collect_column_refs_excludes_lambda_bindings_and_struct_members() {
+        let statements = Parser::parse_sql(
+            &crate::dialect_ext::FlowscopeHiveDialect::default(),
+            "SELECT aggregate(periods, named_struct('remaining', seed), (acc, p) -> named_struct('remaining', acc.remaining - p.weeks, 'nested', acc.state.remaining + p.inner.weeks, 'captured', outer_value)) FROM t",
+        )
+        .expect("Hive lambda should parse");
+        let ast::Statement::Query(query) = &statements[0] else {
+            panic!("expected query statement");
+        };
+        let ast::SetExpr::Select(select) = query.body.as_ref() else {
+            panic!("expected SELECT query");
+        };
+        let ast::SelectItem::UnnamedExpr(expr) = &select.projection[0] else {
+            panic!("expected expression");
+        };
+
+        let (refs, depth_limited) =
+            ExpressionAnalyzer::extract_column_refs_with_dialect(expr, Dialect::Hive);
+        assert!(!depth_limited);
+        assert_eq!(
+            refs.into_iter()
+                .map(|reference| (reference.table, reference.column))
+                .collect::<Vec<_>>(),
+            vec![
+                (None, "periods".to_string()),
+                (None, "seed".to_string()),
+                (None, "outer_value".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn collect_column_refs_keeps_non_hive_json_arrow_input() {
+        use sqlparser::dialect::PostgreSqlDialect;
+
+        let statements = Parser::parse_sql(
+            &PostgreSqlDialect {},
+            "SELECT json_col -> 'key' FROM source_table",
+        )
+        .expect("Postgres JSON arrow should parse");
+        let ast::Statement::Query(query) = &statements[0] else {
+            panic!("expected query statement");
+        };
+        let ast::SetExpr::Select(select) = query.body.as_ref() else {
+            panic!("expected SELECT query");
+        };
+        let ast::SelectItem::UnnamedExpr(expr) = &select.projection[0] else {
+            panic!("expected expression");
+        };
+
+        let (refs, depth_limited) =
+            ExpressionAnalyzer::extract_column_refs_with_dialect(expr, Dialect::Postgres);
+        assert!(!depth_limited);
+        assert_eq!(
+            refs.into_iter()
+                .map(|reference| (reference.table, reference.column))
+                .collect::<Vec<_>>(),
+            vec![(None, "json_col".to_string())]
+        );
+    }
+
+    #[test]
+    fn hive_lambda_rejects_non_identifier_parameter_tuple() {
+        let result = Parser::parse_sql(
+            &crate::dialect_ext::FlowscopeHiveDialect::default(),
+            "SELECT (source_col, 1) -> captured_col FROM source_table",
+        );
+        assert!(
+            result.is_err(),
+            "Hive lambda parameter tuples only allow identifiers"
+        );
+    }
+
+    #[test]
+    fn collect_column_refs_visits_compound_field_root_and_dynamic_subscript() {
+        let statements = Parser::parse_sql(
+            &crate::dialect_ext::FlowscopeHiveDialect::default(),
+            "SELECT aggregate(periods, named_struct('items', start_idx), (acc, item) -> acc).items, payload[index_col].item FROM source_table",
+        )
+        .expect("compound field access should parse");
+        let ast::Statement::Query(query) = &statements[0] else {
+            panic!("expected query statement");
+        };
+        let ast::SetExpr::Select(select) = query.body.as_ref() else {
+            panic!("expected SELECT query");
+        };
+
+        let (aggregate_refs, aggregate_depth_limited) =
+            ExpressionAnalyzer::extract_column_refs_with_dialect(
+                match &select.projection[0] {
+                    ast::SelectItem::UnnamedExpr(expr) => expr,
+                    _ => panic!("expected aggregate expression"),
+                },
+                Dialect::Hive,
+            );
+        assert!(!aggregate_depth_limited);
+        assert_eq!(
+            aggregate_refs
+                .into_iter()
+                .map(|reference| (reference.table, reference.column))
+                .collect::<Vec<_>>(),
+            vec![
+                (None, "periods".to_string()),
+                (None, "start_idx".to_string())
+            ]
+        );
+
+        let (subscript_refs, subscript_depth_limited) =
+            ExpressionAnalyzer::extract_column_refs_with_dialect(
+                match &select.projection[1] {
+                    ast::SelectItem::UnnamedExpr(expr) => expr,
+                    _ => panic!("expected subscript expression"),
+                },
+                Dialect::Hive,
+            );
+        assert!(!subscript_depth_limited);
+        assert_eq!(
+            subscript_refs
+                .into_iter()
+                .map(|reference| (reference.table, reference.column))
+                .collect::<Vec<_>>(),
+            vec![
+                (None, "payload".to_string()),
+                (None, "index_col".to_string())
             ]
         );
     }

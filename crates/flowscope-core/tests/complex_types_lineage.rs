@@ -128,3 +128,130 @@ fn hive_complex_cast_keeps_value_window_and_target_lineage() {
         assert_eq!(mapping["position"], position);
     }
 }
+
+#[test]
+fn hive_aggregate_struct_member_keeps_root_value_lineage() {
+    let result = analyze(&AnalyzeRequest {
+        sql: r#"
+            SELECT aggregate(
+                transform(periods, (p, i) -> named_struct('items', p.weeks, 'idx', i)),
+                named_struct('items', start_idx),
+                (acc, item) -> acc
+            ).items AS allocated_push_orders
+            FROM source_table
+        "#
+        .to_string(),
+        files: None,
+        dialect: Dialect::Hive,
+        source_name: Some("compound_field_access_lineage".to_string()),
+        options: None,
+        schema: Some(SchemaMetadata {
+            tables: vec![SchemaTable {
+                catalog: None,
+                schema: None,
+                name: "source_table".to_string(),
+                columns: ["periods", "start_idx"]
+                    .iter()
+                    .map(|name| column(name))
+                    .collect(),
+            }],
+            allow_implied: true,
+            ..Default::default()
+        }),
+        #[cfg(feature = "templating")]
+        template_config: None,
+    });
+
+    assert!(!result.summary.has_errors, "{:?}", result.issues);
+    let nodes_by_id: std::collections::HashMap<_, _> =
+        result.nodes.iter().map(|node| (&node.id, node)).collect();
+    let output = result
+        .nodes
+        .iter()
+        .find(|node| {
+            node.node_type == NodeType::Column && node.label.as_ref() == "allocated_push_orders"
+        })
+        .expect("aggregate struct member output column");
+
+    let roots: HashSet<_> = result
+        .edges
+        .iter()
+        .filter(|edge| {
+            edge.to == output.id
+                && matches!(edge.edge_type, EdgeType::DataFlow | EdgeType::Derivation)
+        })
+        .filter_map(|edge| nodes_by_id.get(&edge.from))
+        .map(|node| node.label.to_string())
+        .collect();
+    assert_eq!(
+        roots,
+        HashSet::from(["periods".to_string(), "start_idx".to_string()])
+    );
+    assert!(!roots.contains("items"));
+    assert!(!roots.contains("idx"));
+}
+
+#[test]
+fn hive_lambda_boolean_predicate_keeps_bindings_out_of_physical_lineage() {
+    let result = analyze(&AnalyzeRequest {
+        sql: r#"
+            SELECT filter(
+                push_units,
+                u -> u.goods = goods_key AND u.level = level_key OR u.sale = sale_key
+            ) AS matching_units
+            FROM source_table
+        "#
+        .to_string(),
+        files: None,
+        dialect: Dialect::Hive,
+        source_name: Some("hive_lambda_boolean_lineage".to_string()),
+        options: None,
+        schema: Some(SchemaMetadata {
+            tables: vec![SchemaTable {
+                catalog: None,
+                schema: None,
+                name: "source_table".to_string(),
+                columns: ["push_units", "goods_key", "level_key", "sale_key"]
+                    .iter()
+                    .map(|name| column(name))
+                    .collect(),
+            }],
+            allow_implied: true,
+            ..Default::default()
+        }),
+        #[cfg(feature = "templating")]
+        template_config: None,
+    });
+
+    assert!(!result.summary.has_errors, "{:?}", result.issues);
+    let nodes_by_id: std::collections::HashMap<_, _> =
+        result.nodes.iter().map(|node| (&node.id, node)).collect();
+    let output = result
+        .nodes
+        .iter()
+        .find(|node| node.node_type == NodeType::Column && node.label.as_ref() == "matching_units")
+        .expect("filter output column");
+    let roots: HashSet<_> = result
+        .edges
+        .iter()
+        .filter(|edge| {
+            edge.to == output.id
+                && matches!(edge.edge_type, EdgeType::DataFlow | EdgeType::Derivation)
+        })
+        .filter_map(|edge| nodes_by_id.get(&edge.from))
+        .map(|node| node.label.to_string())
+        .collect();
+    assert_eq!(
+        roots,
+        HashSet::from([
+            "push_units".to_string(),
+            "goods_key".to_string(),
+            "level_key".to_string(),
+            "sale_key".to_string(),
+        ])
+    );
+    assert!(!roots.contains("u"));
+    assert!(!roots.contains("goods"));
+    assert!(!roots.contains("level"));
+    assert!(!roots.contains("sale"));
+}

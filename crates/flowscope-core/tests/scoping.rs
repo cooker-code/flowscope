@@ -607,8 +607,10 @@ fn new_tables_are_known_when_implied_schema_disabled() {
 }
 
 #[test]
-fn missing_table_warned_when_other_tables_known() {
-    // When we have some knowledge (from DDL), we should warn about unknown tables.
+fn strict_schema_rejects_missing_table_when_other_tables_known() {
+    // `allow_implied = false` makes the supplied (including empty) schema
+    // authoritative for external source tables. A workload-produced table may
+    // still be referenced, but a missing external table is an analysis error.
     let sql = "
         CREATE TABLE foo AS SELECT 1 as id;
         SELECT * FROM missing_table;
@@ -636,28 +638,28 @@ fn missing_table_warned_when_other_tables_known() {
 
     assert_eq!(result.statements.len(), 2, "Expected CREATE + SELECT");
 
-    // Should have an UNRESOLVED_REFERENCE warning for missing_table
-    let unresolved_warnings: Vec<_> = result
+    assert!(result.summary.has_errors, "{:?}", result.issues);
+    let unknown_table_errors: Vec<_> = result
         .issues
         .iter()
         .filter(|issue| {
-            issue.code == issue_codes::UNRESOLVED_REFERENCE && issue.severity == Severity::Warning
+            issue.code == issue_codes::UNKNOWN_TABLE && issue.severity == Severity::Error
         })
         .collect();
 
     assert_eq!(
-        unresolved_warnings.len(),
+        unknown_table_errors.len(),
         1,
-        "Should have exactly one unresolved reference warning: {:?}",
+        "Should have exactly one unknown-table error: {:?}",
         result.issues
     );
     assert!(
-        unresolved_warnings[0].message.contains("missing_table")
-            || unresolved_warnings[0]
+        unknown_table_errors[0].message.contains("missing_table")
+            || unknown_table_errors[0]
                 .message
                 .contains("public.missing_table"),
-        "Warning should mention missing_table: {:?}",
-        unresolved_warnings[0]
+        "Error should mention missing_table: {:?}",
+        unknown_table_errors[0]
     );
 }
 

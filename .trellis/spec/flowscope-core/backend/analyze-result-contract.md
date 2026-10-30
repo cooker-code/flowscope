@@ -59,6 +59,21 @@ JSON:
 | Same physical table read and written | table appears in both fields |
 | CTE or derived alias read | alias does not appear in `sourceTables`; underlying physical tables do |
 
+### 4.1 Imported Schema Strictness
+
+`SchemaMetadata.allowImplied=false` makes the supplied `tables` list
+authoritative for external source-table resolution. A regular source relation
+that is neither imported nor produced/declared by the SQL workload must emit
+an `UNKNOWN_TABLE` **error**, so `summary.hasErrors` is true. This includes an
+explicitly supplied empty schema: it means no external source tables are
+available, not that metadata was omitted.
+
+When schema metadata is absent, or when `allowImplied=true`, analysis remains
+symbolic/best-effort: unknown source tables are not promoted to this strict
+error. Existing unresolved-reference warnings in partial implied-schema mode
+remain warnings. This rule is limited to unresolved regular source relations;
+it must not promote unrelated resolver or SQL authoring warnings.
+
 ### 5. Good / Base / Bad Cases
 
 Good self-dependent write:

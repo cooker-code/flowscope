@@ -8,8 +8,8 @@
 //!
 //! | Feature                       | Reason                                   |
 //! |-------------------------------|------------------------------------------|
-//! | leading `_` identifiers        | Spark/Hive aliases and CTEs may start `_`|
 //! | `supports_struct_literal`     | `STRUCT(col AS name)` field naming       |
+//! | `supports_lambda_functions`   | Spark/Hive higher-order function lambdas |
 //! | `parse_prefix` (complex CAST) | Spark `ARRAY/STRUCT/MAP` type grammar    |
 //! | `parse_infix` (DIV operator)  | `a DIV b` integer division               |
 //! | `is_table_alias` (OFFSET)     | Hive has no OFFSET keyword, so `offset`  |
@@ -20,6 +20,7 @@
 
 use sqlparser::ast::{
     ArrayElemTypeDef, BinaryOperator, CastKind, DataType, Expr, StructBracketKind, StructField,
+    Value,
 };
 use sqlparser::dialect::{Dialect, HiveDialect};
 use sqlparser::keywords::Keyword;
@@ -93,6 +94,16 @@ impl Dialect for FlowscopeHiveDialect {
         true
     }
 
+    // Spark/Hive higher-order functions use `x -> expression` and
+    // `(x, i) -> expression`. Without the upstream lambda capability flag,
+    // sqlparser parses Arrow with binary-operator precedence, which can split
+    // `u -> u.goods = k.goods AND u.level = k.level` outside its lexical
+    // binding. Use the formal Expr::Lambda AST so the analyzer can distinguish
+    // lambda parameters and struct members from physical columns.
+    fn supports_lambda_functions(&self) -> bool {
+        true
+    }
+
     // sqlparser-rs 0.61 recognizes Hive's `ARRAY<T>` shape, but reserves
     // `STRUCT<name: T>` and `MAP<K, V>` data types for other dialects. The
     // `Dialect` trait has no data-type hook, so intercept only `CAST` and
@@ -100,11 +111,11 @@ impl Dialect for FlowscopeHiveDialect {
     // is still parsed by the normal Hive parser: this deliberately preserves
     // Hive-specific `DIV`, struct literals and every non-type token.
     fn parse_prefix(&self, parser: &mut Parser) -> Option<Result<Expr, ParserError>> {
-        if !parser.peek_keyword(Keyword::CAST) {
-            return None;
+        if parser.peek_keyword(Keyword::CAST) {
+            return Some(parse_hive_cast_expr(parser));
         }
 
-        Some(parse_hive_cast_expr(parser))
+        parse_hive_typed_numeric_literal(parser).map(Ok)
     }
 
     // ── PR3 override ────────────────────────────────────────────────────────
@@ -140,6 +151,18 @@ impl Dialect for FlowscopeHiveDialect {
         expr: &Expr,
         _precedence: u8,
     ) -> Option<Result<Expr, ParserError>> {
+        // Valid Hive/Spark lambdas are consumed by sqlparser's formal
+        // `try_parse_lambda` path before infix parsing. Reaching an Arrow here
+        // means the left side was not a valid identifier parameter list (for
+        // example `(source_col, 1) -> value`). Do not reinterpret it as a
+        // binary operator, because that loses lexical binding and can invent
+        // `u.level`/`u.sale` physical columns from the malformed AST.
+        if parser.peek_token().token == Token::Arrow {
+            return Some(Err(ParserError::ParserError(
+                "Hive lambda parameters must be identifiers".to_string(),
+            )));
+        }
+
         if parser.parse_keyword(Keyword::DIV) {
             let rhs = match parser.parse_expr() {
                 Ok(e) => e,
@@ -153,6 +176,98 @@ impl Dialect for FlowscopeHiveDialect {
         }
         None
     }
+}
+
+/// Spark accepts typed numeric suffixes such as `0.00005D` (DOUBLE), `0F`
+/// (FLOAT), `0BD` (DECIMAL), and `1L` (BIGINT). sqlparser-rs's Hive tokenizer
+/// has `supports_numeric_prefix=true`, so an otherwise valid suffix can be
+/// tokenized as an unquoted `Word` and later be interpreted as a column. Keep
+/// the general numeric-prefix behaviour for identifiers like `123abc`; only a
+/// complete, unquoted Spark numeric literal is converted at the dialect prefix
+/// boundary.
+fn parse_hive_typed_numeric_literal(parser: &mut Parser) -> Option<Expr> {
+    let token = parser.peek_token();
+    let Token::Word(word) = &token.token else {
+        return None;
+    };
+    if word.quote_style.is_some() {
+        return None;
+    }
+
+    let (number, long) = split_hive_typed_numeric_literal(&word.value)?;
+    let token = parser.next_token();
+    Some(Expr::Value(
+        Value::Number(number.to_owned(), long).with_span(token.span),
+    ))
+}
+
+/// Splits the exact Spark numeric grammar accepted by this dialect. This is
+/// deliberately a byte-level recognizer rather than a SQL-wide rewrite: quoted
+/// identifiers and malformed words never enter here, while the normal parser
+/// remains responsible for rejecting them.
+fn split_hive_typed_numeric_literal(value: &str) -> Option<(&str, bool)> {
+    let (number, suffix) = if value
+        .get(value.len().checked_sub(2)?..)
+        .is_some_and(|suffix| suffix.eq_ignore_ascii_case("bd"))
+    {
+        (value.get(..value.len() - 2)?, "BD")
+    } else {
+        (
+            value.get(..value.len().checked_sub(1)?)?,
+            value.get(value.len().checked_sub(1)?..)?,
+        )
+    };
+
+    let long = match suffix.to_ascii_uppercase().as_str() {
+        "D" | "F" | "BD" => false,
+        "L" => true,
+        _ => return None,
+    };
+    let valid = if long {
+        // sqlparser's `Token::Number(_, true)` is its integer-long token form.
+        // Spark's `L` suffix likewise applies only to an integer literal;
+        // decimal/exponent variants must remain ordinary parser input rather
+        // than being silently reclassified as BIGINT.
+        !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())
+    } else {
+        is_decimal_or_exponent(number)
+    };
+    valid.then_some((number, long))
+}
+
+fn is_decimal_or_exponent(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    let mut whole_digits = 0;
+    while index < bytes.len() && bytes[index].is_ascii_digit() {
+        index += 1;
+        whole_digits += 1;
+    }
+    let mut fraction_digits = 0;
+    if bytes.get(index) == Some(&b'.') {
+        index += 1;
+        while index < bytes.len() && bytes[index].is_ascii_digit() {
+            index += 1;
+            fraction_digits += 1;
+        }
+    }
+    if whole_digits == 0 && fraction_digits == 0 {
+        return false;
+    }
+    if matches!(bytes.get(index), Some(b'e' | b'E')) {
+        index += 1;
+        if matches!(bytes.get(index), Some(b'+' | b'-')) {
+            index += 1;
+        }
+        let exponent_start = index;
+        while index < bytes.len() && bytes[index].is_ascii_digit() {
+            index += 1;
+        }
+        if exponent_start == index {
+            return false;
+        }
+    }
+    index == bytes.len()
 }
 
 fn parse_hive_cast_expr(parser: &mut Parser) -> Result<Expr, ParserError> {
@@ -286,6 +401,7 @@ fn expect_hive_closing_angle_bracket(
 mod tests {
     use super::*;
     use sqlparser::parser::Parser;
+    use sqlparser::tokenizer::Tokenizer;
 
     fn parse_ok(sql: &str) -> bool {
         Parser::parse_sql(&FlowscopeHiveDialect::default(), sql).is_ok()
@@ -322,6 +438,48 @@ mod tests {
                 ARRAY_SORT(COLLECT_LIST(STRUCT(week AS w, label AS l))),\
                 x -> x.l\
              ) FROM t"
+        ));
+    }
+
+    #[test]
+    fn hive_lambda_keeps_and_or_predicates_inside_the_lambda_body() {
+        let statements = Parser::parse_sql(
+            &FlowscopeHiveDialect::default(),
+            "SELECT filter(push_units, u -> u.goods = k.goods AND u.level = k.level OR u.sale = k.sale) FROM t",
+        )
+        .expect("Hive lambda should parse");
+        let sqlparser::ast::Statement::Query(query) = &statements[0] else {
+            panic!("expected query");
+        };
+        let sqlparser::ast::SetExpr::Select(select) = query.body.as_ref() else {
+            panic!("expected SELECT");
+        };
+        let sqlparser::ast::SelectItem::UnnamedExpr(Expr::Function(function)) =
+            &select.projection[0]
+        else {
+            panic!("expected filter function");
+        };
+        let sqlparser::ast::FunctionArguments::List(arguments) = &function.args else {
+            panic!("expected function arguments");
+        };
+        let sqlparser::ast::FunctionArg::Unnamed(sqlparser::ast::FunctionArgExpr::Expr(
+            Expr::Lambda(lambda),
+        )) = &arguments.args[1]
+        else {
+            panic!("expected formal lambda argument");
+        };
+
+        assert_eq!(lambda.params.to_string(), "u");
+        assert_eq!(
+            lambda.body.to_string(),
+            "u.goods = k.goods AND u.level = k.level OR u.sale = k.sale"
+        );
+        assert!(matches!(
+            lambda.body.as_ref(),
+            Expr::BinaryOp {
+                op: BinaryOperator::Or,
+                ..
+            }
         ));
     }
 
@@ -413,8 +571,51 @@ mod tests {
         .is_err());
     }
 
-    // ── Leading underscore identifier tests ────────────────────────────────
+    #[test]
+    fn spark_typed_numeric_word_becomes_a_numeric_ast_literal() {
+        // Hive's numeric-prefix support tokenizes the complete suffix form as
+        // a Word. The dialect hook must consume exactly that legal token and
+        // produce a Value::Number before column analysis sees it.
+        let dialect = FlowscopeHiveDialect::default();
+        let mut tokenizer = Tokenizer::new(&dialect, "SELECT 0.00005D");
+        let tokens = tokenizer.tokenize().expect("typed numeric tokenizes");
+        assert!(matches!(&tokens[2], Token::Word(word) if word.value == "0.00005D"));
 
+        let statements = Parser::parse_sql(&FlowscopeHiveDialect::default(), "SELECT 0.00005D")
+            .expect("typed numeric parses");
+        let sqlparser::ast::Statement::Query(query) = &statements[0] else {
+            panic!("expected query");
+        };
+        let sqlparser::ast::SetExpr::Select(select) = query.body.as_ref() else {
+            panic!("expected select");
+        };
+        assert!(matches!(
+            &select.projection[0],
+            sqlparser::ast::SelectItem::UnnamedExpr(Expr::Value(value))
+                if matches!(&value.value, Value::Number(number, false) if number == "0.00005")
+        ));
+    }
+
+    #[test]
+    fn quoted_numeric_looking_identifier_stays_an_identifier() {
+        assert!(parse_ok("SELECT `0.00005D` FROM t"));
+    }
+
+    #[test]
+    fn spark_typed_numeric_suffixes_are_strict() {
+        assert_eq!(split_hive_typed_numeric_literal("1D"), Some(("1", false)));
+        assert_eq!(split_hive_typed_numeric_literal(".5f"), Some((".5", false)));
+        assert_eq!(
+            split_hive_typed_numeric_literal("1e-3BD"),
+            Some(("1e-3", false))
+        );
+        assert_eq!(split_hive_typed_numeric_literal("1L"), Some(("1", true)));
+        assert_eq!(split_hive_typed_numeric_literal("1.2L"), None);
+        assert_eq!(split_hive_typed_numeric_literal("1e3L"), None);
+        assert_eq!(split_hive_typed_numeric_literal("1st"), None);
+        assert_eq!(split_hive_typed_numeric_literal("1eD"), None);
+        assert_eq!(split_hive_typed_numeric_literal("1.2DB"), None);
+    }
     #[test]
     fn leading_underscore_identifiers_parse_in_hive_positions() {
         assert!(parse_ok(

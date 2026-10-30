@@ -1,5 +1,8 @@
 use super::helpers::generate_output_node_id;
+use crate::dialect_ext::FlowscopeHiveDialect;
 use crate::types::{Edge, FilterClauseType, FilterPredicate, JoinType, Node, NodeType, Span};
+use sqlparser::ast::{Expr, FunctionArg, FunctionArgExpr, SelectItem, SetExpr, Statement};
+use sqlparser::parser::Parser;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -33,6 +36,28 @@ pub(crate) struct RelationInstance {
     pub(crate) node_id: Arc<str>,
 }
 
+/// A Hive LATERAL VIEW output column alias bound to the value expression fed
+/// into a supported UDTF such as `explode` or `posexplode`.
+///
+/// The alias is scoped to one SELECT. It is not a physical relation: resolving
+/// `r.goods` through this binding must continue from the UDTF input (for
+/// example `result_rows`) to its existing CTE/table roots.
+#[derive(Debug, Clone)]
+pub(crate) struct LateralViewBinding {
+    pub(crate) sources: Vec<ColumnRef>,
+}
+
+/// Result of registering a Hive LATERAL VIEW output alias in a SELECT scope.
+/// A real relation always keeps its existing name; repeated UDTF output names
+/// are not resolvable because selecting `r.field` would otherwise depend on
+/// registration order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LateralViewBindingRegistration {
+    Registered,
+    ShadowedByRelation,
+    AmbiguousDuplicate,
+}
+
 /// Represents a single scope level for column resolution.
 /// Each SELECT/subquery/CTE body gets its own scope.
 #[derive(Debug, Clone, Default)]
@@ -55,6 +80,14 @@ pub(crate) struct Scope {
     /// Scope-local output columns for subquery/CTE aliases materialized in this scope.
     /// These shadow statement-global CTE definitions when alias names are reused.
     pub(crate) subquery_columns: HashMap<String, Vec<OutputColumn>>,
+    /// Hive LATERAL VIEW output column alias -> input value sources. Kept
+    /// separate from relation aliases so a UDTF output is never classified as
+    /// a physical table or a regular FROM relation.
+    pub(crate) lateral_view_bindings: HashMap<String, LateralViewBinding>,
+    /// Repeated LATERAL VIEW output aliases in this SELECT. They must remain
+    /// unresolved rather than silently retaining either the earlier or later
+    /// binding in `lateral_view_bindings`.
+    pub(crate) ambiguous_lateral_view_aliases: HashSet<String>,
     /// User-visible relation names declared by this SELECT's FROM/JOIN list.
     ///
     /// Anonymous derived relations receive internal names, so reserve explicit
@@ -708,6 +741,123 @@ impl StatementContext {
         }
     }
 
+    /// Register a supported LATERAL VIEW output alias. A real table/CTE alias
+    /// in the same scope wins, preventing a UDTF alias from stealing `r.col`
+    /// resolution from an actual relation named `r`.
+    pub(crate) fn register_lateral_view_binding(
+        &mut self,
+        alias: String,
+        sources: Vec<ColumnRef>,
+    ) -> LateralViewBindingRegistration {
+        let Some(scope) = self.current_scope_mut() else {
+            return LateralViewBindingRegistration::AmbiguousDuplicate;
+        };
+        if scope.aliases.contains_key(&alias)
+            || scope.tables.contains_key(&alias)
+            || scope.alias_instances.contains_key(&alias)
+        {
+            return LateralViewBindingRegistration::ShadowedByRelation;
+        }
+        if scope.ambiguous_lateral_view_aliases.contains(&alias) {
+            return LateralViewBindingRegistration::AmbiguousDuplicate;
+        }
+        if scope.lateral_view_bindings.contains_key(&alias) {
+            scope.lateral_view_bindings.remove(&alias);
+            scope.ambiguous_lateral_view_aliases.insert(alias);
+            return LateralViewBindingRegistration::AmbiguousDuplicate;
+        }
+        scope
+            .lateral_view_bindings
+            .insert(alias, LateralViewBinding { sources });
+        LateralViewBindingRegistration::Registered
+    }
+
+    /// Expands a qualified LATERAL VIEW output reference (`r.field`) to the
+    /// sources of the UDTF input. Unqualified identifiers intentionally do not
+    /// use this path: a same-named physical column must keep normal resolution.
+    pub(crate) fn expand_lateral_view_sources(&self, source: &ColumnRef) -> Option<Vec<ColumnRef>> {
+        let alias = source.table.as_deref()?;
+        for scope in self.scope_stack.iter().rev() {
+            if scope.aliases.contains_key(alias)
+                || scope.tables.contains_key(alias)
+                || scope.alias_instances.contains_key(alias)
+            {
+                return None;
+            }
+            if scope.ambiguous_lateral_view_aliases.contains(alias) {
+                return None;
+            }
+            if let Some(binding) = scope.lateral_view_bindings.get(alias) {
+                return Some(binding.sources.clone());
+            }
+        }
+        None
+    }
+
+    /// Returns a preceding LATERAL VIEW output binding for use only while a
+    /// later LATERAL VIEW is being registered. Projection resolution must not
+    /// call this for unqualified identifiers: a same-named physical column
+    /// remains an ordinary source there.
+    pub(crate) fn expand_lateral_view_unqualified_alias(
+        &self,
+        alias: &str,
+    ) -> Option<Vec<ColumnRef>> {
+        self.current_scope()?
+            .lateral_view_bindings
+            .get(alias)
+            .map(|binding| binding.sources.clone())
+    }
+
+    /// Resolves `struct_output.member` when its first identifier is not a
+    /// visible relation alias, but is uniquely proven to be a struct-valued
+    /// output column from a relation in the current scope. The returned ref is
+    /// deliberately the base column, preserving its existing value lineage.
+    ///
+    /// This is not a general two-part-identifier fallback: physical aliases
+    /// always win, ambiguous base columns return `None`, and the producer must
+    /// have an expression that explicitly constructs a struct.
+    pub(crate) fn resolve_derived_struct_member_base(
+        &self,
+        source: &ColumnRef,
+    ) -> Option<ColumnRef> {
+        let base = source.table.as_deref()?;
+        for scope in self.scope_stack.iter().rev() {
+            if scope.aliases.contains_key(base)
+                || scope.tables.contains_key(base)
+                || scope.alias_instances.contains_key(base)
+            {
+                return None;
+            }
+        }
+
+        let mut candidates = Vec::new();
+        for relation in self.relation_instances_in_current_scope() {
+            let Some(columns) = self.resolve_subquery_columns(&relation.canonical) else {
+                continue;
+            };
+            for column in columns {
+                if !column.name.eq_ignore_ascii_case(base) {
+                    continue;
+                }
+                let is_struct_producer = self
+                    .nodes
+                    .iter()
+                    .find(|node| node.id == column.node_id)
+                    .and_then(|node| node.expression.as_deref())
+                    .is_some_and(is_proven_struct_expression);
+                if is_struct_producer {
+                    candidates.push((relation.canonical.clone(), column.name.clone()));
+                }
+            }
+        }
+        candidates.sort();
+        candidates.dedup();
+        (candidates.len() == 1).then(|| ColumnRef {
+            table: Some(candidates[0].0.clone()),
+            column: candidates[0].1.clone(),
+        })
+    }
+
     /// Reserve an explicit relation name in the current SELECT before its
     /// FROM/JOIN items are visited. Reservations affect only internally
     /// generated anonymous-derived names; they never alter SQL resolution.
@@ -839,5 +989,70 @@ impl StatementContext {
             return Vec::new();
         }
         self.output_columns.split_off(checkpoint)
+    }
+}
+
+/// Proves that a materialized projection itself is a struct value. This parses
+/// the already-normalized expression rather than searching its display text:
+/// scalar wrappers that merely *contain* a `named_struct` argument must not
+/// authorize `scalar.member` resolution.
+fn is_proven_struct_expression(expression: &str) -> bool {
+    let sql = format!("SELECT {expression}");
+    let Ok(mut statements) = Parser::parse_sql(&FlowscopeHiveDialect::default(), &sql) else {
+        return false;
+    };
+    let Some(Statement::Query(query)) = statements.pop() else {
+        return false;
+    };
+    let SetExpr::Select(select) = *query.body else {
+        return false;
+    };
+    let Some(item) = select.projection.first() else {
+        return false;
+    };
+    let expression = match item {
+        SelectItem::UnnamedExpr(expression)
+        | SelectItem::ExprWithAlias {
+            expr: expression, ..
+        } => expression,
+        SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(_, _) => return false,
+    };
+    is_proven_struct_ast(expression)
+}
+
+fn is_proven_struct_ast(expression: &Expr) -> bool {
+    match expression {
+        Expr::Nested(expression) => is_proven_struct_ast(expression),
+        Expr::Struct { .. } => true,
+        Expr::Cast { data_type, .. } => matches!(data_type, sqlparser::ast::DataType::Struct(_, _)),
+        Expr::Function(function) => {
+            let name = function.name.to_string().to_ascii_lowercase();
+            if name == "named_struct" {
+                return true;
+            }
+            if !matches!(name.as_str(), "aggregate" | "reduce") {
+                return false;
+            }
+            let sqlparser::ast::FunctionArguments::List(arguments) = &function.args else {
+                return false;
+            };
+            let expressions: Vec<_> = arguments
+                .args
+                .iter()
+                .filter_map(|argument| match argument {
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(expression))
+                    | FunctionArg::Named {
+                        arg: FunctionArgExpr::Expr(expression),
+                        ..
+                    } => Some(expression),
+                    _ => None,
+                })
+                .collect();
+            // Spark aggregate/reduce preserve the accumulator's type when
+            // there is no finish lambda. A finish expression is deliberately
+            // rejected here unless future typed analysis can prove its result.
+            expressions.len() == 3 && is_proven_struct_ast(expressions[1])
+        }
+        _ => false,
     }
 }

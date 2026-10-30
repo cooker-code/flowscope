@@ -4,7 +4,7 @@
 //! and building lineage graphs. It separates traversal logic (the `Visitor` trait)
 //! from analysis logic (the `LineageVisitor` implementation).
 
-use super::context::StatementContext;
+use super::context::{ColumnRef, LateralViewBindingRegistration, StatementContext};
 use super::expression::ExpressionAnalyzer;
 use super::helpers::{
     alias_visibility_warning, find_cte_body_span, find_cte_definition_span,
@@ -15,8 +15,8 @@ use super::Analyzer;
 use crate::generated::is_value_table_function;
 use crate::types::{issue_codes, Issue, Node, NodeType, Span};
 use sqlparser::ast::{
-    self, CreateView, Cte, Expr, Ident, Join, Query, Select, SetExpr, SetOperator, Statement,
-    TableAlias, TableFactor, TableWithJoins, Values,
+    self, CreateView, Cte, Expr, Ident, Join, LateralView, Query, Select, SetExpr, SetOperator,
+    Statement, TableAlias, TableFactor, TableWithJoins, Values,
 };
 use std::sync::Arc;
 
@@ -547,6 +547,116 @@ fn reserve_relation_names_in_table_factor(ctx: &mut StatementContext, table_fact
     }
 }
 
+impl<'a, 'b> LineageVisitor<'a, 'b> {
+    fn register_lateral_views(&mut self, lateral_views: &[LateralView]) {
+        for lateral_view in lateral_views {
+            let Expr::Function(function) = &lateral_view.lateral_view else {
+                self.analyzer.issues.push(
+                    Issue::warning(
+                        issue_codes::UNSUPPORTED_SYNTAX,
+                        "LATERAL VIEW lineage requires a supported UDTF function",
+                    )
+                    .with_statement(self.ctx.statement_index),
+                );
+                continue;
+            };
+            let function_name = function.name.to_string().to_ascii_lowercase();
+            if !matches!(
+                function_name.as_str(),
+                "explode" | "explode_outer" | "posexplode" | "posexplode_outer"
+            ) {
+                self.analyzer.issues.push(
+                    Issue::warning(
+                        issue_codes::UNSUPPORTED_SYNTAX,
+                        format!(
+                            "LATERAL VIEW UDTF '{function_name}' has no declared output-lineage contract"
+                        ),
+                    )
+                    .with_statement(self.ctx.statement_index),
+                );
+                continue;
+            }
+
+            let extracted_sources = {
+                let mut expression_analyzer = ExpressionAnalyzer::new(self.analyzer, self.ctx);
+                expression_analyzer.extract_column_refs_with_warning(&lateral_view.lateral_view)
+            };
+            let expanded_sources: Vec<ColumnRef> = extracted_sources
+                .iter()
+                .flat_map(|source| {
+                    let qualified_binding =
+                        self.ctx.expand_lateral_view_sources(source).or_else(|| {
+                            (source.table.is_none()
+                                && !self
+                                    .analyzer
+                                    .has_unambiguous_source_column_in_current_scope(
+                                        self.ctx,
+                                        &source.column,
+                                    ))
+                            .then(|| {
+                                self.ctx
+                                    .expand_lateral_view_unqualified_alias(&source.column)
+                            })
+                            .flatten()
+                        });
+                    qualified_binding.unwrap_or_else(|| vec![source.clone()])
+                })
+                .collect();
+            if expanded_sources.is_empty() {
+                continue;
+            }
+
+            let mut resolved_sources = Vec::with_capacity(expanded_sources.len());
+            let mut complete = true;
+            for source in expanded_sources {
+                let Some(canonical) = self.analyzer.resolve_column_table(
+                    self.ctx,
+                    source.table.as_deref(),
+                    &source.column,
+                ) else {
+                    complete = false;
+                    break;
+                };
+                resolved_sources.push(ColumnRef {
+                    table: Some(canonical),
+                    column: source.column,
+                });
+            }
+            if !complete {
+                self.analyzer.issues.push(
+                    Issue::warning(
+                        issue_codes::UNRESOLVED_REFERENCE,
+                        format!(
+                            "LATERAL VIEW {function_name} input cannot be resolved uniquely; output aliases remain unresolved"
+                        ),
+                    )
+                    .with_statement(self.ctx.statement_index),
+                );
+                continue;
+            }
+
+            for alias in &lateral_view.lateral_col_alias {
+                if self
+                    .ctx
+                    .register_lateral_view_binding(alias.value.clone(), resolved_sources.clone())
+                    == LateralViewBindingRegistration::AmbiguousDuplicate
+                {
+                    self.analyzer.issues.push(
+                        Issue::error(
+                            issue_codes::UNRESOLVED_REFERENCE,
+                            format!(
+                                "LATERAL VIEW output alias '{}' is declared more than once in this SELECT scope; references to it are ambiguous",
+                                alias.value
+                            ),
+                        )
+                        .with_statement(self.ctx.statement_index),
+                    );
+                }
+            }
+        }
+    }
+}
+
 impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
     fn visit_query(&mut self, query: &Query) {
         if let Some(with) = &query.with {
@@ -668,6 +778,7 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
         for table_with_joins in &select.from {
             self.visit_table_with_joins(table_with_joins);
         }
+        self.register_lateral_views(&select.lateral_views);
         if self.analyzer.column_lineage_enabled {
             let sink_node = self.ctx.sink_node_id().map(|node_id| node_id.to_string());
             let target_node = self.target_node.clone().or(sink_node);

@@ -4,7 +4,7 @@ use super::helpers::{
     alias_visibility_warning, infer_expr_type, is_simple_column_ref, lateral_alias_warning,
     normalize_schema_type,
 };
-use super::query::OutputColumnParams;
+use super::query::{OutputColumnParams, WindowControlRef};
 use super::Analyzer;
 use crate::types::FilterClauseType;
 use sqlparser::ast::{self, Select, SelectItem};
@@ -128,7 +128,7 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
                     // Check for lateral column alias usage
                     self.check_lateral_column_alias(expr, &defined_aliases);
 
-                    let (mut sources, name, aggregation, window_controls) = {
+                    let (mut sources, name, aggregation, mut window_controls) = {
                         let mut ea = ExpressionAnalyzer::new(self.analyzer, self.ctx);
                         let column_refs = ea.extract_column_refs_with_warning(expr);
                         (
@@ -142,6 +142,10 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
                             ),
                         )
                     };
+
+                    sources = self.resolve_lateral_view_sources(sources);
+                    window_controls.controls =
+                        self.resolve_lateral_view_controls(window_controls.controls);
 
                     // Resolve lateral alias references if dialect supports them
                     if supports_lateral {
@@ -190,7 +194,7 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
                     // Check for lateral column alias usage
                     self.check_lateral_column_alias(expr, &defined_aliases);
 
-                    let (mut sources, aggregation, window_controls) = {
+                    let (mut sources, aggregation, mut window_controls) = {
                         let mut ea = ExpressionAnalyzer::new(self.analyzer, self.ctx);
                         let column_refs = ea.extract_column_refs_with_warning(expr);
                         (
@@ -203,6 +207,10 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
                             ),
                         )
                     };
+
+                    sources = self.resolve_lateral_view_sources(sources);
+                    window_controls.controls =
+                        self.resolve_lateral_view_controls(window_controls.controls);
 
                     // Resolve lateral alias references if dialect supports them
                     if supports_lateral {
@@ -273,6 +281,46 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
                 }
             }
         }
+    }
+
+    fn resolve_lateral_view_sources(&self, sources: Vec<ColumnRef>) -> Vec<ColumnRef> {
+        sources
+            .into_iter()
+            .flat_map(|source| {
+                self.ctx
+                    .expand_lateral_view_sources(&source)
+                    .or_else(|| {
+                        self.ctx
+                            .resolve_derived_struct_member_base(&source)
+                            .map(|base| vec![base])
+                    })
+                    .unwrap_or_else(|| vec![source])
+            })
+            .collect()
+    }
+
+    fn resolve_lateral_view_controls(
+        &self,
+        controls: Vec<WindowControlRef>,
+    ) -> Vec<WindowControlRef> {
+        controls
+            .into_iter()
+            .flat_map(|control| {
+                self.ctx
+                    .expand_lateral_view_sources(&control.source)
+                    .or_else(|| {
+                        self.ctx
+                            .resolve_derived_struct_member_base(&control.source)
+                            .map(|base| vec![base])
+                    })
+                    .unwrap_or_else(|| vec![control.source.clone()])
+                    .into_iter()
+                    .map(move |source| WindowControlRef {
+                        source,
+                        role: control.role,
+                    })
+            })
+            .collect()
     }
 
     /// Resolves lateral column alias references in the sources.

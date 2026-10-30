@@ -367,11 +367,14 @@ impl<'a> Analyzer<'a> {
     /// - `declared`: Pre-registered by a precollection pass (e.g., a dbt model
     ///   whose producer statement has not yet been analyzed). Forward `ref(...)`
     ///   consumers need this so they don't misfire `UNRESOLVED_REFERENCE`.
-    /// - No tables known at all: When we have zero knowledge, be permissive to avoid false warnings
+    /// - No tables known at all in implied-schema mode: When callers did not
+    ///   provide authoritative metadata, remain permissive for symbolic SQL.
+    ///   An explicitly supplied empty schema with `allow_implied = false` is
+    ///   authoritative and therefore does not use this fallback.
     fn is_table_known(&self, canonical: &str, matched_schema: bool) -> bool {
         let produced = self.tracker.was_produced(canonical);
         let declared = self.tracker.is_declared(canonical);
-        let no_tables_known = self.schema.has_no_known_tables();
+        let no_tables_known = self.schema.allow_implied() && self.schema.has_no_known_tables();
         matched_schema || produced || declared || no_tables_known
     }
 
@@ -406,12 +409,22 @@ impl<'a> Analyzer<'a> {
         let metadata = if is_known {
             None
         } else {
-            let mut issue = Issue::warning(
-                issue_codes::UNRESOLVED_REFERENCE,
-                format!(
-                    "Table '{canonical}' could not be resolved using provided schema metadata or search path"
-                ),
-            )
+            let strict_imported_schema = !self.schema.allow_implied();
+            let mut issue = if strict_imported_schema {
+                Issue::error(
+                    issue_codes::UNKNOWN_TABLE,
+                    format!(
+                        "Table '{canonical}' is absent from the strict imported schema metadata"
+                    ),
+                )
+            } else {
+                Issue::warning(
+                    issue_codes::UNRESOLVED_REFERENCE,
+                    format!(
+                        "Table '{canonical}' could not be resolved using provided schema metadata or search path"
+                    ),
+                )
+            }
             .with_statement(ctx.statement_index);
             // Attach span if we can find the table name in the SQL
             if let Some(span) = self.find_span(canonical) {
