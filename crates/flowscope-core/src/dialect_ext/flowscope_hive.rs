@@ -9,6 +9,7 @@
 //! | Feature                       | Reason                                   |
 //! |-------------------------------|------------------------------------------|
 //! | `supports_struct_literal`     | `STRUCT(col AS name)` field naming       |
+//! | `parse_prefix` (complex CAST) | Spark `ARRAY/STRUCT/MAP` type grammar    |
 //! | `parse_infix` (DIV operator)  | `a DIV b` integer division               |
 //! | `is_table_alias` (OFFSET)     | Hive has no OFFSET keyword, so `offset`  |
 //! |                               | can legally name a table (`(...) offset`)|
@@ -16,10 +17,13 @@
 //! Anything not explicitly overridden is delegated to the upstream
 //! `HiveDialect` so behavior stays in sync with sqlparser-rs.
 
-use sqlparser::ast::{BinaryOperator, Expr};
+use sqlparser::ast::{
+    ArrayElemTypeDef, BinaryOperator, CastKind, DataType, Expr, StructBracketKind, StructField,
+};
 use sqlparser::dialect::{Dialect, HiveDialect};
 use sqlparser::keywords::Keyword;
 use sqlparser::parser::{Parser, ParserError};
+use sqlparser::tokenizer::Token;
 
 /// FlowScope's enhanced Hive dialect.
 ///
@@ -82,6 +86,20 @@ impl Dialect for FlowscopeHiveDialect {
         true
     }
 
+    // sqlparser-rs 0.61 recognizes Hive's `ARRAY<T>` shape, but reserves
+    // `STRUCT<name: T>` and `MAP<K, V>` data types for other dialects. The
+    // `Dialect` trait has no data-type hook, so intercept only `CAST` and
+    // build the existing sqlparser AST types here. The expression to be cast
+    // is still parsed by the normal Hive parser: this deliberately preserves
+    // Hive-specific `DIV`, struct literals and every non-type token.
+    fn parse_prefix(&self, parser: &mut Parser) -> Option<Result<Expr, ParserError>> {
+        if !parser.peek_keyword(Keyword::CAST) {
+            return None;
+        }
+
+        Some(parse_hive_cast_expr(parser))
+    }
+
     // ── PR3 override ────────────────────────────────────────────────────────
     //
     // Hive's SELECT grammar does NOT have an OFFSET clause (see
@@ -130,6 +148,133 @@ impl Dialect for FlowscopeHiveDialect {
     }
 }
 
+fn parse_hive_cast_expr(parser: &mut Parser) -> Result<Expr, ParserError> {
+    parser.expect_keyword_is(Keyword::CAST)?;
+    parser.expect_token(&Token::LParen)?;
+    let expr = parser.parse_expr()?;
+    parser.expect_keyword_is(Keyword::AS)?;
+    let (data_type, trailing_bracket) = parse_hive_data_type(parser, 0)?;
+    if trailing_bracket {
+        return Err(ParserError::ParserError(
+            "unmatched > after parsing Hive data type".to_string(),
+        ));
+    }
+    let array = parser.parse_keyword(Keyword::ARRAY);
+    let format = parser.parse_optional_cast_format()?;
+    parser.expect_token(&Token::RParen)?;
+
+    Ok(Expr::Cast {
+        kind: CastKind::Cast,
+        expr: Box::new(expr),
+        data_type,
+        array,
+        format,
+    })
+}
+
+/// Parses the Spark/Hive complex data-type subset using sqlparser's existing
+/// `DataType` variants. `bool` records the second `>` in a tokenized `>>`,
+/// matching sqlparser's nested-angle-bracket handling without changing the
+/// tokenizer or accepting an unbalanced type.
+const MAX_HIVE_COMPLEX_TYPE_DEPTH: usize = 128;
+
+fn parse_hive_data_type(
+    parser: &mut Parser,
+    depth: usize,
+) -> Result<(DataType, bool), ParserError> {
+    if depth > MAX_HIVE_COMPLEX_TYPE_DEPTH {
+        return Err(ParserError::ParserError(format!(
+            "Hive complex data type exceeds maximum nesting depth of {MAX_HIVE_COMPLEX_TYPE_DEPTH}"
+        )));
+    }
+
+    if parser.peek_keyword(Keyword::ARRAY) {
+        parser.expect_keyword_is(Keyword::ARRAY)?;
+        parser.expect_token(&Token::Lt)?;
+        let (element_type, trailing_bracket) = parse_hive_data_type(parser, depth + 1)?;
+        let trailing_bracket = expect_hive_closing_angle_bracket(parser, trailing_bracket)?;
+        return Ok((
+            DataType::Array(ArrayElemTypeDef::AngleBracket(Box::new(element_type))),
+            trailing_bracket,
+        ));
+    }
+
+    if parser.peek_keyword(Keyword::STRUCT) {
+        parser.expect_keyword_is(Keyword::STRUCT)?;
+        parser.expect_token(&Token::Lt)?;
+        let mut fields = Vec::new();
+        let trailing_bracket = loop {
+            // Spark accepts both `name: TYPE` and `name TYPE`. Treat a word
+            // followed by another word or a colon as a field name; otherwise
+            // retain sqlparser's anonymous-field representation.
+            let has_field_name = matches!(
+                parser.peek_nth_token(1).token,
+                Token::Colon | Token::Word(_)
+            );
+            let field_name = has_field_name
+                .then(|| parser.parse_identifier())
+                .transpose()?;
+            let _ = parser.consume_token(&Token::Colon);
+            let (field_type, field_trailing_bracket) = parse_hive_data_type(parser, depth + 1)?;
+            fields.push(StructField {
+                field_name,
+                field_type,
+                options: None,
+            });
+
+            if field_trailing_bracket || !parser.consume_token(&Token::Comma) {
+                break field_trailing_bracket;
+            }
+        };
+        let trailing_bracket = expect_hive_closing_angle_bracket(parser, trailing_bracket)?;
+        return Ok((
+            DataType::Struct(fields, StructBracketKind::AngleBrackets),
+            trailing_bracket,
+        ));
+    }
+
+    if parser.peek_keyword(Keyword::MAP) {
+        parser.expect_keyword_is(Keyword::MAP)?;
+        parser.expect_token(&Token::Lt)?;
+        let (key_type, key_trailing_bracket) = parse_hive_data_type(parser, depth + 1)?;
+        if key_trailing_bracket {
+            return Err(ParserError::ParserError(
+                "Hive MAP key type cannot close the enclosing type".to_string(),
+            ));
+        }
+        parser.expect_token(&Token::Comma)?;
+        let (value_type, value_trailing_bracket) = parse_hive_data_type(parser, depth + 1)?;
+        let trailing_bracket = expect_hive_closing_angle_bracket(parser, value_trailing_bracket)?;
+        return Ok((
+            DataType::Map(Box::new(key_type), Box::new(value_type)),
+            trailing_bracket,
+        ));
+    }
+
+    Ok((parser.parse_data_type()?, false))
+}
+
+fn expect_hive_closing_angle_bracket(
+    parser: &mut Parser,
+    trailing_bracket: bool,
+) -> Result<bool, ParserError> {
+    if trailing_bracket {
+        return Ok(false);
+    }
+
+    match parser.peek_token().token {
+        Token::Gt => {
+            parser.next_token();
+            Ok(false)
+        }
+        Token::ShiftRight => {
+            parser.next_token();
+            Ok(true)
+        }
+        _ => parser.expected(">", parser.peek_token()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,6 +316,47 @@ mod tests {
                 x -> x.l\
              ) FROM t"
         ));
+    }
+
+    #[test]
+    fn hive_cast_parses_nested_array_struct_and_map_types() {
+        let sql = "SELECT CAST(payload AS ARRAY<STRUCT<order_id:STRING, attrs:MAP<STRING,ARRAY<INT>>>>) FROM t";
+        assert!(parse_ok(sql));
+    }
+
+    #[test]
+    fn hive_cast_accepts_whitespace_comments_and_mixed_case_types() {
+        let sql = "SELECT CAST(payload AS array< /* element */ struct<`order_id`:STRING, tags: map<STRING, array<INT>> >>) FROM t";
+        assert!(parse_ok(sql));
+    }
+
+    #[test]
+    fn hive_cast_rejects_malformed_complex_types() {
+        assert!(!parse_ok("SELECT CAST(x AS ARRAY<STRUCT<a:STRING>) FROM t"));
+        assert!(!parse_ok("SELECT CAST(x AS MAP<STRING>) FROM t"));
+        assert!(!parse_ok("SELECT CAST(x AS STRUCT<a:>) FROM t"));
+    }
+
+    #[test]
+    fn hive_cast_accepts_struct_fields_without_colons() {
+        assert!(parse_ok(
+            "SELECT CAST(x AS STRUCT<a STRING, b ARRAY<INT>>) FROM t"
+        ));
+    }
+
+    #[test]
+    fn hive_scalar_cast_still_uses_the_normal_data_type_parser() {
+        assert!(parse_ok("SELECT CAST(x AS DECIMAL(38, 4)) FROM t"));
+        assert!(parse_ok("SELECT CAST(x AS STRING ARRAY) FROM t"));
+    }
+
+    #[test]
+    fn hive_cast_rejects_complex_types_beyond_the_depth_limit() {
+        let mut data_type = "INT".to_string();
+        for _ in 0..=MAX_HIVE_COMPLEX_TYPE_DEPTH {
+            data_type = format!("ARRAY<{data_type}>");
+        }
+        assert!(!parse_ok(&format!("SELECT CAST(x AS {data_type}) FROM t")));
     }
 
     // ── PR2 (DIV operator) tests ─────────────────────────────────────────────
