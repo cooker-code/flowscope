@@ -1,0 +1,375 @@
+{
+  "version": "v6",
+  "code_commit": "64b9bbb2",
+  "original_sql_total": 53,
+  "accepted": 44,
+  "explicit_errors": [
+    558128,
+    557924,
+    557826,
+    557728,
+    557572,
+    557557,
+    557500,
+    557486,
+    556525
+  ],
+  "native_wasm_semantic_equal": 53,
+  "core_non_snapshot_tests": {
+    "passed": 2666,
+    "ignored": 3
+  },
+  "wasm_tests": {
+    "unit": 17,
+    "completion": 2
+  },
+  "core_clippy_lib_warnings_denied": "passed",
+  "preexisting_snapshot_failures": {
+    "golden": 10,
+    "snapshots": 26,
+    "verified_baseline": "a7d1f078",
+    "accepted_snapshots": false
+  },
+  "independent_checks": {
+    "insert_positions": 496,
+    "proven_value_root_paths": 443,
+    "complex_output_exact_sets": 14,
+    "window_role_source_triples_without_output_identity": 183
+  },
+  "coverage_limit": "深CTE/star及部分scalar subquery未获全输出独立根集合证明；不得宣称全部字段语义100%正确",
+  "evidence_root": "/Users/blank/.codex/tmp/field-lineage-audit-20261029-01a1866f/cases/online-two-category-fix",
+  "runtime": {
+    "version": "v6",
+    "core_rlib": "/Users/blank/.codex/evidence/runtime/flowscope-c5-target/debug/deps/libflowscope_core-b5b6ca36f8fb7a77.rlib",
+    "core_replay": "/Users/blank/.codex/tmp/field-lineage-audit-20261029-01a1866f/cases/online-two-category-fix/formal-core-replay-v6",
+    "core_replay_sha256": "897f22a7c866e9ab060db181f9efc1ab289572f2be1bb8dd8983e0369164cdb4",
+    "native_cli": "/Users/blank/.codex/tmp/field-lineage-audit-20261029-01a1866f/cases/online-two-category-fix/flowscope-b4418561c98162d3db7b2e3e19b34b80934a1f6858bebfa44fc471f02255445c",
+    "native_cli_sha256": "b4418561c98162d3db7b2e3e19b34b80934a1f6858bebfa44fc471f02255445c",
+    "combined_smoke": "passed"
+  },
+  "source_sha": {
+    "crates/flowscope-core/src/analyzer/context.rs": "ec481b6189ff50766a57a20b68b291beabe1889f5ed6cb5cb228cbdb87eeb3c6",
+    "crates/flowscope-core/src/analyzer/expression.rs": "2f012e5940a4f0d9d782b623013525cde16e48877c759fa315f61d05c4cd4802",
+    "crates/flowscope-core/src/analyzer/query.rs": "ca86d9e5c567900eb91f7683a0c6b1a1270d11374773bfc73f183c8b043c757a",
+    "crates/flowscope-core/src/analyzer/select_analyzer.rs": "6ce2b2dd3e4319c00bb39edebd6b7e4e7ec1355f61049553cc9ecf3b56c67322",
+    "crates/flowscope-core/src/analyzer/visitor.rs": "02ea3099526768cd97b27e33ab9df04cc98182ab6a9e835afefed64d8180a3ba",
+    "crates/flowscope-core/src/dialect_ext/flowscope_hive.rs": "49adfb4070db72bf033056774e68a324cef6f87d9d6c6efee8021ea84cf2f08f",
+    "packages/core/wasm/flowscope_wasm_bg.wasm": "8b3629bcc6bc0a660a0390760aaa6d879faa61866d42003b48f36b84270c1ec4"
+  },
+  "production_writes": 0,
+  "pushed": false,
+  "deployed": false,
+  "isolated_graph": {
+    "conclusion": "PASS：列级血缘按正规loader合同回读，逐496位置补充验收亦通过。",
+    "environment": {
+      "uri": "bolt://127.0.0.1:17695",
+      "database": "neo4j",
+      "production_touched": false,
+      "immutable_17694_touched": false,
+      "fresh_v6_graph": true,
+      "prior_v5_graph_preserved_at": "runtime/instances/online-two-class/v5-fixture-complete-diagnostic-20261030T1113Z"
+    },
+    "runtime_binding": {
+      "runtime_manifest": "../integrated-runtime-v6.json",
+      "runtime_manifest_sha256": "e0acb3457452b4572e2fd766e60eb195d5b08e545daa55e096e2db714ee808d6",
+      "native_cli_sha256": "b4418561c98162d3db7b2e3e19b34b80934a1f6858bebfa44fc471f02255445c",
+      "native_summary": "../replay-native-v6/summary.json",
+      "native_summary_sha256": "c17dd5e43c7d72908b775838bcaf89bf57906a33a6503923145e4bf51323ea03"
+    },
+    "input": {
+      "total_raw_sql": 53,
+      "accepted": 44,
+      "errors_not_loaded": 9,
+      "replay_csv": "native-v6-real-scope-44-table.csv",
+      "replay_csv_sha256": "155e3b7af7b171900cda17559adea75576b09a38a4913ff6f1e7ce37e3c2e7de",
+      "manifest": "native-v6-real-scope-44-manifest.json",
+      "manifest_sha256": "7ead4dd3f09f73d67128441af0e14942624994c7fcab6ed2c2f0c2f68f85ca4c",
+      "real_scope_counts": {
+        "change": 22,
+        "mario_template": 22
+      },
+      "excluded_audit_ids": [
+        558128,
+        557924,
+        557826,
+        557728,
+        557572,
+        557557,
+        557500,
+        557486,
+        556525
+      ]
+    },
+    "metadata_fixture": {
+      "prior_15_dt_fixture_retained": true,
+      "v5_window_dt_fixture_retained": true,
+      "v5_window_dt_fixture_evidence": "v5-window-dt-metadata-proof.json",
+      "external_ddl_or_schema_queries": false
+    },
+    "loaders": [
+      "src.batch.load_table_meta",
+      "src.batch.load_cte",
+      "src.batch.load_col_lineage",
+      "src.batch.load_window_controls"
+    ],
+    "repeat": {
+      "first_replay_completed": true,
+      "second_identical_v6_csv_replay_completed": true,
+      "result": "同一 V6 CSV 的第二轮正规 loader 命令成功完成；关系集合按 stable edge_id 读回。"
+    },
+    "readback": {
+      "lineage_scope": {
+        "total": 44,
+        "change": 22,
+        "mario": 22
+      },
+      "relationships": {
+        "REF_TEP": 2197,
+        "DERIVES_COL": 23785,
+        "CONTROLS_COL": 359
+      },
+      "window_dependency_kind": {
+        "window_partition": 199,
+        "window_order": 160
+      },
+      "target_map": {
+        "parser_contract_candidates": 1348,
+        "physical_metadata_proven_candidates": 510,
+        "actual": 510,
+        "exact_edge_id_fs_uid_physical_endpoint_match": true
+      },
+      "physical_value_edges": {
+        "expected": 3407,
+        "actual": 3407,
+        "exact_edge_id_match": true
+      },
+      "window_controls": {
+        "expected": 359,
+        "actual": 359,
+        "exact_edge_id_match": true
+      },
+      "graph_set_digest_sha256": "d3c5149c09f012490341aef51a59bbd9cb346f9cc81ab13e95f1fa939ae686f0"
+    },
+    "negative_checks": {
+      "audit_557924_sql_md5": "e836664c00088ac9b83f4797d2f3a413",
+      "audit_557924_nodes": 0,
+      "audit_557924_lineage_scopes": 0,
+      "u_level_u_sale_or_0_00005D_as_replayed_physical_relationship": 0,
+      "select_without_real_target_rows": 24,
+      "target_map_for_select_without_real_target": 0
+    },
+    "scope": "仅本轮前导下划线标识符与复杂类型修复的隔离图验收；不代表生产图已应用。"
+  },
+  "code_merged_to_original_master": "64b9bbb2",
+  "original_wip_preserved": true,
+  "master_validation": {
+    "branch": "master",
+    "code_head": "64b9bbb20bf8fcc281510f48cc7e58dd78ef659f",
+    "core_lib_with_original_wip": 1751,
+    "original_wip_files_sha_unchanged": 7,
+    "new_stash": false
+  },
+  "insert_position_readback": {
+    "file": "/Users/blank/.codex/tmp/field-lineage-audit-20261029-01a1866f/cases/online-two-category-fix/isolated-graph/final-v7-insert-position-readback.json",
+    "sha256": "f4d5fb53854f905992f0a9a0bf5e491a862e78e40221ec3da696df4bf52caa42",
+    "summary": {
+      "status": "PASS",
+      "insert_positions": 496,
+      "derived_output_positions": 470,
+      "physical_output_positions": 26,
+      "column_targetmap_paths": 510,
+      "missing_column_targetmap_paths": 0,
+      "relation_level_cte_dependencies": 18,
+      "relation_level_status": "NOT_APPLICABLE_EXISTING_GRAPH_CONTRACT",
+      "relation_level_contract": "src/batch/load_cte.py:14 and docs/agents-1-full-initialization.md:66: REF_TEP terminates at CTE; CTE-to-M_TABLE data_flow is not represented as REF_TEP.",
+      "missing_column_paths": [],
+      "relation_level_dependencies": [
+        {
+          "cte_uid": "6bea6c1a8944bcf5ad9a9c05662c7183::cte_03308bea4466e370",
+          "target": [
+            "hive",
+            "dw_conan_dwd",
+            "dwd_conan_growth_thirdapi_redeem_event_state_da",
+            "origin_outer_order_id"
+          ],
+          "native_edge_id": "edge_765344bdd1d48320"
+        },
+        {
+          "cte_uid": "6bea6c1a8944bcf5ad9a9c05662c7183::cte_03308bea4466e370",
+          "target": [
+            "hive",
+            "dw_conan_dwd",
+            "dwd_conan_growth_thirdapi_redeem_event_state_da",
+            "has_seen_101"
+          ],
+          "native_edge_id": "edge_3ce6bde66f8289f9"
+        },
+        {
+          "cte_uid": "6bea6c1a8944bcf5ad9a9c05662c7183::cte_03308bea4466e370",
+          "target": [
+            "hive",
+            "dw_conan_dwd",
+            "dwd_conan_growth_thirdapi_redeem_event_state_da",
+            "first_seen_101_time"
+          ],
+          "native_edge_id": "edge_5a1161da44abebc9"
+        },
+        {
+          "cte_uid": "6bea6c1a8944bcf5ad9a9c05662c7183::cte_03308bea4466e370",
+          "target": [
+            "hive",
+            "dw_conan_dwd",
+            "dwd_conan_growth_thirdapi_redeem_event_state_da",
+            "has_seen_success"
+          ],
+          "native_edge_id": "edge_ba80de96dc88b15f"
+        },
+        {
+          "cte_uid": "6bea6c1a8944bcf5ad9a9c05662c7183::cte_03308bea4466e370",
+          "target": [
+            "hive",
+            "dw_conan_dwd",
+            "dwd_conan_growth_thirdapi_redeem_event_state_da",
+            "first_seen_success_time"
+          ],
+          "native_edge_id": "edge_e6c7677c25afad57"
+        },
+        {
+          "cte_uid": "6bea6c1a8944bcf5ad9a9c05662c7183::cte_03308bea4466e370",
+          "target": [
+            "hive",
+            "dw_conan_dwd",
+            "dwd_conan_growth_thirdapi_redeem_event_state_da",
+            "first_later_refund_time"
+          ],
+          "native_edge_id": "edge_8f5fcbd2912db3da"
+        },
+        {
+          "cte_uid": "6bea6c1a8944bcf5ad9a9c05662c7183::cte_03308bea4466e370",
+          "target": [
+            "hive",
+            "dw_conan_dwd",
+            "dwd_conan_growth_thirdapi_redeem_event_state_da",
+            "is_conflict_refund_locked"
+          ],
+          "native_edge_id": "edge_fdd1fede05850b0a"
+        },
+        {
+          "cte_uid": "6bea6c1a8944bcf5ad9a9c05662c7183::cte_03308bea4466e370",
+          "target": [
+            "hive",
+            "dw_conan_dwd",
+            "dwd_conan_growth_thirdapi_redeem_event_state_da",
+            "first_seen_101_dt"
+          ],
+          "native_edge_id": "edge_277a611594ab95ff"
+        },
+        {
+          "cte_uid": "6bea6c1a8944bcf5ad9a9c05662c7183::cte_03308bea4466e370",
+          "target": [
+            "hive",
+            "dw_conan_dwd",
+            "dwd_conan_growth_thirdapi_redeem_event_state_da",
+            "first_seen_success_dt"
+          ],
+          "native_edge_id": "edge_a7decfb44006c4b0"
+        },
+        {
+          "cte_uid": "6bea6c1a8944bcf5ad9a9c05662c7183::cte_03308bea4466e370",
+          "target": [
+            "hive",
+            "dw_conan_dwd",
+            "dwd_conan_growth_thirdapi_redeem_event_state_da",
+            "first_later_refund_dt"
+          ],
+          "native_edge_id": "edge_0f831e5b42a1b002"
+        },
+        {
+          "cte_uid": "6bea6c1a8944bcf5ad9a9c05662c7183::cte_03308bea4466e370",
+          "target": [
+            "hive",
+            "dw_conan_dwd",
+            "dwd_conan_growth_thirdapi_redeem_event_state_da",
+            "has_unordered_101"
+          ],
+          "native_edge_id": "edge_22b0da2090cf8d50"
+        },
+        {
+          "cte_uid": "6bea6c1a8944bcf5ad9a9c05662c7183::cte_03308bea4466e370",
+          "target": [
+            "hive",
+            "dw_conan_dwd",
+            "dwd_conan_growth_thirdapi_redeem_event_state_da",
+            "has_unordered_refund"
+          ],
+          "native_edge_id": "edge_9b8008a78e1f3f8d"
+        },
+        {
+          "cte_uid": "6bea6c1a8944bcf5ad9a9c05662c7183::cte_03308bea4466e370",
+          "target": [
+            "hive",
+            "dw_conan_dwd",
+            "dwd_conan_growth_thirdapi_redeem_event_state_da",
+            "has_ambiguous_origin"
+          ],
+          "native_edge_id": "edge_d68026734dec3e05"
+        },
+        {
+          "cte_uid": "6bea6c1a8944bcf5ad9a9c05662c7183::cte_03308bea4466e370",
+          "target": [
+            "hive",
+            "dw_conan_dwd",
+            "dwd_conan_growth_thirdapi_redeem_event_state_da",
+            "refund_events"
+          ],
+          "native_edge_id": "edge_63780fc4d0e580cc"
+        },
+        {
+          "cte_uid": "6bea6c1a8944bcf5ad9a9c05662c7183::cte_03308bea4466e370",
+          "target": [
+            "hive",
+            "dw_conan_dwd",
+            "dwd_conan_growth_thirdapi_redeem_event_state_da",
+            "has_seen_other_conflict"
+          ],
+          "native_edge_id": "edge_1a8bb2f3ec34a6b8"
+        },
+        {
+          "cte_uid": "6bea6c1a8944bcf5ad9a9c05662c7183::cte_03308bea4466e370",
+          "target": [
+            "hive",
+            "dw_conan_dwd",
+            "dwd_conan_growth_thirdapi_redeem_event_state_da",
+            "first_seen_other_conflict_time"
+          ],
+          "native_edge_id": "edge_4dc38dfc7d472ede"
+        },
+        {
+          "cte_uid": "6bea6c1a8944bcf5ad9a9c05662c7183::cte_03308bea4466e370",
+          "target": [
+            "hive",
+            "dw_conan_dwd",
+            "dwd_conan_growth_thirdapi_redeem_event_state_da",
+            "first_seen_other_conflict_dt"
+          ],
+          "native_edge_id": "edge_1d4e5e3f8752a5da"
+        },
+        {
+          "cte_uid": "db837eba247db3f229ab9d0200792be4::cte_20dd67ab0cb0f5cc",
+          "target": [
+            "hive",
+            "dw_conan_dwd",
+            "dwd_conan_growth_thirdapi_redeem_conflict_lock_da",
+            "has_seen_101"
+          ],
+          "native_edge_id": "edge_dba888abc55c5ee3"
+        }
+      ]
+    }
+  },
+  "retracted_validation_false_positives": [
+    "将26个Physical输出误当Derived输出而要求其fs_uid",
+    "将18个CTE关系依赖当列值边，或要求项目合同不存储的CTE->M_TABLE REF_TEP"
+  ],
+  "known_out_of_scope_metadata_issue": "40条合法Physical输出target_map缺mapping_basis显式值，落库默认legacy_name；字段端点正确，归因标签未修"
+}

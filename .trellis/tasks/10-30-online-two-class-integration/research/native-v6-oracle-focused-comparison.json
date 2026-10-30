@@ -1,0 +1,440 @@
+{
+  "summary": {
+    "MATCH": 14,
+    "MISMATCH": 0
+  },
+  "rows": [
+    {
+      "audit_id": "557185",
+      "position": 1,
+      "output_name": "user_id",
+      "expected": [
+        "dw_conan_ads.ads_finance_eng_user_season_ma.user_id"
+      ],
+      "actual": [
+        "dw_conan_ads.ads_finance_eng_user_season_ma.user_id"
+      ],
+      "missing": [],
+      "extra": [],
+      "status": "MATCH"
+    },
+    {
+      "audit_id": "557185",
+      "position": 2,
+      "output_name": "goods_type",
+      "expected": [
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_get_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_refund_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.first_level",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.level_weeks",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.order_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.receipt_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_fee",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_weekcount"
+      ],
+      "actual": [
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_get_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_refund_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.first_level",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.level_weeks",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.order_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.receipt_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_fee",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_weekcount"
+      ],
+      "missing": [],
+      "extra": [],
+      "status": "MATCH"
+    },
+    {
+      "audit_id": "557185",
+      "position": 3,
+      "output_name": "stage_level",
+      "expected": [
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_get_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_refund_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.first_level",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.level_weeks",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.order_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.receipt_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_fee",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_weekcount"
+      ],
+      "actual": [
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_get_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_refund_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.first_level",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.level_weeks",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.order_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.receipt_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_fee",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_weekcount"
+      ],
+      "missing": [],
+      "extra": [],
+      "status": "MATCH"
+    },
+    {
+      "audit_id": "557185",
+      "position": 4,
+      "output_name": "sale_method",
+      "expected": [
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_get_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_refund_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.first_level",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.level_weeks",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.order_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.receipt_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_fee",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_weekcount"
+      ],
+      "actual": [
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_get_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_refund_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.first_level",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.level_weeks",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.order_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.receipt_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_fee",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_weekcount"
+      ],
+      "missing": [],
+      "extra": [],
+      "status": "MATCH"
+    },
+    {
+      "audit_id": "557185",
+      "position": 5,
+      "output_name": "weekcount",
+      "expected": [
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_get_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_refund_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.first_level",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.level_weeks",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.order_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.receipt_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_fee",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_weekcount"
+      ],
+      "actual": [
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_get_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_refund_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.first_level",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.level_weeks",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.order_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.receipt_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_fee",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_weekcount"
+      ],
+      "missing": [],
+      "extra": [],
+      "status": "MATCH"
+    },
+    {
+      "audit_id": "557185",
+      "position": 6,
+      "output_name": "fee",
+      "expected": [
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_get_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_refund_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.first_level",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.level_weeks",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.order_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.receipt_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_fee",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_weekcount"
+      ],
+      "actual": [
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_get_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_refund_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.first_level",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.level_weeks",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.order_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.receipt_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_fee",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_weekcount"
+      ],
+      "missing": [],
+      "extra": [],
+      "status": "MATCH"
+    },
+    {
+      "audit_id": "557185",
+      "position": 7,
+      "output_name": "confirm_type",
+      "expected": [
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_get_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_refund_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.first_level",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.level_weeks",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.order_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.receipt_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_fee",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_weekcount"
+      ],
+      "actual": [
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_get_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_refund_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.cur_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.first_level",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_left_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.last_total_weekcount",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.level_weeks",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.order_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.receipt_list",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_fee",
+        "dw_conan_ads.ads_finance_eng_user_season_ma.settled_weekcount"
+      ],
+      "missing": [],
+      "extra": [],
+      "status": "MATCH"
+    },
+    {
+      "audit_id": "557134",
+      "position": 1,
+      "output_name": "user_id",
+      "expected": [
+        "conan_sg.ads__finance_korea_eng_season_user_ma.userid"
+      ],
+      "actual": [
+        "conan_sg.ads__finance_korea_eng_season_user_ma.userid"
+      ],
+      "missing": [],
+      "extra": [],
+      "status": "MATCH"
+    },
+    {
+      "audit_id": "557134",
+      "position": 2,
+      "output_name": "goods_type",
+      "expected": [
+        "conan_sg.ads__finance_korea_eng_season_user_ma.class_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_get_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_refund_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.period_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_fee",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_weekcount"
+      ],
+      "actual": [
+        "conan_sg.ads__finance_korea_eng_season_user_ma.class_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_get_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_refund_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.period_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_fee",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_weekcount"
+      ],
+      "missing": [],
+      "extra": [],
+      "status": "MATCH"
+    },
+    {
+      "audit_id": "557134",
+      "position": 3,
+      "output_name": "level",
+      "expected": [
+        "conan_sg.ads__finance_korea_eng_season_user_ma.class_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_get_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_refund_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.period_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_fee",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_weekcount"
+      ],
+      "actual": [
+        "conan_sg.ads__finance_korea_eng_season_user_ma.class_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_get_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_refund_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.period_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_fee",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_weekcount"
+      ],
+      "missing": [],
+      "extra": [],
+      "status": "MATCH"
+    },
+    {
+      "audit_id": "557134",
+      "position": 4,
+      "output_name": "sale_method",
+      "expected": [
+        "conan_sg.ads__finance_korea_eng_season_user_ma.class_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_get_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_refund_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.period_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_fee",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_weekcount"
+      ],
+      "actual": [
+        "conan_sg.ads__finance_korea_eng_season_user_ma.class_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_get_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_refund_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.period_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_fee",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_weekcount"
+      ],
+      "missing": [],
+      "extra": [],
+      "status": "MATCH"
+    },
+    {
+      "audit_id": "557134",
+      "position": 5,
+      "output_name": "weekcount",
+      "expected": [
+        "conan_sg.ads__finance_korea_eng_season_user_ma.class_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_get_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_refund_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.period_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_fee",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_weekcount"
+      ],
+      "actual": [
+        "conan_sg.ads__finance_korea_eng_season_user_ma.class_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_get_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_refund_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.period_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_fee",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_weekcount"
+      ],
+      "missing": [],
+      "extra": [],
+      "status": "MATCH"
+    },
+    {
+      "audit_id": "557134",
+      "position": 6,
+      "output_name": "fee",
+      "expected": [
+        "conan_sg.ads__finance_korea_eng_season_user_ma.class_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_get_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_refund_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.period_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_fee",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_weekcount"
+      ],
+      "actual": [
+        "conan_sg.ads__finance_korea_eng_season_user_ma.class_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_get_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_refund_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.period_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_fee",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_weekcount"
+      ],
+      "missing": [],
+      "extra": [],
+      "status": "MATCH"
+    },
+    {
+      "audit_id": "557134",
+      "position": 7,
+      "output_name": "type",
+      "expected": [
+        "conan_sg.ads__finance_korea_eng_season_user_ma.class_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_get_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_refund_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.period_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_weekcount"
+      ],
+      "actual": [
+        "conan_sg.ads__finance_korea_eng_season_user_ma.class_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_get_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_refund_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.cur_total_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.last_left_weekcount",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.period_log",
+        "conan_sg.ads__finance_korea_eng_season_user_ma.settled_weekcount"
+      ],
+      "missing": [],
+      "extra": [],
+      "status": "MATCH"
+    }
+  ]
+}

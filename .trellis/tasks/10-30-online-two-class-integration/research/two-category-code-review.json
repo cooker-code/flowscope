@@ -1,0 +1,119 @@
+{
+  "reviewedAt": "2026-10-30",
+  "scope": {
+    "categories": [
+      "leading_underscore_identifiers",
+      "hive_complex_cast_types"
+    ],
+    "excluded": [
+      "PHP",
+      "production Neo4j writes",
+      "full 53-SQL semantic oracle verification"
+    ],
+    "worktrees": {
+      "leadingUnderscore": "/Users/blank/.codex/worktrees/flowscope-leading-underscore-identifiers/flowscope",
+      "complexTypes": "/Users/blank/.codex/worktrees/flowscope-hive-complex-types/flowscope"
+    }
+  },
+  "findings": [
+    {
+      "id": "COMPLEX_TYPE_RECURSION_GUARD",
+      "severity": "high",
+      "initialRisk": "The local ARRAY/STRUCT/MAP parser recursed without consuming sqlparser's private recursion counter, so deeply nested input could grow the Rust call stack.",
+      "resolution": "The complex-type helper now accepts a local depth argument, rejects depth above 128 with ParserError, and has a 129-level rejection regression. The limit is local to the new complex-type path; no global parser behavior was changed.",
+      "status": "resolved"
+    },
+    {
+      "id": "CAST_RELEASE_CONSUMPTION",
+      "severity": "high",
+      "initialRisk": "Using debug_assert! to consume CAST would disappear in release/WASM builds, leaving the parser cursor on CAST.",
+      "resolution": "The implementation uses parser.expect_keyword_is(Keyword::CAST), which consumes CAST in every build profile.",
+      "status": "resolved"
+    },
+    {
+      "id": "STRUCT_OPTIONAL_COLON",
+      "severity": "medium",
+      "initialRisk": "Spark accepts STRUCT<a STRING>; treating it as malformed would reject valid original SQL.",
+      "resolution": "The parser accepts both named-field forms, STRUCT<a: STRING> and STRUCT<a STRING>, with a direct unit regression.",
+      "status": "resolved"
+    },
+    {
+      "id": "DUPLICATE_LATERAL_VIEW_OUTPUT_ALIAS",
+      "severity": "high",
+      "initialRisk": "Two LATERAL VIEW clauses can syntactically supply the same output alias. sqlparser stores both clauses without uniqueness validation, while StatementContext currently inserts the alias into a HashMap and silently overwrites the earlier UDTF producer with the later one.",
+      "minimalCase": "SELECT r.goods FROM t LATERAL VIEW explode(a) e1 AS r LATERAL VIEW explode(b) e2 AS r",
+      "resolution": "StatementContext now removes the first binding and records the alias in a scope-local ambiguity set when a duplicate is registered. Qualified expansion checks real relations first and then the ambiguity set, so neither UDTF producer is selected. The visitor emits an UNRESOLVED_REFERENCE error, and the regression asserts that r.goods has neither a nor b as a physical root.",
+      "status": "resolved"
+    }
+  ],
+  "implementationAssessment": {
+    "leadingUnderscore": {
+      "decision": "approve_for_integration",
+      "evidence": [
+        "FlowscopeHiveDialect::is_identifier_start adds only ch == '_' and delegates all other characters to upstream HiveDialect.",
+        "No SQL text rewrite or cross-dialect Generic fallback is present.",
+        "Integration regression checks CTE/table/column aliases, physical value roots, WindowControl roles, and explicit INSERT target mapping."
+      ]
+    },
+    "complexTypes": {
+      "decision": "approve_for_integration",
+      "evidence": [
+        "parse_prefix intercepts only CAST and delegates CAST expression parsing to the normal Hive parser.",
+        "ARRAY/STRUCT/MAP are emitted using existing sqlparser DataType AST variants; no full-statement Generic fallback or SQL text replacement is present.",
+        "Malformed bracket, MAP arity, and missing field-type inputs are rejected; nested >> handling is covered.",
+        "Integration regression checks CAST value lineage, WindowControl roles, and schema-backed INSERT target mapping."
+      ]
+    }
+  },
+  "verification": {
+    "leadingUnderscore": [
+      {
+        "command": "git diff --check && cargo fmt --all --check",
+        "result": "passed"
+      },
+      {
+        "command": "cargo test -p flowscope-core --test leading_underscore_lineage --locked",
+        "result": "passed (2 tests)"
+      },
+      {
+        "command": "cargo test -p flowscope-core dialect_ext::flowscope_hive::tests --lib --locked",
+        "result": "passed (12 selected tests)"
+      }
+    ],
+    "complexTypes": [
+      {
+        "command": "git diff --check && cargo fmt --all --check",
+        "result": "passed"
+      },
+      {
+        "command": "cargo test -p flowscope-core --test complex_types_lineage --locked",
+        "result": "passed (1 test)"
+      },
+      {
+        "command": "cargo test -p flowscope-core dialect_ext::flowscope_hive::tests --lib --locked",
+        "result": "passed (14 selected tests)"
+      }
+    ]
+  },
+  "mergePrerequisites": [
+    "Commit each reviewed worktree and integrate their non-overlapping dialect methods and tests into the integration worktree.",
+    "Run the combined native and WASM validation from the final integration worktree, including the original 53 non-PHP SQL manifest; 557564 must be rechecked because it crosses both categories.",
+    "Use the separate raw-SQL oracle for full field-level semantic acceptance; this review does not replace that acceptance.",
+    "Keep production Neo4j unchanged."
+  ],
+  "insertPositionValidationContractReview": {
+    "status": "reviewed; graph acceptance must distinguish native output representation",
+    "evidence": [
+      "isolated-graph/v6-insert-position-gap.json records 496 schema positions, 470 Derived-output matches, and 26 parser target-Physical outputs (557564 positions 1-18 and 557497 positions 1-8).",
+      "replay-native-v6/557564.json represents all 18 target positions as type=column with full target qualifiedName and insertTarget metadata; they have no output Derived fs_uid.",
+      "src/batch/load_col_lineage.py only closes a target-Physical parser node when an incoming derivation/data_flow edge starts at valid_derived_col_ids (line 690), not when it starts at a CTE/table node."
+    ],
+    "perPositionContract": {
+      "derivedOutput": "For an output column materialized as Derived, require that exact output fs_uid to have one direct target_map edge to the Physical column declared by insertTarget position.",
+      "physicalOutput": "For an output column materialized as target Physical, do not invent or require an output Derived fs_uid. Require the parser target Physical four-part identity to equal the insertTarget position; then validate each incoming edge whose from node is a valid Derived column has a direct target_map from that source fs_uid to that Physical target. Multiple such source maps for one position are valid.",
+      "nonColumnRelationDependency": "An incoming CTE/table node is a relation-level dependency and is not a column-value producer. It must be validated through CTE/table relations, not target_map, and must never be converted into a Derived fs_uid."
+    },
+    "guardHealthExample": "In 557564, cte_03308bea4466e370 (guard_health, type=cte) has relation-level data_flow to the target table and derivation CAST(NULL...) edges to target Physical output columns. It is not a column node and the loader deliberately excludes it from line-690 target-map generation; treating those 18 edges as missing target maps is a false positive.",
+    "mappingBasisCaveat": "The physical-output branch at loader line 690 does not set mapping_basis. _CY_DERIVED_TO_PHYSICAL therefore persists its direct, position-backed maps as legacy_name by coalesce default. legacy_name count cannot be used to reject these edges or infer a missing position map. If proof provenance itself must be enforced by relationship property, set mapping_basis=insert_position in that branch and rerun a fresh isolated graph."
+  }
+}

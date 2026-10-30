@@ -1,0 +1,16 @@
+{
+  "id": "online-two-class-integration",
+  "title": "当天失败SQL两类兼容与字段血缘验收",
+  "status": "completed",
+  "creator": "wangliangbj01",
+  "assignee": "wangliangbj01",
+  "createdAt": "2026-10-30",
+  "base_branch": "master",
+  "branch": "codex/online-two-class-integration",
+  "children": [
+    "10-30-leading-underscore-identifiers",
+    "10-30-hive-complex-types"
+  ],
+  "notes": "PHP排除，其他四类保留；原SQL全量回测与血缘验收后合master。生产不改。；V6原SQL44成功/9明确错误、隔离图正规两轮回测通过，代码已合FlowScope master 64b9bbb2；生产未改。",
+  "completedAt": "2026-10-30"
+}
