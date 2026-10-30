@@ -1,0 +1,14 @@
+{
+  "id": "leading-underscore-identifiers",
+  "name": "leading-underscore-identifiers",
+  "title": "前导下划线标识符兼容",
+  "status": "in_progress",
+  "creator": "wangliangbj01",
+  "assignee": "wangliangbj01",
+  "createdAt": "2026-10-30",
+  "branch": "codex/leading-underscore-identifiers",
+  "base_branch": "master",
+  "worktree_path": "/Users/blank/.codex/worktrees/flowscope-leading-underscore-identifiers/flowscope",
+  "parent": null,
+  "notes": "用户已明确授权两类独立worktree并行修复、真实SQL全量回测、字段血缘验收后合master。PHP排除，其余四类只保留清单，生产不改。"
+}

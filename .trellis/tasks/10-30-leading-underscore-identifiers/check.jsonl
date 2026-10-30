@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/flowscope-core/backend/edge-types.md", "reason": "字段值与控制依赖契约"}
+{"file": ".trellis/spec/flowscope-core/backend/hive-compat-preprocess.md", "reason": "Hive预处理边界"}
+{"file": ".trellis/spec/flowscope-core/backend/analyze-result-contract.md", "reason": "目标和物理来源合同"}
+{"file": ".trellis/spec/guides/fix-location-thinking-guide.md", "reason": "修改正式Core避免临时绕过"}

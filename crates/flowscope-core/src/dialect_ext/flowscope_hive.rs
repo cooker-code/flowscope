@@ -8,6 +8,7 @@
 //!
 //! | Feature                       | Reason                                   |
 //! |-------------------------------|------------------------------------------|
+//! | leading `_` identifiers        | Spark/Hive aliases and CTEs may start `_`|
 //! | `supports_struct_literal`     | `STRUCT(col AS name)` field naming       |
 //! | `parse_infix` (DIV operator)  | `a DIV b` integer division               |
 //! | `is_table_alias` (OFFSET)     | Hive has no OFFSET keyword, so `offset`  |
@@ -36,7 +37,13 @@ impl Dialect for FlowscopeHiveDialect {
     }
 
     fn is_identifier_start(&self, ch: char) -> bool {
-        self.inner.is_identifier_start(ch)
+        // Spark/Hive regular identifiers allow `_` as their first character.
+        // sqlparser-rs 0.61's HiveDialect delegates this character to a
+        // punctuation token, which makes aliases such as `__semantic_tuomin`
+        // fail before the analyzer receives the original SQL. Keep every
+        // other start-character decision delegated to the upstream dialect:
+        // this deliberately does not make digits, quotes, or keywords legal.
+        ch == '_' || self.inner.is_identifier_start(ch)
     }
 
     fn is_identifier_part(&self, ch: char) -> bool {
@@ -218,5 +225,50 @@ mod tests {
             "SELECT * FROM t CROSS JOIN (SELECT 1) select"
         )
         .is_err());
+    }
+
+    // ── Leading underscore identifier tests ────────────────────────────────
+
+    #[test]
+    fn leading_underscore_identifiers_parse_in_hive_positions() {
+        assert!(parse_ok(
+            "WITH _cte AS (SELECT _src._value AS _value FROM source_table AS _src) \
+             SELECT _cte._value AS _result FROM _cte"
+        ));
+    }
+
+    #[test]
+    fn upstream_hive_still_rejects_leading_underscore_identifier() {
+        assert!(Parser::parse_sql(
+            &HiveDialect {},
+            "SELECT _src._value FROM source_table AS _src"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn leading_underscore_override_keeps_invalid_identifier_boundaries() {
+        // The override is intentionally only for a leading underscore. All
+        // existing numeric and Unicode behavior remains delegated upstream.
+        let dialect = FlowscopeHiveDialect::default();
+        let upstream = HiveDialect {};
+        assert!(dialect.is_identifier_start('_'));
+        assert_eq!(
+            dialect.is_identifier_start('1'),
+            upstream.is_identifier_start('1')
+        );
+        assert_eq!(
+            dialect.is_identifier_start('中'),
+            upstream.is_identifier_start('中')
+        );
+        assert_eq!(
+            dialect.is_identifier_part('_'),
+            upstream.is_identifier_part('_')
+        );
+        assert_eq!(
+            Parser::parse_sql(&dialect, "SELECT * FROM source_table AS select").is_ok(),
+            Parser::parse_sql(&upstream, "SELECT * FROM source_table AS select").is_ok(),
+            "the underscore override must not change keyword handling"
+        );
     }
 }
