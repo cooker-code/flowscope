@@ -8,6 +8,28 @@
 > （`/api/analyze`、wasm、`flowscope-cli`、`flowscope-react`、VS Code 扩展、
 > 任何 Rust 二级消费者）在 `dialect=hive` 时全部自动受益。
 
+### Schema DDL loading is a separate input contract
+
+`flowscope-cli::schema::load_schema_from_ddl(path, Dialect::Hive)` parses schema
+files directly with native `HiveDialect`, outside the workload preprocessing
+pipeline. Do not feed schema DDL through `analyze()`'s CREATE-removal step or
+switch it to Generic merely to retain the statements.
+
+- Preserve declared ordinary columns, then append partition columns in declared
+  order, without duplicate names. Source-table partition fields must remain
+  available for validation. INSERT mapping excludes static partitions separately.
+- sqlparser 0.61's external-table branch lacks table-level COMMENT parsing.
+  Only after native parsing fails, remove one syntactically complete table-level
+  `COMMENT '...'` following the external table's column list, then retry Hive.
+  All partition/storage/location/properties clauses still go through the parser.
+- Malformed comments or unsupported suffixes remain errors. Do not truncate the
+  entire DDL after the column list. Column comments and quoted properties must
+  not be mistaken for structural delimiters.
+- Schema tests cover ordinary/external tables, quoted names, column order,
+  partition columns, multiple tables, no trailing semicolon and invalid suffixes.
+  Real SQL acceptance must use original schema input and verify output mappings,
+  not just absence of parse errors.
+
 ---
 
 ## 为什么需要预处理？
