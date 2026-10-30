@@ -77,3 +77,6 @@ crates/flowscope-cli/embedded-app/
 flowscope-h5-*.zip
 flowscope-linux-*
 target-zigbuild/
+/test-sql/
+/test/
+/.codex/hooks/__pycache__/
