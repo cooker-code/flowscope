@@ -143,6 +143,9 @@ fn sql_export_preserves_statement_scoped_filters_and_aggregations() {
 
     let result = AnalyzeResult {
         sql_type: SqlType::Select,
+        insert_type: None,
+        target_table: None,
+        source_tables: vec![],
         statements: vec![
             StatementMeta {
                 statement_index: 0,
@@ -241,6 +244,9 @@ fn sql_export_reindexes_statement_references_and_preserves_occurrence_spans() {
 
     let result = AnalyzeResult {
         sql_type: SqlType::Select,
+        insert_type: None,
+        target_table: None,
+        source_tables: vec![],
         statements: vec![StatementMeta {
             statement_index: 7,
             statement_type: "SELECT".to_string(),

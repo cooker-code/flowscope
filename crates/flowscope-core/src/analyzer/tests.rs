@@ -1591,3 +1591,63 @@ fn test_conflicting_insert_orders_leave_mapping_unresolved() {
         })
     }));
 }
+
+#[test]
+fn test_nested_substring_keeps_joined_phone_dependency() {
+    let mut request = make_request(
+        "WITH profile AS (SELECT user_id FROM dw.profile) \
+         INSERT OVERWRITE TABLE dw.target \
+         SELECT concat(substr(u.phone,1,3),'****',substr(u.phone,8)) AS masked, \
+                default.encrypt('SHA-256', u.phone) AS encrypted \
+         FROM profile m LEFT JOIN dw.accounts u ON m.user_id = u.user_id",
+    );
+    request.dialect = Dialect::Hive;
+    let result = analyze(&request);
+    assert!(!result.summary.has_errors, "{:?}", result.issues);
+    let phone = result
+        .nodes
+        .iter()
+        .find(|n| n.qualified_name.as_deref() == Some("dw.accounts.phone"))
+        .unwrap();
+    for name in ["masked", "encrypted"] {
+        let output = result
+            .nodes
+            .iter()
+            .find(|n| n.node_type == NodeType::Column && n.label.as_ref() == name)
+            .unwrap();
+        let edges: Vec<_> = result
+            .edges
+            .iter()
+            .filter(|e| e.from == phone.id && e.to == output.id)
+            .collect();
+        assert_eq!(edges.len(), 1, "{name} should depend on phone exactly once");
+        assert_eq!(edges[0].edge_type, EdgeType::Derivation);
+        assert!(edges[0].expression.is_some());
+    }
+}
+
+#[test]
+fn test_substring_start_and_length_are_value_inputs() {
+    let mut request =
+        make_request("SELECT substr(a.phone,a.start_pos,a.length) AS masked FROM dw.accounts a");
+    request.dialect = Dialect::Hive;
+    let result = analyze(&request);
+    assert!(!result.summary.has_errors, "{:?}", result.issues);
+    let out = result
+        .nodes
+        .iter()
+        .find(|n| n.label.as_ref() == "masked")
+        .unwrap();
+    for name in ["phone", "start_pos", "length"] {
+        let qn = format!("dw.accounts.{name}");
+        let source = result
+            .nodes
+            .iter()
+            .find(|n| n.qualified_name.as_deref() == Some(qn.as_str()))
+            .unwrap();
+        assert!(result
+            .edges
+            .iter()
+            .any(|e| e.from == source.id && e.to == out.id));
+    }
+}
