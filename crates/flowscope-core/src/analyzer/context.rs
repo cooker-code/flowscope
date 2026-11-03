@@ -37,26 +37,22 @@ pub(crate) struct RelationInstance {
     pub(crate) node_id: Arc<str>,
 }
 
-/// A Hive LATERAL VIEW output column alias bound to the value expression fed
-/// into a supported UDTF such as `explode` or `posexplode`.
-///
-/// The alias is scoped to one SELECT. It is not a physical relation: resolving
-/// `r.goods` through this binding must continue from the UDTF input (for
-/// example `result_rows`) to its existing CTE/table roots.
+/// A virtual UDTF output, kept separate from physical relations.
 #[derive(Debug, Clone)]
 pub(crate) struct LateralViewBinding {
+    pub(crate) table_alias: String,
+    pub(crate) column_alias: String,
     pub(crate) sources: Vec<ColumnRef>,
+    pub(crate) expression: String,
 }
 
-/// Result of registering a Hive LATERAL VIEW output alias in a SELECT scope.
-/// A real relation always keeps its existing name; repeated UDTF output names
-/// are not resolvable because selecting `r.field` would otherwise depend on
-/// registration order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LateralViewBindingRegistration {
-    Registered,
-    ShadowedByRelation,
-    AmbiguousDuplicate,
+/// A recognized but invalid virtual reference must never fall back to an
+/// implied physical column. Ambiguity is diagnosed at use, not declaration.
+pub(crate) enum LateralViewResolution<'a> {
+    NotFound,
+    Resolved(&'a LateralViewBinding),
+    Ambiguous,
+    UnknownColumn,
 }
 
 /// Represents a single scope level for column resolution.
@@ -81,14 +77,9 @@ pub(crate) struct Scope {
     /// Scope-local output columns for subquery/CTE aliases materialized in this scope.
     /// These shadow statement-global CTE definitions when alias names are reused.
     pub(crate) subquery_columns: HashMap<String, Vec<OutputColumn>>,
-    /// Hive LATERAL VIEW output column alias -> input value sources. Kept
-    /// separate from relation aliases so a UDTF output is never classified as
-    /// a physical table or a regular FROM relation.
-    pub(crate) lateral_view_bindings: HashMap<String, LateralViewBinding>,
-    /// Repeated LATERAL VIEW output aliases in this SELECT. They must remain
-    /// unresolved rather than silently retaining either the earlier or later
-    /// binding in `lateral_view_bindings`.
-    pub(crate) ambiguous_lateral_view_aliases: HashSet<String>,
+    /// All declared outputs, including duplicate names and constant inputs.
+    /// Keeping candidates prevents either registration order from winning.
+    pub(crate) lateral_view_bindings: Vec<LateralViewBinding>,
     /// User-visible relation names declared by this SELECT's FROM/JOIN list.
     ///
     /// Anonymous derived relations receive internal names, so reserve explicit
@@ -748,71 +739,83 @@ impl StatementContext {
         }
     }
 
-    /// Register a supported LATERAL VIEW output alias. A real table/CTE alias
-    /// in the same scope wins, preventing a UDTF alias from stealing `r.col`
-    /// resolution from an actual relation named `r`.
-    pub(crate) fn register_lateral_view_binding(
-        &mut self,
-        alias: String,
-        sources: Vec<ColumnRef>,
-    ) -> LateralViewBindingRegistration {
-        let Some(scope) = self.current_scope_mut() else {
-            return LateralViewBindingRegistration::AmbiguousDuplicate;
-        };
-        if scope.aliases.contains_key(&alias)
-            || scope.tables.contains_key(&alias)
-            || scope.alias_instances.contains_key(&alias)
-        {
-            return LateralViewBindingRegistration::ShadowedByRelation;
+    pub(crate) fn register_lateral_view_binding(&mut self, binding: LateralViewBinding) {
+        if let Some(scope) = self.current_scope_mut() {
+            scope.lateral_view_bindings.push(binding);
         }
-        if scope.ambiguous_lateral_view_aliases.contains(&alias) {
-            return LateralViewBindingRegistration::AmbiguousDuplicate;
-        }
-        if scope.lateral_view_bindings.contains_key(&alias) {
-            scope.lateral_view_bindings.remove(&alias);
-            scope.ambiguous_lateral_view_aliases.insert(alias);
-            return LateralViewBindingRegistration::AmbiguousDuplicate;
-        }
-        scope
-            .lateral_view_bindings
-            .insert(alias, LateralViewBinding { sources });
-        LateralViewBindingRegistration::Registered
     }
 
-    /// Expands a qualified LATERAL VIEW output reference (`r.field`) to the
-    /// sources of the UDTF input. Unqualified identifiers intentionally do not
-    /// use this path: a same-named physical column must keep normal resolution.
-    pub(crate) fn expand_lateral_view_sources(&self, source: &ColumnRef) -> Option<Vec<ColumnRef>> {
-        let alias = source.table.as_deref()?;
-        for scope in self.scope_stack.iter().rev() {
-            if scope.aliases.contains_key(alias)
-                || scope.tables.contains_key(alias)
-                || scope.alias_instances.contains_key(alias)
-            {
-                return None;
-            }
-            if scope.ambiguous_lateral_view_aliases.contains(alias) {
-                return None;
-            }
-            if let Some(binding) = scope.lateral_view_bindings.get(alias) {
-                return Some(binding.sources.clone());
-            }
-        }
-        None
-    }
-
-    /// Returns a preceding LATERAL VIEW output binding for use only while a
-    /// later LATERAL VIEW is being registered. Projection resolution must not
-    /// call this for unqualified identifiers: a same-named physical column
-    /// remains an ordinary source there.
-    pub(crate) fn expand_lateral_view_unqualified_alias(
+    /// Resolve table-qualified outputs (`e.value`), bare outputs (`value`),
+    /// and the existing struct-element form (`value.member`). Real relation
+    /// qualifiers win. Bare names never escape their SELECT scope.
+    pub(crate) fn resolve_lateral_view_binding(
         &self,
-        alias: &str,
-    ) -> Option<Vec<ColumnRef>> {
-        self.current_scope()?
-            .lateral_view_bindings
-            .get(alias)
-            .map(|binding| binding.sources.clone())
+        source: &ColumnRef,
+    ) -> LateralViewResolution<'_> {
+        for scope in self.scope_stack.iter().rev() {
+            let qualifier = source.table.as_deref();
+            if let Some(q) = qualifier {
+                if scope
+                    .aliases
+                    .keys()
+                    .chain(scope.tables.keys())
+                    .chain(scope.alias_instances.keys())
+                    .any(|name| name.eq_ignore_ascii_case(q))
+                {
+                    return LateralViewResolution::NotFound;
+                }
+            }
+            let (table_qualifier, member_output) = qualifier
+                .and_then(|q| q.split_once('.'))
+                .map_or((qualifier, None), |(table, output)| {
+                    (
+                        Some(table),
+                        Some(output.split('.').next().unwrap_or(output)),
+                    )
+                });
+            if table_qualifier.is_some_and(|q| {
+                scope
+                    .aliases
+                    .keys()
+                    .chain(scope.tables.keys())
+                    .chain(scope.alias_instances.keys())
+                    .any(|name| name.eq_ignore_ascii_case(q))
+            }) {
+                return LateralViewResolution::NotFound;
+            }
+            let table_known = table_qualifier.is_some_and(|q| {
+                scope
+                    .lateral_view_bindings
+                    .iter()
+                    .any(|b| b.table_alias.eq_ignore_ascii_case(q))
+            });
+            let mut candidates = scope.lateral_view_bindings.iter().filter(|binding| {
+                if table_known {
+                    table_qualifier.is_some_and(|q| binding.table_alias.eq_ignore_ascii_case(q))
+                        && binding
+                            .column_alias
+                            .eq_ignore_ascii_case(member_output.unwrap_or(&source.column))
+                } else {
+                    binding
+                        .column_alias
+                        .eq_ignore_ascii_case(qualifier.unwrap_or(&source.column))
+                }
+            });
+            if let Some(binding) = candidates.next() {
+                return if candidates.next().is_some() {
+                    LateralViewResolution::Ambiguous
+                } else {
+                    LateralViewResolution::Resolved(binding)
+                };
+            }
+            if table_known {
+                return LateralViewResolution::UnknownColumn;
+            }
+            if qualifier.is_none() {
+                break;
+            }
+        }
+        LateralViewResolution::NotFound
     }
 
     /// Resolves `struct_output.member` when its first identifier is not a

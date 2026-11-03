@@ -1,0 +1,50 @@
+[
+  {
+    "path": "crates/flowscope-core/src/analyzer/statements.rs",
+    "unchangedFromHead": true
+  },
+  {
+    "path": "crates/flowscope-core/src/linter/rules/am_001.rs",
+    "unchangedFromHead": true
+  },
+  {
+    "path": "crates/flowscope-core/src/linter/rules/am_002.rs",
+    "unchangedFromHead": true
+  },
+  {
+    "path": "crates/flowscope-core/src/linter/rules/am_003.rs",
+    "unchangedFromHead": true
+  },
+  {
+    "path": "crates/flowscope-core/src/linter/rules/cv_005.rs",
+    "unchangedFromHead": true
+  },
+  {
+    "path": "crates/flowscope-core/src/linter/rules/cv_007.rs",
+    "unchangedFromHead": true
+  },
+  {
+    "path": "crates/flowscope-core/src/linter/rules/lt_002.rs",
+    "unchangedFromHead": true
+  },
+  {
+    "path": "crates/flowscope-core/src/linter/rules/lt_006.rs",
+    "unchangedFromHead": true
+  },
+  {
+    "path": "crates/flowscope-core/src/linter/rules/lt_012.rs",
+    "unchangedFromHead": true
+  },
+  {
+    "path": "crates/flowscope-core/src/linter/rules/lt_014.rs",
+    "unchangedFromHead": true
+  },
+  {
+    "path": "crates/flowscope-core/src/linter/rules/st_008.rs",
+    "unchangedFromHead": true
+  },
+  {
+    "path": "crates/flowscope-core/tests/lineage_engine.rs",
+    "unchangedFromHead": true
+  }
+]

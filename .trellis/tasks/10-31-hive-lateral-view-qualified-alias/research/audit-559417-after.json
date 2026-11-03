@@ -1,0 +1,1856 @@
+{
+  "sqlFingerprint": "5844b10927cc7add30166e27693d8598fcd65cc1d0fc9aafccd6b3403303ee69",
+  "sqlFingerprintVersion": "flowscope-sql-v1",
+  "sqlType": "insert",
+  "insertType": "overwrite",
+  "targetTable": {
+    "id": "table_29cc580e8c421365",
+    "label": "dwd_conan_course_pedia_attend_da",
+    "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_da",
+    "canonicalName": {
+      "schema": "dw_conan_dwd",
+      "name": "dwd_conan_course_pedia_attend_da"
+    },
+    "type": "table"
+  },
+  "sourceTables": [
+    {
+      "id": "table_29cc580e8c421365",
+      "label": "dwd_conan_course_pedia_attend_da",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_da",
+      "canonicalName": {
+        "schema": "dw_conan_dwd",
+        "name": "dwd_conan_course_pedia_attend_da"
+      },
+      "type": "table"
+    },
+    {
+      "id": "table_f1feca9450773bb7",
+      "label": "dwd_conan_course_pedia_attend_di",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_di",
+      "canonicalName": {
+        "schema": "dw_conan_dwd",
+        "name": "dwd_conan_course_pedia_attend_di"
+      },
+      "type": "table"
+    }
+  ],
+  "statements": [
+    {
+      "statementIndex": 0,
+      "statementType": "INSERT",
+      "sourceName": ".trellis/tasks/10-31-hive-lateral-view-qualified-alias/research/audit-559417.sql",
+      "span": {
+        "start": 0,
+        "end": 1843
+      },
+      "joinCount": 0,
+      "complexityScore": 24
+    }
+  ],
+  "nodes": [
+    {
+      "id": "table_29cc580e8c421365",
+      "type": "table",
+      "label": "dwd_conan_course_pedia_attend_da",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_da",
+      "canonicalName": {
+        "schema": "dw_conan_dwd",
+        "name": "dwd_conan_course_pedia_attend_da"
+      },
+      "statementIds": [
+        0
+      ],
+      "nameSpans": [
+        {
+          "start": 36,
+          "end": 68
+        },
+        {
+          "start": 1489,
+          "end": 1521
+        }
+      ],
+      "metadata": {
+        "occurrenceSourceNames": [
+          ".trellis/tasks/10-31-hive-lateral-view-qualified-alias/research/audit-559417.sql",
+          ".trellis/tasks/10-31-hive-lateral-view-qualified-alias/research/audit-559417.sql"
+        ],
+        "occurrenceSpans": [
+          {
+            "start": 36,
+            "end": 68
+          },
+          {
+            "start": 1489,
+            "end": 1521
+          }
+        ],
+        "occurrenceStatementIds": [
+          0,
+          0
+        ],
+        "statementFilters": {
+          "0": [
+            {
+              "expression": "dt = date_sub('__ph__', 1)",
+              "clauseType": "WHERE"
+            },
+            {
+              "expression": "tmp.index_1 = tmp1.index_1",
+              "clauseType": "WHERE"
+            }
+          ]
+        }
+      },
+      "filters": [
+        {
+          "expression": "dt = date_sub('__ph__', 1)",
+          "clauseType": "WHERE"
+        },
+        {
+          "expression": "tmp.index_1 = tmp1.index_1",
+          "clauseType": "WHERE"
+        }
+      ]
+    },
+    {
+      "id": "derived_7cbd098578814612",
+      "type": "cte",
+      "label": "res",
+      "qualifiedName": "res",
+      "canonicalName": {
+        "name": "res"
+      },
+      "statementIds": [
+        0
+      ],
+      "span": {
+        "start": 1791,
+        "end": 1794
+      },
+      "nameSpans": [
+        {
+          "start": 1791,
+          "end": 1794
+        }
+      ],
+      "metadata": {
+        "occurrenceSourceNames": [
+          ".trellis/tasks/10-31-hive-lateral-view-qualified-alias/research/audit-559417.sql"
+        ],
+        "occurrenceSpans": [
+          {
+            "start": 1791,
+            "end": 1794
+          }
+        ],
+        "occurrenceStatementIds": [
+          0
+        ]
+      }
+    },
+    {
+      "id": "table_f1feca9450773bb7",
+      "type": "table",
+      "label": "dwd_conan_course_pedia_attend_di",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_di",
+      "canonicalName": {
+        "schema": "dw_conan_dwd",
+        "name": "dwd_conan_course_pedia_attend_di"
+      },
+      "statementIds": [
+        0
+      ],
+      "nameSpans": [
+        {
+          "start": 1095,
+          "end": 1127
+        }
+      ],
+      "metadata": {
+        "occurrenceSourceNames": [
+          ".trellis/tasks/10-31-hive-lateral-view-qualified-alias/research/audit-559417.sql"
+        ],
+        "occurrenceSpans": [
+          {
+            "start": 1095,
+            "end": 1127
+          }
+        ],
+        "occurrenceStatementIds": [
+          0
+        ],
+        "statementFilters": {
+          "0": [
+            {
+              "expression": "dt = '__ph__'",
+              "clauseType": "WHERE"
+            }
+          ]
+        }
+      },
+      "filters": [
+        {
+          "expression": "dt = '__ph__'",
+          "clauseType": "WHERE"
+        }
+      ]
+    },
+    {
+      "id": "column_e948a8c4d400d011",
+      "type": "column",
+      "label": "user_id",
+      "canonicalName": {
+        "name": "user_id"
+      },
+      "statementIds": [
+        0
+      ],
+      "metadata": {
+        "windowControlStatus": "complete"
+      }
+    },
+    {
+      "id": "column_70736de6347e554e",
+      "type": "column",
+      "label": "user_id",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_di.user_id",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_di",
+        "name": "user_id"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_931847803f42d5d8",
+      "type": "column",
+      "label": "package_id",
+      "canonicalName": {
+        "name": "package_id"
+      },
+      "statementIds": [
+        0
+      ],
+      "metadata": {
+        "windowControlStatus": "complete"
+      }
+    },
+    {
+      "id": "column_495c1bb1c52cf6a4",
+      "type": "column",
+      "label": "package_id",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_di.package_id",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_di",
+        "name": "package_id"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_62f7c7cbf6588054",
+      "type": "column",
+      "label": "course_id",
+      "canonicalName": {
+        "name": "course_id"
+      },
+      "statementIds": [
+        0
+      ],
+      "metadata": {
+        "windowControlStatus": "complete"
+      }
+    },
+    {
+      "id": "column_24b46a8f5295d691",
+      "type": "column",
+      "label": "course_id",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_di.course_id",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_di",
+        "name": "course_id"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_227be0dd963d3aff",
+      "type": "column",
+      "label": "is_attend",
+      "canonicalName": {
+        "name": "is_attend"
+      },
+      "statementIds": [
+        0
+      ],
+      "metadata": {
+        "windowControlStatus": "complete"
+      }
+    },
+    {
+      "id": "column_2856921f463515c6",
+      "type": "column",
+      "label": "is_attend",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_di.is_attend",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_di",
+        "name": "is_attend"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_e0343dc714a72cb6",
+      "type": "column",
+      "label": "is_finish",
+      "canonicalName": {
+        "name": "is_finish"
+      },
+      "statementIds": [
+        0
+      ],
+      "metadata": {
+        "windowControlStatus": "complete"
+      }
+    },
+    {
+      "id": "column_1fdffa39971da018",
+      "type": "column",
+      "label": "is_finish",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_di.is_finish",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_di",
+        "name": "is_finish"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_3f7d12f66857e39d",
+      "type": "column",
+      "label": "is_review",
+      "canonicalName": {
+        "name": "is_review"
+      },
+      "statementIds": [
+        0
+      ],
+      "metadata": {
+        "windowControlStatus": "complete"
+      }
+    },
+    {
+      "id": "column_1f8fef4dfba0e6fd",
+      "type": "column",
+      "label": "is_review",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_di.is_review",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_di",
+        "name": "is_review"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_9f188cb331b85869",
+      "type": "column",
+      "label": "first_attend_tp",
+      "canonicalName": {
+        "name": "first_attend_tp"
+      },
+      "statementIds": [
+        0
+      ],
+      "metadata": {
+        "windowControlStatus": "complete"
+      }
+    },
+    {
+      "id": "column_96048c3ad806ff2d",
+      "type": "column",
+      "label": "first_attend_tp",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_di.first_attend_tp",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_di",
+        "name": "first_attend_tp"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_98c702d4ba655043",
+      "type": "column",
+      "label": "first_attend_dt",
+      "canonicalName": {
+        "name": "first_attend_dt"
+      },
+      "statementIds": [
+        0
+      ],
+      "metadata": {
+        "windowControlStatus": "complete"
+      }
+    },
+    {
+      "id": "column_be7016fcc3a6a66a",
+      "type": "column",
+      "label": "first_attend_dt",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_di.first_attend_dt",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_di",
+        "name": "first_attend_dt"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_96fa8b85581bb0db",
+      "type": "column",
+      "label": "last_attend_tp",
+      "canonicalName": {
+        "name": "last_attend_tp"
+      },
+      "statementIds": [
+        0
+      ],
+      "metadata": {
+        "windowControlStatus": "complete"
+      }
+    },
+    {
+      "id": "column_655a49f2b8120fb6",
+      "type": "column",
+      "label": "last_attend_tp",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_di.last_attend_tp",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_di",
+        "name": "last_attend_tp"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_db5f816345046cf2",
+      "type": "column",
+      "label": "last_attend_dt",
+      "canonicalName": {
+        "name": "last_attend_dt"
+      },
+      "statementIds": [
+        0
+      ],
+      "metadata": {
+        "windowControlStatus": "complete"
+      }
+    },
+    {
+      "id": "column_a5e4f0574c8ce0ab",
+      "type": "column",
+      "label": "last_attend_dt",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_di.last_attend_dt",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_di",
+        "name": "last_attend_dt"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_f161d6d049e07b85",
+      "type": "column",
+      "label": "first_review_tp",
+      "canonicalName": {
+        "name": "first_review_tp"
+      },
+      "statementIds": [
+        0
+      ],
+      "metadata": {
+        "windowControlStatus": "complete"
+      }
+    },
+    {
+      "id": "column_78de509685541f3b",
+      "type": "column",
+      "label": "first_review_tp",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_di.first_review_tp",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_di",
+        "name": "first_review_tp"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_a86f88c38e8e9707",
+      "type": "column",
+      "label": "first_review_dt",
+      "canonicalName": {
+        "name": "first_review_dt"
+      },
+      "statementIds": [
+        0
+      ],
+      "metadata": {
+        "windowControlStatus": "complete"
+      }
+    },
+    {
+      "id": "column_7105c5e730a52f25",
+      "type": "column",
+      "label": "first_review_dt",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_di.first_review_dt",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_di",
+        "name": "first_review_dt"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_df3168b34d92af30",
+      "type": "column",
+      "label": "first_finish_tp",
+      "canonicalName": {
+        "name": "first_finish_tp"
+      },
+      "statementIds": [
+        0
+      ],
+      "metadata": {
+        "windowControlStatus": "complete"
+      }
+    },
+    {
+      "id": "column_d5c41c2ba5eb6408",
+      "type": "column",
+      "label": "first_finish_tp",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_di.first_finish_tp",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_di",
+        "name": "first_finish_tp"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_ef726e0912f30e00",
+      "type": "column",
+      "label": "first_finish_dt",
+      "canonicalName": {
+        "name": "first_finish_dt"
+      },
+      "statementIds": [
+        0
+      ],
+      "metadata": {
+        "windowControlStatus": "complete"
+      }
+    },
+    {
+      "id": "column_1512572d61c1a4eb",
+      "type": "column",
+      "label": "first_finish_dt",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_di.first_finish_dt",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_di",
+        "name": "first_finish_dt"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_c5875f4130fb7353",
+      "type": "column",
+      "label": "attend_dt",
+      "canonicalName": {
+        "name": "attend_dt"
+      },
+      "statementIds": [
+        0
+      ],
+      "expression": "concat_ws(',', attend_dt_list)",
+      "metadata": {
+        "data_type": "TEXT",
+        "windowControlStatus": "complete"
+      }
+    },
+    {
+      "id": "column_72537a03da55ceff",
+      "type": "column",
+      "label": "attend_dt_list",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_di.attend_dt_list",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_di",
+        "name": "attend_dt_list"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_1709ec9457ccb9a3",
+      "type": "column",
+      "label": "formal_dt",
+      "canonicalName": {
+        "name": "formal_dt"
+      },
+      "statementIds": [
+        0
+      ],
+      "expression": "concat_ws(',', formal_attend_dt_list)",
+      "metadata": {
+        "data_type": "TEXT",
+        "windowControlStatus": "complete"
+      }
+    },
+    {
+      "id": "column_e245782bdc6cfb0f",
+      "type": "column",
+      "label": "formal_attend_dt_list",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_di.formal_attend_dt_list",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_di",
+        "name": "formal_attend_dt_list"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_d427a73196ec4a7f",
+      "type": "column",
+      "label": "user_id",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_da.user_id",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_da",
+        "name": "user_id"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_dc13f783df63b052",
+      "type": "column",
+      "label": "package_id",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_da.package_id",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_da",
+        "name": "package_id"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_2896dd58f74c5328",
+      "type": "column",
+      "label": "course_id",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_da.course_id",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_da",
+        "name": "course_id"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_a521b91bf2eca312",
+      "type": "column",
+      "label": "is_attend",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_da.is_attend",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_da",
+        "name": "is_attend"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_bda3bdcf6b2ee16f",
+      "type": "column",
+      "label": "is_finish",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_da.is_finish",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_da",
+        "name": "is_finish"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_455a47151c69200f",
+      "type": "column",
+      "label": "is_review",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_da.is_review",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_da",
+        "name": "is_review"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_5d59b4cac5d678f6",
+      "type": "column",
+      "label": "first_attend_tp",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_da.first_attend_tp",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_da",
+        "name": "first_attend_tp"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_72e029fa7bb87293",
+      "type": "column",
+      "label": "first_attend_dt",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_da.first_attend_dt",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_da",
+        "name": "first_attend_dt"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_c22c52dffdb498f3",
+      "type": "column",
+      "label": "last_attend_tp",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_da.last_attend_tp",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_da",
+        "name": "last_attend_tp"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_780a128ac3f3048c",
+      "type": "column",
+      "label": "last_attend_dt",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_da.last_attend_dt",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_da",
+        "name": "last_attend_dt"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_4344aa604be675da",
+      "type": "column",
+      "label": "first_review_tp",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_da.first_review_tp",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_da",
+        "name": "first_review_tp"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_13d24477b5db5d14",
+      "type": "column",
+      "label": "first_review_dt",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_da.first_review_dt",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_da",
+        "name": "first_review_dt"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_835dbd469c8c9957",
+      "type": "column",
+      "label": "first_finish_tp",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_da.first_finish_tp",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_da",
+        "name": "first_finish_tp"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_4f8f683ea8d5ab1a",
+      "type": "column",
+      "label": "first_finish_dt",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_da.first_finish_dt",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_da",
+        "name": "first_finish_dt"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_564d504cb5c67bae",
+      "type": "column",
+      "label": "attend_dt_list",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_da.attend_dt_list",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_da",
+        "name": "attend_dt_list"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_23a928f6514df2fc",
+      "type": "column",
+      "label": "formal_attend_dt_list",
+      "qualifiedName": "dw_conan_dwd.dwd_conan_course_pedia_attend_da.formal_attend_dt_list",
+      "canonicalName": {
+        "catalog": "dw_conan_dwd",
+        "schema": "dwd_conan_course_pedia_attend_da",
+        "name": "formal_attend_dt_list"
+      },
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "column_e7a4f62790e34766",
+      "type": "column",
+      "label": "load_datetime",
+      "canonicalName": {
+        "name": "load_datetime"
+      },
+      "statementIds": [
+        0
+      ],
+      "expression": "from_unixtime(unix_timestamp(), 'yyyy-MM-dd HH:mm:ss')",
+      "metadata": {
+        "windowControlStatus": "complete"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge_d2f1546f94105890",
+      "from": "table_f1feca9450773bb7",
+      "to": "derived_7cbd098578814612",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_8663670dd578a129",
+      "from": "derived_7cbd098578814612",
+      "to": "column_e948a8c4d400d011",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_21f8f9a737a9066c",
+      "from": "table_f1feca9450773bb7",
+      "to": "column_70736de6347e554e",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_1bc43e9e123863a3",
+      "from": "column_70736de6347e554e",
+      "to": "column_e948a8c4d400d011",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_d7d1db280664478e",
+      "from": "derived_7cbd098578814612",
+      "to": "column_931847803f42d5d8",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_42cdcf75fa4f377b",
+      "from": "table_f1feca9450773bb7",
+      "to": "column_495c1bb1c52cf6a4",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_7125deaaf4c8fff0",
+      "from": "column_495c1bb1c52cf6a4",
+      "to": "column_931847803f42d5d8",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_36551837ee822a8f",
+      "from": "derived_7cbd098578814612",
+      "to": "column_62f7c7cbf6588054",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_185de28dbca96384",
+      "from": "table_f1feca9450773bb7",
+      "to": "column_24b46a8f5295d691",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_439f0b68a12331da",
+      "from": "column_24b46a8f5295d691",
+      "to": "column_62f7c7cbf6588054",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_5915c58dc19303f1",
+      "from": "derived_7cbd098578814612",
+      "to": "column_227be0dd963d3aff",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_9fdc15d61d1258b6",
+      "from": "table_f1feca9450773bb7",
+      "to": "column_2856921f463515c6",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_edb025428a2acb69",
+      "from": "column_2856921f463515c6",
+      "to": "column_227be0dd963d3aff",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_8d6cfcd7ac8f4ac7",
+      "from": "derived_7cbd098578814612",
+      "to": "column_e0343dc714a72cb6",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_a87d249d706bee34",
+      "from": "table_f1feca9450773bb7",
+      "to": "column_1fdffa39971da018",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_5678978bed07d985",
+      "from": "column_1fdffa39971da018",
+      "to": "column_e0343dc714a72cb6",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_9d9730243f2f4af1",
+      "from": "derived_7cbd098578814612",
+      "to": "column_3f7d12f66857e39d",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_ac91c09d194c106e",
+      "from": "table_f1feca9450773bb7",
+      "to": "column_1f8fef4dfba0e6fd",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_52dae25ffd4e1bd2",
+      "from": "column_1f8fef4dfba0e6fd",
+      "to": "column_3f7d12f66857e39d",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_9fc4b916d157ad51",
+      "from": "derived_7cbd098578814612",
+      "to": "column_9f188cb331b85869",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_c6e24bbcc193e179",
+      "from": "table_f1feca9450773bb7",
+      "to": "column_96048c3ad806ff2d",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_54babc3ecbdd8333",
+      "from": "column_96048c3ad806ff2d",
+      "to": "column_9f188cb331b85869",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_323d9c701fc42582",
+      "from": "derived_7cbd098578814612",
+      "to": "column_98c702d4ba655043",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_b9abc3f039983317",
+      "from": "table_f1feca9450773bb7",
+      "to": "column_be7016fcc3a6a66a",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_022d7eceba8cee62",
+      "from": "column_be7016fcc3a6a66a",
+      "to": "column_98c702d4ba655043",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_a9bb6d2b06ecf041",
+      "from": "derived_7cbd098578814612",
+      "to": "column_96fa8b85581bb0db",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_62d41996519675b0",
+      "from": "table_f1feca9450773bb7",
+      "to": "column_655a49f2b8120fb6",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_90958a7d55e753be",
+      "from": "column_655a49f2b8120fb6",
+      "to": "column_96fa8b85581bb0db",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_2fd15da8ccf2865f",
+      "from": "derived_7cbd098578814612",
+      "to": "column_db5f816345046cf2",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_739a824f8d303777",
+      "from": "table_f1feca9450773bb7",
+      "to": "column_a5e4f0574c8ce0ab",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_6fb9d1f3eefe3a3e",
+      "from": "column_a5e4f0574c8ce0ab",
+      "to": "column_db5f816345046cf2",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_c3e2744b458b648f",
+      "from": "derived_7cbd098578814612",
+      "to": "column_f161d6d049e07b85",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_91ecc8c2816cb319",
+      "from": "table_f1feca9450773bb7",
+      "to": "column_78de509685541f3b",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_93589a79d28af357",
+      "from": "column_78de509685541f3b",
+      "to": "column_f161d6d049e07b85",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_e327ce1ebe37f9ca",
+      "from": "derived_7cbd098578814612",
+      "to": "column_a86f88c38e8e9707",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_3d57bdca81cf018b",
+      "from": "table_f1feca9450773bb7",
+      "to": "column_7105c5e730a52f25",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_f48044a087937985",
+      "from": "column_7105c5e730a52f25",
+      "to": "column_a86f88c38e8e9707",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_ee06a140caf7354f",
+      "from": "derived_7cbd098578814612",
+      "to": "column_df3168b34d92af30",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_5284678c650f9bc1",
+      "from": "table_f1feca9450773bb7",
+      "to": "column_d5c41c2ba5eb6408",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_4c32552dc462c4a5",
+      "from": "column_d5c41c2ba5eb6408",
+      "to": "column_df3168b34d92af30",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_8783d4897faec9a5",
+      "from": "derived_7cbd098578814612",
+      "to": "column_ef726e0912f30e00",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_19ad31c79e2f4df7",
+      "from": "table_f1feca9450773bb7",
+      "to": "column_1512572d61c1a4eb",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_cbfee12df861daf5",
+      "from": "column_1512572d61c1a4eb",
+      "to": "column_ef726e0912f30e00",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_d5884be1b237b009",
+      "from": "derived_7cbd098578814612",
+      "to": "column_c5875f4130fb7353",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_f6ef68e3524fbfbd",
+      "from": "table_f1feca9450773bb7",
+      "to": "column_72537a03da55ceff",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_201075dd3feb831b",
+      "from": "column_72537a03da55ceff",
+      "to": "column_c5875f4130fb7353",
+      "type": "derivation",
+      "expression": "concat_ws(',', attend_dt_list)",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_dce929631f03a121",
+      "from": "derived_7cbd098578814612",
+      "to": "column_1709ec9457ccb9a3",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_059f1023e0824586",
+      "from": "table_f1feca9450773bb7",
+      "to": "column_e245782bdc6cfb0f",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_b2f604880e673c6d",
+      "from": "column_e245782bdc6cfb0f",
+      "to": "column_1709ec9457ccb9a3",
+      "type": "derivation",
+      "expression": "concat_ws(',', formal_attend_dt_list)",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_98be2a790d21a15d",
+      "from": "table_29cc580e8c421365",
+      "to": "derived_7cbd098578814612",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_c194a4c293a2134f",
+      "from": "table_29cc580e8c421365",
+      "to": "column_d427a73196ec4a7f",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_2ec4726a6b066af7",
+      "from": "column_d427a73196ec4a7f",
+      "to": "column_e948a8c4d400d011",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_f43dfca47c827a0b",
+      "from": "table_29cc580e8c421365",
+      "to": "column_dc13f783df63b052",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_4aad1b876890d088",
+      "from": "column_dc13f783df63b052",
+      "to": "column_931847803f42d5d8",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_288b546aa2ccaec9",
+      "from": "table_29cc580e8c421365",
+      "to": "column_2896dd58f74c5328",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_9619be753c86fb66",
+      "from": "column_2896dd58f74c5328",
+      "to": "column_62f7c7cbf6588054",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_b308c8e130a4084c",
+      "from": "table_29cc580e8c421365",
+      "to": "column_a521b91bf2eca312",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_c80eabe8ee4b5d3a",
+      "from": "column_a521b91bf2eca312",
+      "to": "column_227be0dd963d3aff",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_e7b90348657bc2f2",
+      "from": "table_29cc580e8c421365",
+      "to": "column_bda3bdcf6b2ee16f",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_6db97106d3b5377c",
+      "from": "column_bda3bdcf6b2ee16f",
+      "to": "column_e0343dc714a72cb6",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_84ebfa4caf136403",
+      "from": "table_29cc580e8c421365",
+      "to": "column_455a47151c69200f",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_f3d42e07adf40386",
+      "from": "column_455a47151c69200f",
+      "to": "column_3f7d12f66857e39d",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_41bf102eb7e8eff7",
+      "from": "table_29cc580e8c421365",
+      "to": "column_5d59b4cac5d678f6",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_6c3190bb1143c46e",
+      "from": "column_5d59b4cac5d678f6",
+      "to": "column_9f188cb331b85869",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_80e67cb98869639d",
+      "from": "table_29cc580e8c421365",
+      "to": "column_72e029fa7bb87293",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_97f44e5ec35ea7a6",
+      "from": "column_72e029fa7bb87293",
+      "to": "column_98c702d4ba655043",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_0e6965665be6a7eb",
+      "from": "table_29cc580e8c421365",
+      "to": "column_c22c52dffdb498f3",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_3ac3fda7ca77564e",
+      "from": "column_c22c52dffdb498f3",
+      "to": "column_96fa8b85581bb0db",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_09ad401eca5690e5",
+      "from": "table_29cc580e8c421365",
+      "to": "column_780a128ac3f3048c",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_ff217c3edcfbf211",
+      "from": "column_780a128ac3f3048c",
+      "to": "column_db5f816345046cf2",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_f08e486d0f32c540",
+      "from": "table_29cc580e8c421365",
+      "to": "column_4344aa604be675da",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_2461e201d159fd77",
+      "from": "column_4344aa604be675da",
+      "to": "column_f161d6d049e07b85",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_40624d40c8d7af0a",
+      "from": "table_29cc580e8c421365",
+      "to": "column_13d24477b5db5d14",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_6f82379056826b9e",
+      "from": "column_13d24477b5db5d14",
+      "to": "column_a86f88c38e8e9707",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_f95f2e33743ed5f2",
+      "from": "table_29cc580e8c421365",
+      "to": "column_835dbd469c8c9957",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_c50777d65572bd4c",
+      "from": "column_835dbd469c8c9957",
+      "to": "column_df3168b34d92af30",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_40b6f178b8365855",
+      "from": "table_29cc580e8c421365",
+      "to": "column_4f8f683ea8d5ab1a",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_ea43c5d059f95e46",
+      "from": "column_4f8f683ea8d5ab1a",
+      "to": "column_ef726e0912f30e00",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_7e64302e93deac91",
+      "from": "table_29cc580e8c421365",
+      "to": "column_564d504cb5c67bae",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_564f2c944c4b7569",
+      "from": "column_564d504cb5c67bae",
+      "to": "column_c5875f4130fb7353",
+      "type": "derivation",
+      "expression": "posexplode(split(concat_ws(',', attend_dt_list), ','))",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_d96b29c25b3289d1",
+      "from": "table_29cc580e8c421365",
+      "to": "column_23a928f6514df2fc",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_4b9a8260917edd9e",
+      "from": "column_23a928f6514df2fc",
+      "to": "column_1709ec9457ccb9a3",
+      "type": "derivation",
+      "expression": "posexplode(split(concat_ws(',', formal_attend_dt_list), ','))",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_6da64bd627576cb0",
+      "from": "derived_7cbd098578814612",
+      "to": "table_29cc580e8c421365",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_7043b63908c844f3",
+      "from": "column_e948a8c4d400d011",
+      "to": "column_d427a73196ec4a7f",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_14830e9f7b3dedf1",
+      "from": "column_931847803f42d5d8",
+      "to": "column_dc13f783df63b052",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_dff2793629af94f0",
+      "from": "column_62f7c7cbf6588054",
+      "to": "column_2896dd58f74c5328",
+      "type": "data_flow",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_962d1b3dde9711b9",
+      "from": "column_227be0dd963d3aff",
+      "to": "column_a521b91bf2eca312",
+      "type": "derivation",
+      "expression": "max(is_attend)",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_52da557eb51d371d",
+      "from": "column_e0343dc714a72cb6",
+      "to": "column_bda3bdcf6b2ee16f",
+      "type": "derivation",
+      "expression": "max(is_finish)",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_7db7ca7f2e57f850",
+      "from": "column_3f7d12f66857e39d",
+      "to": "column_455a47151c69200f",
+      "type": "derivation",
+      "expression": "max(is_review)",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_0a49e9850e6fd61f",
+      "from": "column_9f188cb331b85869",
+      "to": "column_5d59b4cac5d678f6",
+      "type": "derivation",
+      "expression": "min(first_attend_tp)",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_a45d70e80580e8c8",
+      "from": "column_98c702d4ba655043",
+      "to": "column_72e029fa7bb87293",
+      "type": "derivation",
+      "expression": "min(first_attend_dt)",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_3a241a7f183e42e6",
+      "from": "column_96fa8b85581bb0db",
+      "to": "column_c22c52dffdb498f3",
+      "type": "derivation",
+      "expression": "max(last_attend_tp)",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_392d0c9c071d8b6b",
+      "from": "column_db5f816345046cf2",
+      "to": "column_780a128ac3f3048c",
+      "type": "derivation",
+      "expression": "max(last_attend_dt)",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_9e863e1037b52575",
+      "from": "column_f161d6d049e07b85",
+      "to": "column_4344aa604be675da",
+      "type": "derivation",
+      "expression": "min(first_review_tp)",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_b7077c745555ca93",
+      "from": "column_a86f88c38e8e9707",
+      "to": "column_13d24477b5db5d14",
+      "type": "derivation",
+      "expression": "min(first_review_dt)",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_4aa162da56cb20cc",
+      "from": "column_df3168b34d92af30",
+      "to": "column_835dbd469c8c9957",
+      "type": "derivation",
+      "expression": "min(first_finish_tp)",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_6d6f02d036b5be25",
+      "from": "column_ef726e0912f30e00",
+      "to": "column_4f8f683ea8d5ab1a",
+      "type": "derivation",
+      "expression": "min(first_finish_dt)",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_f0cc162e59c9f914",
+      "from": "column_c5875f4130fb7353",
+      "to": "column_564d504cb5c67bae",
+      "type": "derivation",
+      "expression": "collect_set(attend_dt)",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_0ebf2b8b70fb0e5b",
+      "from": "column_1709ec9457ccb9a3",
+      "to": "column_23a928f6514df2fc",
+      "type": "derivation",
+      "expression": "collect_set(formal_dt)",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_89e711a37fc100eb",
+      "from": "table_29cc580e8c421365",
+      "to": "column_e7a4f62790e34766",
+      "type": "ownership",
+      "statementIds": [
+        0
+      ]
+    },
+    {
+      "id": "edge_ec402a1ec0906b39",
+      "from": "derived_7cbd098578814612",
+      "to": "column_e7a4f62790e34766",
+      "type": "derivation",
+      "expression": "from_unixtime(unix_timestamp(), 'yyyy-MM-dd HH:mm:ss')",
+      "statementIds": [
+        0
+      ]
+    }
+  ],
+  "issues": [],
+  "summary": {
+    "statementCount": 1,
+    "tableCount": 3,
+    "columnCount": 49,
+    "joinCount": 0,
+    "complexityScore": 24,
+    "issueCount": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0
+    },
+    "hasErrors": false
+  },
+  "resolvedSchema": {
+    "tables": [
+      {
+        "schema": "dw_conan_dwd",
+        "name": "dwd_conan_course_pedia_attend_da",
+        "columns": [
+          {
+            "name": "attend_dt_list",
+            "origin": "implied"
+          },
+          {
+            "name": "formal_attend_dt_list",
+            "origin": "implied"
+          }
+        ],
+        "origin": "implied",
+        "sourceStatementIndex": 0,
+        "updatedAt": "2026-10-31T01:05:10.472437+00:00"
+      }
+    ]
+  }
+}

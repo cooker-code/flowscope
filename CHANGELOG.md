@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Core Hive `LATERAL VIEW` resolves outputs by table alias and column name,
+  allowing duplicate `posexplode` position names when qualified. Actual
+  ambiguous references still fail; expanded value and position outputs retain
+  their UDTF derivation and physical input lineage, including audit 559417.
+
 ### Added
 
 #### Web App (app/) — Librarian (2026-05-04)

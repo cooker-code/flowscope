@@ -11,7 +11,7 @@
 //! The analyzer works with the parent `Analyzer` to build column-level lineage graphs
 //! by identifying data flow from source columns through expressions to output columns.
 
-use super::context::{ColumnRef, StatementContext};
+use super::context::{ColumnRef, LateralViewResolution, StatementContext};
 use super::functions;
 use super::helpers::check_expr_types;
 use super::query::{WindowControlRef, WindowControlRole};
@@ -606,7 +606,51 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
             self.analyzer
                 .emit_depth_limit_warning(self.ctx.statement_index);
         }
-        refs
+        self.resolve_lateral_view_sources(refs)
+    }
+
+    /// Shared by projections, predicates, chained UDTFs and window controls.
+    pub(crate) fn resolve_lateral_view_sources(&mut self, refs: Vec<ColumnRef>) -> Vec<ColumnRef> {
+        let mut resolved = Vec::new();
+        for source in refs {
+            match self.ctx.resolve_lateral_view_binding(&source) {
+                LateralViewResolution::Resolved(binding) => {
+                    resolved.extend(binding.sources.clone());
+                }
+                invalid @ (LateralViewResolution::Ambiguous
+                | LateralViewResolution::UnknownColumn) => {
+                    let message = if matches!(invalid, LateralViewResolution::Ambiguous) {
+                        format!("LATERAL VIEW output alias '{}' is ambiguous; qualify it with its LATERAL VIEW table alias", source.table.as_deref().unwrap_or(&source.column))
+                    } else {
+                        format!(
+                            "Unknown LATERAL VIEW output column '{}.{}'",
+                            source.table.as_deref().unwrap_or_default(),
+                            source.column
+                        )
+                    };
+                    if !self.analyzer.issues.iter().any(|issue| {
+                        issue.statement_index == Some(self.ctx.statement_index)
+                            && issue.message == message
+                    }) {
+                        self.analyzer.issues.push(
+                            crate::types::Issue::error(
+                                crate::types::issue_codes::UNRESOLVED_REFERENCE,
+                                message,
+                            )
+                            .with_statement(self.ctx.statement_index),
+                        );
+                    }
+                }
+                LateralViewResolution::NotFound => {
+                    resolved.push(
+                        self.ctx
+                            .resolve_derived_struct_member_base(&source)
+                            .unwrap_or(source),
+                    );
+                }
+            }
+        }
+        resolved
     }
 
     /// Extracts all column references from an expression (dialect-aware).

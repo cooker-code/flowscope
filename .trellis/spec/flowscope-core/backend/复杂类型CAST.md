@@ -48,4 +48,22 @@ Hive请求在正式Core中允许Spark的ARRAY/STRUCT/MAP类型。sqlparser-rs 0.
 
 回归覆盖见 `lateral_view_struct_lineage.rs`、`hive_typed_numeric_lineage.rs`、`strict_imported_schema.rs`。以上均位于正式 Core，native 与 WASM 共用。
 
-重复 LATERAL VIEW 输出别名不能通过 HashMap 覆盖来任选生产者：当前 SELECT 标记歧义、清除已有输出绑定并发 UNRESOLVED_REFERENCE error；两条输入都不能被猜成唯一来源。真实关系别名优先契约保持，回归包含两个AS r的拒绝例。
+## LATERAL VIEW 输出列的名称绑定
+
+每个 SELECT 保存 `LateralViewBinding { table_alias, column_alias, sources, expression }` 候选，不能只用输出列名作唯一键，不能通过 HashMap 后写覆盖任选生产者。常量输入也须登记输出（sources 为空），不能当成无绑定。
+
+`resolve_lateral_view_binding(&ColumnRef)` 区分 NotFound、Resolved、Ambiguous、UnknownColumn。ExpressionAnalyzer 的字段提取、WHERE 校验/过滤归属、后续 UDTF 输入与窗口控制共用展开规则；只有 NotFound 可以继续普通字段/结构值解析，歧义或已知虚拟表的未知列不能回退成物理字段。真实关系限定名优先，未限定名称仅查当前 SELECT。
+
+| 引用场景 | 结果 |
+|---|---|
+| 两个 posexplode 分别为 p AS pos, va 和 q AS pos, vb，引用 p.pos/q.pos | 按表别名和输出列解析，合法 |
+| 声明同名 pos，但只读取唯一 va/vb | 合法；不在声明阶段报错 |
+| 实际 SELECT/WHERE/后续 UDTF 输入使用无前缀 pos | UNRESOLVED_REFERENCE error；不猜测来源 |
+| 两个 explode 输出同名结构列 r，读取 r.goods | UNRESOLVED_REFERENCE error；保留原拒绝例 |
+| e.r、e.r.goods 或唯一 r.goods | 继续到该 UDTF 输入的物理根 |
+| 已知 e 仅输出 r，却读取 e.missing | UNRESOLVED_REFERENCE error，不映射到任意输入 |
+| 常量数组展开 | 输出已绑定，无虚构物理根 |
+
+展开值和 posexplode 位置均是函数输出，直接投影也保留 UDTF expression，并产生 Derivation；位置不能作为原表的 pos/index_1 字段。窗口 PARTITION/ORDER 只产生各自角色的 WindowControl，不混为值来源。
+
+必需回归：`lateral_view_struct_lineage.rs` 覆盖合法重名、实际歧义、结构成员/限定访问、常量、关系名优先、链式输入、作用域与窗口角色。审计 559417 原 SQL fixture 必须保持原文；检查 INSERT OVERWRITE、两个真实来源表、16 个业务目标字段的物理来源集合、时间表达式无物理字段根，以及 attend_dt/formal_dt 对应数组不得串线。自依赖 INSERT 的上一批次同名列作为本次来源，不跨该节点递归推断上一批次血缘。

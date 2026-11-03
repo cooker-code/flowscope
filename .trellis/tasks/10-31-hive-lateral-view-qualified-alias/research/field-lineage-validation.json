@@ -1,0 +1,165 @@
+{
+  "sqlHash": "ce2a1fe98ac0cd875d48461bf1710af52c60720052236235f389094a3bf10ecd",
+  "summary": {
+    "statementCount": 1,
+    "tableCount": 3,
+    "columnCount": 49,
+    "joinCount": 0,
+    "complexityScore": 24,
+    "issueCount": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0
+    },
+    "hasErrors": false
+  },
+  "checks": [
+    {
+      "targetColumn": "user_id",
+      "physicalSources": [
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_da.user_id",
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_di.user_id"
+      ],
+      "passed": true
+    },
+    {
+      "targetColumn": "package_id",
+      "physicalSources": [
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_da.package_id",
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_di.package_id"
+      ],
+      "passed": true
+    },
+    {
+      "targetColumn": "course_id",
+      "physicalSources": [
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_da.course_id",
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_di.course_id"
+      ],
+      "passed": true
+    },
+    {
+      "targetColumn": "is_attend",
+      "physicalSources": [
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_da.is_attend",
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_di.is_attend"
+      ],
+      "passed": true
+    },
+    {
+      "targetColumn": "is_finish",
+      "physicalSources": [
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_da.is_finish",
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_di.is_finish"
+      ],
+      "passed": true
+    },
+    {
+      "targetColumn": "is_review",
+      "physicalSources": [
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_da.is_review",
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_di.is_review"
+      ],
+      "passed": true
+    },
+    {
+      "targetColumn": "first_attend_tp",
+      "physicalSources": [
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_da.first_attend_tp",
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_di.first_attend_tp"
+      ],
+      "passed": true
+    },
+    {
+      "targetColumn": "first_attend_dt",
+      "physicalSources": [
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_da.first_attend_dt",
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_di.first_attend_dt"
+      ],
+      "passed": true
+    },
+    {
+      "targetColumn": "last_attend_tp",
+      "physicalSources": [
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_da.last_attend_tp",
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_di.last_attend_tp"
+      ],
+      "passed": true
+    },
+    {
+      "targetColumn": "last_attend_dt",
+      "physicalSources": [
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_da.last_attend_dt",
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_di.last_attend_dt"
+      ],
+      "passed": true
+    },
+    {
+      "targetColumn": "first_review_tp",
+      "physicalSources": [
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_da.first_review_tp",
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_di.first_review_tp"
+      ],
+      "passed": true
+    },
+    {
+      "targetColumn": "first_review_dt",
+      "physicalSources": [
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_da.first_review_dt",
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_di.first_review_dt"
+      ],
+      "passed": true
+    },
+    {
+      "targetColumn": "first_finish_tp",
+      "physicalSources": [
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_da.first_finish_tp",
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_di.first_finish_tp"
+      ],
+      "passed": true
+    },
+    {
+      "targetColumn": "first_finish_dt",
+      "physicalSources": [
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_da.first_finish_dt",
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_di.first_finish_dt"
+      ],
+      "passed": true
+    },
+    {
+      "targetColumn": "attend_dt_list",
+      "physicalSources": [
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_da.attend_dt_list",
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_di.attend_dt_list"
+      ],
+      "passed": true
+    },
+    {
+      "targetColumn": "formal_attend_dt_list",
+      "physicalSources": [
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_da.formal_attend_dt_list",
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_di.formal_attend_dt_list"
+      ],
+      "passed": true
+    },
+    {
+      "intermediateColumn": "attend_dt",
+      "physicalSources": [
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_da.attend_dt_list",
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_di.attend_dt_list"
+      ],
+      "passed": true
+    },
+    {
+      "intermediateColumn": "formal_dt",
+      "physicalSources": [
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_da.formal_attend_dt_list",
+        "dw_conan_dwd.dwd_conan_course_pedia_attend_di.formal_attend_dt_list"
+      ],
+      "passed": true
+    }
+  ],
+  "loadDatetimePhysicalSources": [],
+  "noPseudoPhysicalColumns": true,
+  "selfDependencyBoundary": "Stop at previous-run physical source columns; do not recurse across INSERT self-source."
+}

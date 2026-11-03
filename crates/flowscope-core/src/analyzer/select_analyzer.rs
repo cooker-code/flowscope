@@ -178,7 +178,6 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
                         )
                     };
 
-                    sources = self.resolve_lateral_view_sources(sources);
                     window_controls.controls =
                         self.resolve_lateral_view_controls(window_controls.controls);
 
@@ -191,11 +190,12 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
                         );
                     }
 
-                    let is_simple_ref = is_simple_column_ref(expr);
+                    let lateral_expression = self.lateral_view_expression(expr);
+                    let is_simple_ref = is_simple_column_ref(expr) && lateral_expression.is_none();
                     let expr_text = if is_simple_ref {
                         None
                     } else {
-                        Some(expr.to_string())
+                        Some(lateral_expression.unwrap_or_else(|| expr.to_string()))
                     };
                     // First try to infer type from expression structure (literals, functions, etc.)
                     // If that fails, look up the type from CTE/subquery output columns
@@ -244,7 +244,6 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
                         )
                     };
 
-                    sources = self.resolve_lateral_view_sources(sources);
                     window_controls.controls =
                         self.resolve_lateral_view_controls(window_controls.controls);
 
@@ -258,11 +257,12 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
                     }
 
                     let name = alias.value.clone();
-                    let is_simple_ref = is_simple_column_ref(expr);
+                    let lateral_expression = self.lateral_view_expression(expr);
+                    let is_simple_ref = is_simple_column_ref(expr) && lateral_expression.is_none();
                     let expr_text = if is_simple_ref {
                         None
                     } else {
-                        Some(expr.to_string())
+                        Some(lateral_expression.unwrap_or_else(|| expr.to_string()))
                     };
                     // First try to infer type from expression structure (literals, functions, etc.)
                     // If that fails, look up the type from CTE/subquery output columns
@@ -320,37 +320,33 @@ impl<'a, 'b> SelectAnalyzer<'a, 'b> {
         }
     }
 
-    fn resolve_lateral_view_sources(&self, sources: Vec<ColumnRef>) -> Vec<ColumnRef> {
-        sources
-            .into_iter()
-            .flat_map(|source| {
-                self.ctx
-                    .expand_lateral_view_sources(&source)
-                    .or_else(|| {
-                        self.ctx
-                            .resolve_derived_struct_member_base(&source)
-                            .map(|base| vec![base])
-                    })
-                    .unwrap_or_else(|| vec![source])
-            })
-            .collect()
+    fn lateral_view_expression(&self, expr: &sqlparser::ast::Expr) -> Option<String> {
+        if !is_simple_column_ref(expr) {
+            return None;
+        }
+        let (refs, _) = ExpressionAnalyzer::extract_column_refs_with_dialect(
+            expr,
+            self.analyzer.request.dialect,
+        );
+        refs.iter().find_map(
+            |source| match self.ctx.resolve_lateral_view_binding(source) {
+                super::context::LateralViewResolution::Resolved(binding) => {
+                    Some(binding.expression.clone())
+                }
+                _ => None,
+            },
+        )
     }
 
     fn resolve_lateral_view_controls(
-        &self,
+        &mut self,
         controls: Vec<WindowControlRef>,
     ) -> Vec<WindowControlRef> {
+        let mut ea = ExpressionAnalyzer::new(self.analyzer, self.ctx);
         controls
             .into_iter()
             .flat_map(|control| {
-                self.ctx
-                    .expand_lateral_view_sources(&control.source)
-                    .or_else(|| {
-                        self.ctx
-                            .resolve_derived_struct_member_base(&control.source)
-                            .map(|base| vec![base])
-                    })
-                    .unwrap_or_else(|| vec![control.source.clone()])
+                ea.resolve_lateral_view_sources(vec![control.source])
                     .into_iter()
                     .map(move |source| WindowControlRef {
                         source,

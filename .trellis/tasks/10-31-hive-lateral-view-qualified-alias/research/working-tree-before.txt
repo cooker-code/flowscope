@@ -1,0 +1,31 @@
+ M .github/workflows/ci.yml
+ M .trellis/spec/flowscope-core/backend/analyze-result-contract.md
+ M AGENTS.md
+ M CHANGELOG.md
+ M Cargo.lock
+ M Cargo.toml
+ M README.md
+ M crates/flowscope-cli/Cargo.toml
+ M crates/flowscope-cli/README.md
+ M crates/flowscope-cli/src/main.rs
+ M crates/flowscope-cli/tests/export_cli.rs
+ M crates/flowscope-cli/tests/serve_api.rs
+ M crates/flowscope-core/Cargo.toml
+ M crates/flowscope-core/README.md
+ M crates/flowscope-core/src/analyzer.rs
+ M crates/flowscope-core/src/analyzer/global.rs
+ M crates/flowscope-core/src/lib.rs
+ M crates/flowscope-core/src/types/response.rs
+ M crates/flowscope-core/tests/common/mod.rs
+ M crates/flowscope-export/Cargo.toml
+ M crates/flowscope-export/README.md
+ M crates/flowscope-export/src/lib.rs
+ M crates/flowscope-export/tests/export_formats.rs
+ M docs/api_schema.json
+ M docs/release-workflow.md
+ M packages/core/src/types.ts
+ M packages/core/tests/schema-compat.test.ts
+?? .trellis/tasks/10-31-hive-lateral-view-qualified-alias/
+?? crates/flowscope-core/src/sql_fingerprint.rs
+?? crates/flowscope-core/tests/fixtures/sql_fingerprint/
+?? crates/flowscope-core/tests/sql_fingerprint.rs

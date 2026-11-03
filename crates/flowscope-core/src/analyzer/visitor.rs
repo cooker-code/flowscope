@@ -4,7 +4,7 @@
 //! and building lineage graphs. It separates traversal logic (the `Visitor` trait)
 //! from analysis logic (the `LineageVisitor` implementation).
 
-use super::context::{ColumnRef, LateralViewBindingRegistration, StatementContext};
+use super::context::{ColumnRef, LateralViewBinding, StatementContext};
 use super::expression::ExpressionAnalyzer;
 use super::helpers::{
     alias_visibility_warning, find_cte_body_span, find_cte_definition_span,
@@ -580,35 +580,10 @@ impl<'a, 'b> LineageVisitor<'a, 'b> {
                 continue;
             }
 
-            let extracted_sources = {
+            let expanded_sources = {
                 let mut expression_analyzer = ExpressionAnalyzer::new(self.analyzer, self.ctx);
                 expression_analyzer.extract_column_refs_with_warning(&lateral_view.lateral_view)
             };
-            let expanded_sources: Vec<ColumnRef> = extracted_sources
-                .iter()
-                .flat_map(|source| {
-                    let qualified_binding =
-                        self.ctx.expand_lateral_view_sources(source).or_else(|| {
-                            (source.table.is_none()
-                                && !self
-                                    .analyzer
-                                    .has_unambiguous_source_column_in_current_scope(
-                                        self.ctx,
-                                        &source.column,
-                                    ))
-                            .then(|| {
-                                self.ctx
-                                    .expand_lateral_view_unqualified_alias(&source.column)
-                            })
-                            .flatten()
-                        });
-                    qualified_binding.unwrap_or_else(|| vec![source.clone()])
-                })
-                .collect();
-            if expanded_sources.is_empty() {
-                continue;
-            }
-
             let mut resolved_sources = Vec::with_capacity(expanded_sources.len());
             let mut complete = true;
             for source in expanded_sources {
@@ -639,22 +614,14 @@ impl<'a, 'b> LineageVisitor<'a, 'b> {
             }
 
             for alias in &lateral_view.lateral_col_alias {
-                if self
-                    .ctx
-                    .register_lateral_view_binding(alias.value.clone(), resolved_sources.clone())
-                    == LateralViewBindingRegistration::AmbiguousDuplicate
-                {
-                    self.analyzer.issues.push(
-                        Issue::error(
-                            issue_codes::UNRESOLVED_REFERENCE,
-                            format!(
-                                "LATERAL VIEW output alias '{}' is declared more than once in this SELECT scope; references to it are ambiguous",
-                                alias.value
-                            ),
-                        )
-                        .with_statement(self.ctx.statement_index),
-                    );
-                }
+                self.ctx.register_lateral_view_binding(LateralViewBinding {
+                    table_alias: self
+                        .analyzer
+                        .normalize_identifier(&lateral_view.lateral_view_name.to_string()),
+                    column_alias: self.analyzer.normalize_identifier(&alias.value),
+                    sources: resolved_sources.clone(),
+                    expression: lateral_view.lateral_view.to_string(),
+                });
             }
         }
     }

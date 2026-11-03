@@ -269,3 +269,262 @@ fn lateral_view_fields_keep_window_controls_out_of_value_lineage() {
     }));
     assert!(has_physical_root(&result, &output.id, "goods"));
 }
+
+#[test]
+fn qualified_duplicate_posexplode_columns_keep_separate_roots() {
+    let result = analyze_hive("SELECT p.pos AS left_pos, q.pos AS right_pos, left_value, q.right_value FROM db.t LATERAL VIEW posexplode(a) p AS pos, left_value LATERAL VIEW posexplode(b) q AS pos, right_value WHERE p.pos = q.pos");
+    assert!(!result.summary.has_errors, "{:?}", result.issues);
+    for (output, root, wrong) in [
+        ("left_pos", "a", "b"),
+        ("right_pos", "b", "a"),
+        ("left_value", "a", "b"),
+        ("right_value", "b", "a"),
+    ] {
+        let node = result
+            .nodes
+            .iter()
+            .find(|n| n.node_type == NodeType::Column && n.label.as_ref() == output)
+            .unwrap();
+        assert!(
+            has_physical_root(&result, &node.id, root),
+            "{output}: {:?}",
+            result.edges
+        );
+        assert!(!has_physical_root(&result, &node.id, wrong));
+        assert!(result
+            .edges
+            .iter()
+            .any(|e| e.to == node.id && e.edge_type == EdgeType::Derivation));
+    }
+    assert!(!result
+        .nodes
+        .iter()
+        .any(|n| n.qualified_name.as_deref().is_some_and(|s| [
+            "db.t.pos",
+            "db.t.left_value",
+            "db.t.right_value"
+        ]
+        .contains(&s))));
+}
+
+/// Stop at physical columns, including the previous-day self-source of an
+/// INSERT OVERWRITE. Following through that node again would cross runs.
+fn physical_sources(result: &flowscope_core::AnalyzeResult, output: &str) -> HashSet<String> {
+    let nodes: HashMap<_, _> = result.nodes.iter().map(|n| (n.id.as_ref(), n)).collect();
+    let mut pending = vec![output.to_string()];
+    let mut visited = HashSet::new();
+    let mut roots = HashSet::new();
+    while let Some(current) = pending.pop() {
+        if !visited.insert(current.clone()) {
+            continue;
+        }
+        for edge in result.edges.iter().filter(|e| {
+            e.to.as_ref() == current
+                && matches!(e.edge_type, EdgeType::DataFlow | EdgeType::Derivation)
+        }) {
+            let source = nodes[edge.from.as_ref()];
+            if source.node_type != NodeType::Column {
+                continue;
+            }
+            if let Some(name) = source
+                .qualified_name
+                .as_deref()
+                .filter(|name| name.starts_with("dw_conan_dwd."))
+            {
+                roots.insert(name.to_string());
+            } else {
+                pending.push(source.id.to_string());
+            }
+        }
+    }
+    roots
+}
+
+#[test]
+fn original_audit_559417_accepts_qualified_duplicate_positions() {
+    let result = analyze_hive(include_str!("fixtures/hive_lateral_view_audit_559417.sql"));
+    assert!(result.issues.is_empty(), "{:?}", result.issues);
+    let json = serde_json::to_value(&result).unwrap();
+    assert_eq!(json["sqlType"], "insert");
+    assert_eq!(json["insertType"], "overwrite");
+    let target = "dw_conan_dwd.dwd_conan_course_pedia_attend_da";
+    assert_eq!(
+        result
+            .target_table
+            .as_ref()
+            .and_then(|n| n.qualified_name.as_deref()),
+        Some(target)
+    );
+    assert_eq!(
+        result
+            .source_tables
+            .iter()
+            .filter_map(|t| t.qualified_name.as_deref())
+            .collect::<HashSet<_>>(),
+        HashSet::from([target, "dw_conan_dwd.dwd_conan_course_pedia_attend_di"])
+    );
+    assert!(!result.nodes.iter().any(|n| n
+        .qualified_name
+        .as_deref()
+        .is_some_and(|s| s.ends_with(".index_1")
+            || s.ends_with(".attend_dt")
+            || s.ends_with(".formal_dt"))));
+    for name in [
+        "user_id",
+        "package_id",
+        "course_id",
+        "is_attend",
+        "is_finish",
+        "is_review",
+        "first_attend_tp",
+        "first_attend_dt",
+        "last_attend_tp",
+        "last_attend_dt",
+        "first_review_tp",
+        "first_review_dt",
+        "first_finish_tp",
+        "first_finish_dt",
+        "attend_dt_list",
+        "formal_attend_dt_list",
+    ] {
+        let output = result
+            .nodes
+            .iter()
+            .find(|n| n.qualified_name.as_deref() == Some(format!("{target}.{name}").as_str()))
+            .unwrap();
+        let expected = HashSet::from([
+            format!("{target}.{name}"),
+            format!("dw_conan_dwd.dwd_conan_course_pedia_attend_di.{name}"),
+        ]);
+        assert_eq!(
+            physical_sources(&result, &output.id),
+            expected,
+            "target field {name}"
+        );
+    }
+    for (name, root) in [
+        ("attend_dt", "attend_dt_list"),
+        ("formal_dt", "formal_attend_dt_list"),
+    ] {
+        let output = result
+            .nodes
+            .iter()
+            .find(|n| n.label.as_ref() == name && n.qualified_name.is_none())
+            .unwrap();
+        assert_eq!(
+            physical_sources(&result, &output.id),
+            HashSet::from([
+                format!("{target}.{root}"),
+                format!("dw_conan_dwd.dwd_conan_course_pedia_attend_di.{root}")
+            ])
+        );
+    }
+    let load = result
+        .nodes
+        .iter()
+        .find(|n| n.label.as_ref() == "load_datetime")
+        .unwrap();
+    assert!(physical_sources(&result, &load.id).is_empty());
+}
+
+#[test]
+fn repeated_names_only_fail_when_an_ambiguous_reference_is_used() {
+    let from =
+        "FROM db.t LATERAL VIEW posexplode(a) p AS pos, va LATERAL VIEW posexplode(b) q AS pos, vb";
+    for projection in ["va, vb", "p.pos, q.pos"] {
+        let result = analyze_hive(&format!("SELECT {projection} {from}"));
+        assert!(!result.summary.has_errors, "{:?}", result.issues);
+    }
+    for sql in [
+        format!("SELECT pos {from}"),
+        format!("SELECT va {from} WHERE pos = 0"),
+        format!("SELECT va {from} LATERAL VIEW explode(array(pos)) r AS vc"),
+    ] {
+        let result = analyze_hive(&sql);
+        assert!(result.summary.has_errors, "{sql}: {:?}", result.issues);
+        assert!(result
+            .issues
+            .iter()
+            .any(|i| i.code == "UNRESOLVED_REFERENCE" && i.message.contains("ambiguous")));
+    }
+}
+
+#[test]
+fn unknown_qualified_output_does_not_choose_a_udtf_input() {
+    let result = analyze_hive("SELECT p.missing FROM db.t LATERAL VIEW explode(a) p AS value");
+    assert!(result.summary.has_errors, "{:?}", result.issues);
+    let output = result
+        .nodes
+        .iter()
+        .find(|n| n.node_type == NodeType::Column && n.label.as_ref() == "missing")
+        .unwrap();
+    assert!(!has_physical_root(&result, &output.id, "a"));
+    assert!(!result
+        .nodes
+        .iter()
+        .any(|n| n.qualified_name.as_deref() == Some("db.t.missing")));
+}
+
+#[test]
+fn constant_udtf_outputs_are_bound_without_physical_roots() {
+    let result = analyze_hive("SELECT p.pos AS left_pos, q.pos AS right_pos, va, vb FROM db.t LATERAL VIEW posexplode(array('a')) p AS pos, va LATERAL VIEW posexplode(array('b')) q AS pos, vb WHERE p.pos = q.pos");
+    assert!(!result.summary.has_errors, "{:?}", result.issues);
+    assert!(!result.nodes.iter().any(|n| n
+        .qualified_name
+        .as_deref()
+        .is_some_and(|s| s.starts_with("db.t."))));
+}
+
+#[test]
+fn qualified_struct_members_and_chained_inputs_keep_roots() {
+    let result = analyze_hive("SELECT e.r.goods AS goods, nested.goods AS again FROM db.t LATERAL VIEW explode(array(named_struct('goods', goods))) e AS r LATERAL VIEW explode(array(e.r)) e2 AS nested");
+    assert!(!result.summary.has_errors, "{:?}", result.issues);
+    for name in ["goods", "again"] {
+        assert!(result
+            .nodes
+            .iter()
+            .any(|n| n.label.as_ref() == name && has_physical_root(&result, &n.id, "goods")));
+    }
+}
+
+#[test]
+fn lateral_outputs_do_not_leak_into_sibling_selects() {
+    let result = analyze_hive(
+        "SELECT v FROM db.t LATERAL VIEW explode(a) p AS v UNION ALL SELECT v FROM db.other",
+    );
+    assert!(!result.summary.has_errors, "{:?}", result.issues);
+    assert!(result
+        .nodes
+        .iter()
+        .any(|n| n.qualified_name.as_deref() == Some("db.other.v")));
+    assert!(!result
+        .nodes
+        .iter()
+        .any(|n| n.qualified_name.as_deref() == Some("db.other.a")));
+}
+
+#[test]
+fn qualified_repeated_outputs_preserve_window_roles() {
+    let result = analyze_hive("SELECT first_value(p.va) OVER (PARTITION BY p.pos ORDER BY q.pos) AS picked FROM db.t LATERAL VIEW posexplode(a) p AS pos, va LATERAL VIEW posexplode(b) q AS pos, vb");
+    assert!(!result.summary.has_errors, "{:?}", result.issues);
+    let output = result
+        .nodes
+        .iter()
+        .find(|n| n.label.as_ref() == "picked")
+        .unwrap();
+    assert!(has_physical_root(&result, &output.id, "a"));
+    assert!(!has_physical_root(&result, &output.id, "b"));
+    for (role, field) in [("partition", "a"), ("order", "b")] {
+        assert!(result.edges.iter().any(|e| e.to == output.id
+            && e.edge_type == EdgeType::WindowControl
+            && e.metadata
+                .as_ref()
+                .and_then(|m| m.get("windowRole"))
+                .and_then(|v| v.as_str())
+                == Some(role)
+            && result
+                .nodes
+                .iter()
+                .any(|n| n.id == e.from && n.label.as_ref() == field)));
+    }
+}
