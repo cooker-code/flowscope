@@ -15,7 +15,7 @@ Command-line interface for the FlowScope SQL lineage analyzer.
   - `csv`: ZIP archive with CSV exports for scripts, tables, mappings, and issues.
   - `xlsx`: Excel workbook with summary and lineage sheets.
   - `html`: Self-contained HTML report.
-  - `duckdb`: DuckDB database file (native builds only).
+  - `duckdb`: DuckDB database file. Requires the explicit `duckdb` build feature.
 - **View Modes**:
   - `table`: Table-level lineage (default).
   - `column`: Detailed column-level data flow.
@@ -26,6 +26,12 @@ Command-line interface for the FlowScope SQL lineage analyzer.
 
 ```bash
 cargo install --path crates/flowscope-cli
+```
+
+The default CLI build supports every parser dialect, including `--dialect duckdb`, and all output formats except the native `.duckdb` database file. To enable that one output format:
+
+```bash
+cargo install --path crates/flowscope-cli --features duckdb
 ```
 
 ## Usage

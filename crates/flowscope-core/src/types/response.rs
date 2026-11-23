@@ -116,6 +116,16 @@ fn statement_type_is_ddl(statement_type: &str) -> bool {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AnalyzeResult {
+    /// SHA-256 of the normalized, unrendered SQL token stream. This is a
+    /// conservative template fingerprint, not a release or lineage artifact ID.
+    /// Absent for empty, oversized or untokenizable input; legacy JSON remains readable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sql_fingerprint: Option<String>,
+
+    /// Version of the fingerprint normalization contract (not the parser version).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sql_fingerprint_version: Option<String>,
+
     /// Coarse workload type: `select`, `insert`, or `ddl`.
     ///
     /// `insert` when any analyzed statement writes to a target table (including
@@ -215,6 +225,8 @@ impl AnalyzeResult {
     /// Useful for returning errors from WASM boundary or other entry points.
     pub fn from_error(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
+            sql_fingerprint: None,
+            sql_fingerprint_version: None,
             sql_type: SqlType::Select,
             insert_type: None,
             target_table: None,
@@ -1086,6 +1098,8 @@ mod tests {
     #[test]
     fn test_analyze_result_serialization() {
         let result = AnalyzeResult {
+            sql_fingerprint: None,
+            sql_fingerprint_version: None,
             sql_type: SqlType::Select,
             insert_type: None,
             target_table: None,

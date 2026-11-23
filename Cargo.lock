@@ -1011,6 +1011,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "sha2",
  "sqlparser",
  "thiserror",
  "toml",

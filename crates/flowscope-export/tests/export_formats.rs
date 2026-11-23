@@ -1,13 +1,18 @@
+#[cfg(feature = "duckdb")]
 use duckdb::Connection;
+use flowscope_core::{analyze, AnalyzeRequest, Dialect};
+#[cfg(feature = "duckdb")]
 use flowscope_core::{
-    analyze, AggregationInfo, AnalyzeRequest, AnalyzeResult, Dialect, FilterClauseType,
-    FilterPredicate, Issue, Node, NodeType, Span, SqlType, StatementMeta, Summary,
+    AggregationInfo, AnalyzeResult, FilterClauseType, FilterPredicate, Issue, Node, NodeType, Span,
+    SqlType, StatementMeta, Summary,
 };
 use flowscope_export::{
     export_csv_bundle, export_html, export_json, export_mermaid, export_sql, export_xlsx,
     ExportNaming, MermaidView,
 };
+#[cfg(feature = "duckdb")]
 use serde_json::json;
+#[cfg(feature = "duckdb")]
 use std::collections::HashMap;
 use std::io::Read;
 
@@ -121,6 +126,7 @@ fn sql_export_dedups_column_level_joins_and_preserves_per_statement_rows() {
     }
 }
 
+#[cfg(feature = "duckdb")]
 #[test]
 fn sql_export_preserves_statement_scoped_filters_and_aggregations() {
     let mut table_metadata = HashMap::new();
@@ -230,6 +236,7 @@ fn sql_export_preserves_statement_scoped_filters_and_aggregations() {
     assert_eq!(aggregation_rows, vec![(0, Some("COUNT".to_string()))]);
 }
 
+#[cfg(feature = "duckdb")]
 #[test]
 fn sql_export_reindexes_statement_references_and_preserves_occurrence_spans() {
     let mut column_metadata = HashMap::new();

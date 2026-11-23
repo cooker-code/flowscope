@@ -160,6 +160,34 @@ Classify sinks and sources independently from lineage edges:
 This keeps write-only targets out of `sourceTables`, while preserving
 self-dependent physical reads.
 
+## SQL template fingerprint
+
+- `AnalyzeResult` adds optional `sqlFingerprint` (lowercase SHA-256 hex) and
+  `sqlFingerprintVersion` (`flowscope-sql-v1`). Missing fields on legacy results
+  deserialize to `None`; TypeScript and `docs/api_schema.json` keep them optional.
+- Compute in shared `analyze()` from original request templates before Hive's
+  lossy preprocessing/template rendering. All HTTP, CLI JSON and wasm callers
+  receive it without transport-specific implementations.
+- V1 is conservative token normalization, not full SQL semantic equivalence:
+  ignore ordinary comments, trivia, empty semicolon statements, known resource
+  SET assignments and simple parameter names. Keep variable reuse relationships,
+  embedded fixed text, business literals, map keys, expressions, hints, dialect,
+  file boundaries/order and all participating inline SQL.
+- Never hash the existing `parse_json` as template identity: Hive preprocessing
+  currently removes map subscripts. `other['ip']` and `other['ua']` must have
+  different fingerprints even when legacy graph output is identical.
+- Do not infer parameters from fixed dates/numbers or erase macro calls. Unknown
+  and semantic settings remain significant. Omit fingerprints on empty, oversized
+  or untokenizable input instead of falling back to raw hashes. A fingerprint
+  does not certify parse success: inspect the existing summary/issues as well.
+- Existing graph IDs, raw audit hashes and downstream `task_sql_md5` are unchanged.
+  Parser build, schema and dynamic bindings remain separate artifact context.
+- Regression entry points: `tests/sql_fingerprint.rs`, the analyzer compatibility
+  unit test, HTTP `serve_api`, TypeScript schema compatibility and `schema_guard`.
+  The SQL fixture freezes local warehouse task 22679 for resource/variable-stable
+  and source/map-key/business-condition-sensitive comparisons. V1 rules must not
+  change silently; update the rule version for incompatible canonicalization.
+
 ## INSERT destination column provenance
 
 1. Scope: `analyze()` annotates INSERT output destinations without changing SELECT

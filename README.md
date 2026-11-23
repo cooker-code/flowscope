@@ -68,7 +68,7 @@ flowscope -s schema.sql -f xlsx -o report.xlsx queries/*.sql
 cat query.sql | flowscope -d postgres
 ```
 
-Output formats: `table` (default), `json`, `mermaid`, `html`, `sql`, `csv`, `xlsx`, `duckdb`
+Output formats: `table` (default), `json`, `mermaid`, `html`, `sql`, `csv`, `xlsx`, `duckdb`. The `duckdb` database-file export is opt-in: install or build the CLI with `--features duckdb`; the DuckDB SQL dialect and `sql` export do not require it.
 
 ### Linting
 

@@ -59,6 +59,15 @@ pub(crate) use schema_registry::TableResolution;
 /// `crates/flowscope-core/src/hive_preprocess.rs` for the full pipeline.
 #[must_use]
 pub fn analyze(request: &AnalyzeRequest) -> AnalyzeResult {
+    let mut result = analyze_request(request);
+    if let Some(fingerprint) = crate::sql_fingerprint::compute(request) {
+        result.sql_fingerprint = Some(fingerprint);
+        result.sql_fingerprint_version = Some(crate::sql_fingerprint::VERSION.to_owned());
+    }
+    result
+}
+
+fn analyze_request(request: &AnalyzeRequest) -> AnalyzeResult {
     #[cfg(feature = "tracing")]
     let _span =
         info_span!("analyze_request", statement_count = %request.sql.matches(';').count() + 1)
@@ -666,3 +675,52 @@ impl<'a> Analyzer<'a> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod fingerprint_compatibility_tests {
+    use super::*;
+
+    #[test]
+    fn fingerprint_metadata_does_not_change_existing_analysis_output() {
+        for (sql, dialect) in [
+            (
+                "SELECT u.id FROM users u JOIN orders o ON u.id=o.user_id",
+                Dialect::Generic,
+            ),
+            (
+                include_str!("../tests/fixtures/sql_fingerprint/22679.hql"),
+                Dialect::Hive,
+            ),
+            ("SELECT '\"unterminated", Dialect::Hive),
+        ] {
+            let request = AnalyzeRequest {
+                sql: sql.to_owned(),
+                files: None,
+                dialect,
+                source_name: None,
+                options: None,
+                schema: None,
+                #[cfg(feature = "templating")]
+                template_config: None,
+            };
+            let mut old = analyze_request(&request);
+            let mut current = analyze(&request);
+            // Schema discovery timestamps differ between independent analyses.
+            for result in [&mut old, &mut current] {
+                if let Some(schema) = result.resolved_schema.as_mut() {
+                    for table in &mut schema.tables {
+                        table.updated_at.clear();
+                    }
+                }
+            }
+            let old = serde_json::to_value(old).unwrap();
+            let mut current = serde_json::to_value(current).unwrap();
+            current.as_object_mut().unwrap().remove("sqlFingerprint");
+            current
+                .as_object_mut()
+                .unwrap()
+                .remove("sqlFingerprintVersion");
+            assert_eq!(old, current, "{dialect:?}: {sql}");
+        }
+    }
+}

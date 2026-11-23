@@ -421,6 +421,20 @@
     "description": "The result of analyzing SQL for data lineage.\n\nContains a single flat lineage graph spanning all statements, per-statement\nmetadata, any issues encountered during analysis, and summary statistics.\nEach `Node` / `Edge` records the `statementIds` it participates in, so\nconsumers can filter down to a single statement or aggregate across all of\nthem without maintaining parallel collections.",
     "type": "object",
     "properties": {
+      "sqlFingerprint": {
+        "description": "SHA-256 of the normalized, unrendered SQL token stream. This is a\nconservative template fingerprint, not a release or lineage artifact ID.\nAbsent for empty, oversized or untokenizable input; legacy JSON remains readable.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "sqlFingerprintVersion": {
+        "description": "Version of the fingerprint normalization contract (not the parser version).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
       "sqlType": {
         "description": "Coarse workload type: `select`, `insert`, or `ddl`.\n\n`insert` when any analyzed statement writes to a target table (including\n`INSERT` and `CREATE TABLE AS`). `ddl` when schema/mutating statements\nare present without insert. Otherwise `select`.",
         "allOf": [

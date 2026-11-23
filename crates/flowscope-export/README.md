@@ -4,11 +4,11 @@ Database export helpers for FlowScope analysis results.
 
 ## Overview
 
-`flowscope-export` provides utilities to export `flowscope-core` lineage results to database and report formats. The default backend is DuckDB, which can be disabled by turning off the `duckdb` feature.
+`flowscope-export` provides utilities to export `flowscope-core` lineage results to database and report formats. Native DuckDB database-file export is optional; the other exports do not compile DuckDB.
 
 ## Features
 
-- `duckdb` (default): Export lineage to a DuckDB database file.
+- `duckdb`: Export lineage to a DuckDB database file. Enable it explicitly with `features = ["duckdb"]`.
 - SQL export: Generate DDL + INSERT statements for DuckDB (WASM-friendly).
 - Mermaid export: Script/table/column/hybrid diagrams.
 - CSV archive: ZIP bundle of structured CSV exports.
@@ -24,6 +24,13 @@ Add it to your project alongside `flowscope-core`:
 [dependencies]
 flowscope-core = "0.1.0"
 flowscope-export = "0.1.0"
+```
+
+To create native DuckDB database files, enable its feature:
+
+```toml
+[dependencies]
+flowscope-export = { version = "0.1.0", features = ["duckdb"] }
 ```
 
 ## License

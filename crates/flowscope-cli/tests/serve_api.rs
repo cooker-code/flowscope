@@ -82,6 +82,35 @@ async fn post_json(app: &Router, path: &str, payload: Value) -> (StatusCode, Val
 // === Health endpoint tests ===
 
 #[tokio::test]
+async fn analyze_returns_template_fingerprint_through_public_http_contract() {
+    let mut config = default_config();
+    config.dialect = Dialect::Hive;
+    let app = test_router(test_state(config, vec![]));
+    let sql = "SELECT other['ip'] AS ip FROM logs WHERE dt='${date}'";
+    let (status, original) = post_json(&app, "/api/analyze", json!({"sql": sql})).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(original["sqlFingerprintVersion"], "flowscope-sql-v1");
+    assert_eq!(original["sqlFingerprint"].as_str().unwrap().len(), 64);
+    let (_, renamed) = post_json(
+        &app,
+        "/api/analyze",
+        json!({"sql": format!("SET mapreduce.reduce.memory.mb=8192;\n-- 说明\n{}", sql.replace("${date}", "${bizdate}"))}),
+    )
+    .await;
+    assert_eq!(original["sqlFingerprint"], renamed["sqlFingerprint"]);
+    let (_, changed) = post_json(
+        &app,
+        "/api/analyze",
+        json!({"sql": sql.replace("['ip']", "['ua']")}),
+    )
+    .await;
+    assert_ne!(original["sqlFingerprint"], changed["sqlFingerprint"]);
+    // Adding identity metadata must not change the existing graph contract.
+    assert_eq!(original["nodes"], changed["nodes"]);
+    assert!(original["summary"]["hasErrors"].is_boolean());
+}
+
+#[tokio::test]
 async fn health_returns_ok_status() {
     let state = test_state(default_config(), vec![]);
     let app = test_router(state);

@@ -2,6 +2,10 @@ use flowscope_core::AnalyzeResult;
 
 /// Helper to prepare result for snapshotting by removing volatile fields and sorting lists
 pub fn prepare_for_snapshot(mut result: AnalyzeResult) -> AnalyzeResult {
+    // Fingerprint invariants and JSON compatibility have dedicated public-API
+    // tests; keep these existing snapshots focused on unchanged lineage output.
+    result.sql_fingerprint = None;
+    result.sql_fingerprint_version = None;
     // 1. Clear timestamps in resolved schema
     if let Some(ref mut schema) = result.resolved_schema {
         for table in &mut schema.tables {

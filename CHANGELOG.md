@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Core analysis JSON adds optional `sqlFingerprint` / `sqlFingerprintVersion`.
+  Versioned template token normalization excludes ordinary comments, formatting,
+  simple variable names and known resource settings while preserving business
+  literals, map keys and source changes. Existing lineage IDs and audit hashes
+  remain unchanged; legacy JSON remains readable.
+
 #### Web App (app/) — Librarian (2026-05-04)
 
 AI chat panel for asking questions about your data using SQL lineage and uploaded PDF documentation. Supports OpenAI, Anthropic, and custom OpenAI-compatible endpoints; multilingual embeddings (`Xenova/multilingual-e5-small`, 100+ languages); per-project state isolation (RAM-only) so chat, PDFs, and embedded chunks don't leak between projects.

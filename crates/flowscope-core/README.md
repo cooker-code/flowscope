@@ -73,6 +73,40 @@ fn main() {
 }
 ```
 
+### SQL template fingerprints
+
+Every public `analyze()` entry point (including HTTP, CLI JSON and wasm) adds
+`sqlFingerprint` (64 lowercase SHA-256 hex characters) and
+`sqlFingerprintVersion: "flowscope-sql-v1"` when the original input can be
+tokenized. Old result JSON without these optional fields still deserializes.
+Empty/comment-only/resource-only, oversized, or untokenizable inputs omit both
+fields; analysis errors remain available through the existing issues/summary.
+
+The v1 contract is **conservative token normalization**, not a claim that all
+semantically equivalent SQL has the same fingerprint. It runs before Hive's
+lossy compatibility preprocessing and before template rendering:
+
+- Ignore ordinary comments, whitespace, empty semicolon statements and a fixed
+  allowlist of Hive resource `SET` assignments (memory, cores, parallelism).
+- Normalize unquoted words according to dialect case rules and Hive string
+  quote styles. Preserve quoted identifier case, fixed literals, map/array keys,
+  expressions, hints, SQL order, and file boundaries/order.
+- Normalize simple `${name}`, `{{name}}` and `{{{name}}}` variable names by first
+  occurrence. Keep repeated-variable relationships and fixed fragments around
+  embedded variables. Macro calls/expressions retain their content.
+- Include all `files[].content` followed by inline SQL, matching analysis input
+  order. File/display names and imported schema are not SQL template identity.
+- Include the SQL dialect and rule version, using length-framed token encoding.
+
+Send unrendered templates: fixed date/number literals cannot safely be inferred
+to be runtime parameters. Unknown or semantic SET options (timezone, UDF/object
+configuration) remain significant. Resource directives must end with a semicolon
+to be ignored. Runtime bindings, parser build, schema and dynamic object resolution
+must be tracked separately before reusing a lineage artifact. The fingerprint is
+neither a deployment version nor a replacement for existing node IDs/raw hashes;
+this addition does not alter the graph, existing preprocessing or audit hashes.
+Change the rule version if normalization changes.
+
 ### Linting
 
 ```rust

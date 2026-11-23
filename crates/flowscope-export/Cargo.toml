@@ -13,7 +13,9 @@ categories = ["database"]
 description = "Database export for FlowScope analysis results"
 
 [features]
-default = ["duckdb", "templating"]
+# The native DuckDB database export compiles the bundled DuckDB C++ library.
+# Keep it opt-in so normal parser and service development stays lightweight.
+default = ["templating"]
 duckdb = ["dep:duckdb"]
 templating = ["flowscope-core/templating"]
 

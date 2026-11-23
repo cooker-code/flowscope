@@ -410,6 +410,10 @@ export interface TableRef {
 }
 
 export interface AnalyzeResult {
+  /** Normalized SQL template SHA-256; absent on legacy or untokenizable input. */
+  sqlFingerprint?: string;
+  /** Version of the fingerprint rules; independent of the parser/release version. */
+  sqlFingerprintVersion?: string;
   /**
    * Coarse workload type: `select`, `insert`, or `ddl`.
    * `insert` when any statement writes to a target table; `ddl` for schema/mutating

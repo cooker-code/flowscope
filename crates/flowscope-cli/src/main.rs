@@ -16,9 +16,11 @@ use flowscope_cli::server;
 use anyhow::{Context, Result};
 use clap::Parser;
 use flowscope_core::{analyze, AnalysisOptions, AnalyzeRequest, FileSource, LintConfig, Severity};
+#[cfg(feature = "duckdb")]
+use flowscope_export::export_duckdb;
 use flowscope_export::{
-    dali_compat, export_csv_bundle, export_duckdb, export_html, export_json, export_mermaid,
-    export_sql, export_xlsx, ExportFormat, ExportNaming, MermaidView,
+    dali_compat, export_csv_bundle, export_html, export_json, export_mermaid, export_sql,
+    export_xlsx, ExportFormat, ExportNaming, MermaidView,
 };
 use is_terminal::IsTerminal;
 use rayon::prelude::*;
@@ -758,7 +760,24 @@ fn validate_lint_output_format(format: OutputFormat) -> Result<()> {
     }
 }
 
+#[cfg(feature = "duckdb")]
+fn validate_output_format_feature(_format: OutputFormat) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(not(feature = "duckdb"))]
+fn validate_output_format_feature(format: OutputFormat) -> Result<()> {
+    if format == OutputFormat::Duckdb {
+        anyhow::bail!(
+            "DuckDB database-file export is disabled in this build; rebuild with `cargo build -p flowscope-cli --features duckdb`"
+        );
+    }
+    Ok(())
+}
+
 fn run(args: Args) -> Result<bool> {
+    validate_output_format_feature(args.format)?;
+
     // Read input files
     let sources = input::read_input(&args.files)?;
 
@@ -849,6 +868,7 @@ fn run(args: Args) -> Result<bool> {
                 result.summary.has_errors,
             );
         }
+        #[cfg(feature = "duckdb")]
         OutputFormat::Duckdb => {
             let bytes = export_duckdb(&result).context("Failed to export DuckDB")?;
             return write_binary_output(
@@ -858,6 +878,10 @@ fn run(args: Args) -> Result<bool> {
                 ExportFormat::DuckDb,
                 result.summary.has_errors,
             );
+        }
+        #[cfg(not(feature = "duckdb"))]
+        OutputFormat::Duckdb => {
+            unreachable!("DuckDB output format was rejected before input processing")
         }
     };
 

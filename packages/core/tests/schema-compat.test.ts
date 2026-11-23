@@ -81,6 +81,33 @@ describe('API schema compatibility', () => {
     }
   });
 
+  it('validates optional SQL fingerprint metadata without requiring it on legacy JSON', () => {
+    const validate = loadSchemas().getSchema<AnalyzeResult>('AnalyzeResult');
+    const result: AnalyzeResult = {
+      sqlType: 'select',
+      sqlFingerprint: 'a'.repeat(64),
+      sqlFingerprintVersion: 'flowscope-sql-v1',
+      statements: [],
+      nodes: [],
+      edges: [],
+      issues: [],
+      summary: {
+        statementCount: 0,
+        tableCount: 0,
+        columnCount: 0,
+        joinCount: 0,
+        complexityScore: 0,
+        issueCount: { errors: 0, warnings: 0, infos: 0 },
+        hasErrors: false,
+      },
+    };
+    expect(validate?.(result)).toBe(true);
+    expect(validate?.({ ...result, sqlFingerprint: 123 })).toBe(false);
+    delete result.sqlFingerprint;
+    delete result.sqlFingerprintVersion;
+    expect(validate?.(result)).toBe(true);
+  });
+
   it('validates an AnalyzeResult with autofix metadata against Rust schema', () => {
     const ajv = loadSchemas();
     const validate = ajv.getSchema<AnalyzeResult>('AnalyzeResult');

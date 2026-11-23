@@ -7,6 +7,7 @@ pub mod generated;
 pub mod hive_preprocess;
 pub mod linter;
 pub mod parser;
+mod sql_fingerprint;
 #[cfg(feature = "templating")]
 pub mod templater;
 pub mod types;

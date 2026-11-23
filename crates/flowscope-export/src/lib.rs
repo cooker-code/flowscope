@@ -88,6 +88,23 @@ pub fn export_duckdb(result: &AnalyzeResult) -> Result<Vec<u8>, ExportError> {
     duckdb_backend::export(result)
 }
 
+#[cfg(all(test, not(feature = "duckdb")))]
+mod feature_tests {
+    use super::{export, ExportError, ExportFormat};
+    use flowscope_core::AnalyzeResult;
+
+    #[test]
+    fn duckdb_database_export_requires_its_feature() {
+        let error = export(&AnalyzeResult::default(), ExportFormat::DuckDb)
+            .expect_err("DuckDB database export should require the duckdb feature");
+
+        assert!(matches!(
+            error,
+            ExportError::UnsupportedFormat("DuckDB feature not enabled")
+        ));
+    }
+}
+
 /// Export analysis result as SQL statements.
 ///
 /// Returns DDL (CREATE TABLE/VIEW) + INSERT statements that can be

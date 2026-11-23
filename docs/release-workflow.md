@@ -105,6 +105,8 @@ diff -q app/dist/index.html crates/flowscope-cli/embedded-app/index.html   # 必
 
 ### Step 3 — 交叉编译 CLI（Linux glibc 2.17）
 
+默认的 `serve` 构建不包含原生 DuckDB 数据库文件导出；SQL 解析、HTTP 服务和 SQLite 审计不受影响。只有部署的 CLI 需要 `-f duckdb` 时，才将下方 feature 改为 `--features 'serve,duckdb'`。
+
 ```bash
 cargo zigbuild \
   --target x86_64-unknown-linux-gnu.2.17 \

@@ -64,6 +64,8 @@ impl<'a> Analyzer<'a> {
         issues.extend(extra_issues);
 
         crate::AnalyzeResult {
+            sql_fingerprint: None,
+            sql_fingerprint_version: None,
             sql_type,
             insert_type,
             target_table,

@@ -35,6 +35,9 @@ jobs:
       - name: Run Rust tests
         run: cargo test --workspace --locked
 
+      - name: Run native DuckDB export tests
+        run: cargo test -p flowscope-cli -p flowscope-export --features flowscope-cli/duckdb --locked
+
       - name: Run Clippy
         run: cargo clippy --workspace --locked -- -D warnings
 
