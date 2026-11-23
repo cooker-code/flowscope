@@ -34,6 +34,7 @@ pub struct AuditEntry {
     pub has_cte: bool,
     pub has_union: bool,
     pub success: bool,
+    pub alias_warning: bool,
     pub duration_ms: u64,
     /// Number of meaningful statements (SET/config lines excluded).
     pub stmt_count: Option<usize>,
@@ -54,12 +55,29 @@ pub struct AuditLogListFilters<'a> {
     pub endpoint: Option<&'a str>,
     pub sql_type: Option<&'a str>,
     pub success: Option<bool>,
+    pub alias_warning: Option<bool>,
     pub file_name_filter: Option<&'a str>,
     /// Case-sensitive `LIKE %?%` match on `source_name`.
     pub source_name_filter: Option<&'a str>,
     /// Exact match on the materialized target table name.
     pub target_table_filter: Option<&'a str>,
     pub keyword: Option<&'a str>,
+}
+
+#[derive(Default, serde::Serialize)]
+pub struct AuditQueryResponse {
+    pub total: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub distinct_sql: Option<i64>,
+    pub records: Vec<serde_json::Value>,
+}
+
+pub fn has_alias_warning(result: &AnalyzeResult, file_name: Option<&str>) -> bool {
+    result.issues.iter().any(|issue| {
+        issue.code == flowscope_core::issue_codes::HIVE_ALIAS_BACKTICKS
+            && issue.severity == flowscope_core::Severity::Warning
+            && file_name.is_none_or(|name| issue.source_name.as_deref() == Some(name))
+    })
 }
 
 const RESULT_JSON_MAX_BYTES: usize = 1_048_576; // 1 MiB
@@ -180,6 +198,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
     has_cte          INTEGER NOT NULL DEFAULT 0,
     has_union        INTEGER NOT NULL DEFAULT 0,
     success          INTEGER NOT NULL,
+    alias_warning     INTEGER NOT NULL DEFAULT 0,
     duration_ms      INTEGER NOT NULL,
     stmt_count       INTEGER,
     table_count      INTEGER,
@@ -194,6 +213,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 /// indexing a freshly-added column on an old DB fails with
 /// `no such column`.
 const CREATE_INDEXES_SQL: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_audit_warn_hash ON audit_log(sql_hash) WHERE success = 1 AND alias_warning = 1;
 CREATE INDEX IF NOT EXISTS idx_audit_ts          ON audit_log(ts);
 CREATE INDEX IF NOT EXISTS idx_audit_endpoint    ON audit_log(endpoint);
 CREATE INDEX IF NOT EXISTS idx_audit_sql_hash    ON audit_log(sql_hash);
@@ -209,6 +229,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_target_table ON audit_log(target_table);
 /// columns here, do that through a fresh migration with renamed table
 /// semantics.
 const ADDITIVE_MIGRATIONS: &[&str] = &[
+    "ALTER TABLE audit_log ADD COLUMN alias_warning INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE audit_log ADD COLUMN sql_type TEXT",
     "ALTER TABLE audit_log ADD COLUMN source_name TEXT",
     "ALTER TABLE audit_log ADD COLUMN target_table TEXT",
@@ -219,12 +240,12 @@ INSERT INTO audit_log (
     ts, client_ip, endpoint, dialect, file_name, source_name, target_table,
     sql_text, sql_hash, sql_len,
     has_cte, has_union, success, duration_ms,
-    stmt_count, table_count, sql_type, result_json, result_truncated, error_msg
+    stmt_count, table_count, sql_type, result_json, result_truncated, error_msg, alias_warning
 ) VALUES (
     ?1, ?2, ?3, ?4, ?5, ?6, ?7,
     ?8, ?9, ?10,
     ?11, ?12, ?13, ?14,
-    ?15, ?16, ?17, ?18, ?19, ?20
+    ?15, ?16, ?17, ?18, ?19, ?20, ?21
 )
 "#;
 
@@ -310,6 +331,7 @@ impl AuditWriter {
                             entry.result_json,
                             entry.result_truncated as i32,
                             entry.error_msg,
+                            entry.alias_warning,
                         ],
                     )
                 })
@@ -343,8 +365,10 @@ impl AuditWriter {
         limit: i64,
         offset: i64,
         filters: AuditLogListFilters<'_>,
-    ) -> anyhow::Result<(i64, Vec<serde_json::Value>)> {
-        let conn = rusqlite::Connection::open(db_path)?;
+    ) -> anyhow::Result<AuditQueryResponse> {
+        let mut conn = rusqlite::Connection::open(db_path)?;
+        // Count and page must see the same records while the audit writer is active.
+        let read = conn.transaction()?;
 
         // Collect dynamic filter conditions and their parameter values
         let mut cond_parts: Vec<&'static str> = Vec::new();
@@ -370,6 +394,13 @@ impl AuditWriter {
             cond_parts.push("success = ?");
             extra_params.push(if s { "1".to_string() } else { "0".to_string() });
         }
+        if let Some(warn) = filters.alias_warning {
+            cond_parts.push(if warn {
+                "alias_warning = 1"
+            } else {
+                "alias_warning = 0"
+            });
+        }
         if let Some(fn_pat) = filters.file_name_filter {
             cond_parts.push("file_name LIKE ?");
             extra_params.push(format!("%{fn_pat}%"));
@@ -394,17 +425,22 @@ impl AuditWriter {
         };
 
         // Get total count using named params approach
-        let count_sql = format!("SELECT COUNT(*) FROM audit_log {where_clause}");
-        let total: i64 = {
-            let mut stmt = conn.prepare(&count_sql)?;
+        let distinct = if filters.alias_warning == Some(true) {
+            "COUNT(DISTINCT sql_hash)"
+        } else {
+            "NULL"
+        };
+        let count_sql = format!("SELECT COUNT(*), {distinct} FROM audit_log {where_clause}");
+        let (total, distinct_sql) = {
+            let mut stmt = read.prepare(&count_sql)?;
             // Bind dynamic extra params positionally
             for (i, v) in extra_params.iter().enumerate() {
                 stmt.raw_bind_parameter(i + 1, v.as_str())?;
             }
             let mut rows = stmt.raw_query();
             match rows.next()? {
-                Some(row) => row.get(0)?,
-                None => 0,
+                Some(row) => (row.get(0)?, row.get(1)?),
+                None => (0, None),
             }
         };
 
@@ -417,11 +453,11 @@ impl AuditWriter {
         let select_sql = format!(
             "SELECT id, ts, client_ip, endpoint, dialect, file_name, source_name, target_table, \
              sql_hash, sql_len, has_cte, has_union, success, duration_ms, \
-             stmt_count, table_count, sql_type, result_truncated, error_msg \
+             stmt_count, table_count, sql_type, result_truncated, error_msg, alias_warning \
              FROM audit_log {where_clause} ORDER BY ts DESC LIMIT ?{limit_idx} OFFSET ?{offset_idx}"
         );
 
-        let mut stmt = conn.prepare(&select_sql)?;
+        let mut stmt = read.prepare(&select_sql)?;
         for (i, v) in extra_params.iter().enumerate() {
             stmt.raw_bind_parameter(i + 1, v.as_str())?;
         }
@@ -465,6 +501,7 @@ impl AuditWriter {
                 "has_cte": has_cte != 0,
                 "has_union": has_union != 0,
                 "success": success != 0,
+                "alias_warning": row.get::<_, bool>(19)?,
                 "duration_ms": duration_ms,
                 "stmt_count": stmt_count,
                 "table_count": table_count,
@@ -474,7 +511,11 @@ impl AuditWriter {
             }));
         }
 
-        Ok((total, records))
+        Ok(AuditQueryResponse {
+            total,
+            distinct_sql,
+            records,
+        })
     }
 
     /// Query distinct files from the audit log.
@@ -523,7 +564,7 @@ impl AuditWriter {
         let mut stmt = conn.prepare(
             "SELECT id, ts, client_ip, endpoint, dialect, file_name, source_name, target_table, \
              sql_text, sql_hash, sql_len, has_cte, has_union, success, duration_ms, \
-             stmt_count, table_count, sql_type, result_json, result_truncated, error_msg \
+             stmt_count, table_count, sql_type, result_json, result_truncated, error_msg, alias_warning \
              FROM audit_log WHERE id = ?1",
         )?;
         stmt.raw_bind_parameter(1, id)?;
@@ -549,6 +590,7 @@ impl AuditWriter {
                     "sql_len":          row.get::<_, i64>(10)?,
                     "has_cte":          row.get::<_, i32>(11)? != 0,
                     "has_union":        row.get::<_, i32>(12)? != 0,
+                    "alias_warning": row.get::<_, bool>(21)?,
                     "success":          row.get::<_, i32>(13)? != 0,
                     "duration_ms":      row.get::<_, i64>(14)?,
                     "stmt_count":       row.get::<_, Option<i64>>(15)?,
@@ -585,6 +627,7 @@ mod tests {
             has_cte: false,
             has_union: false,
             success: true,
+            alias_warning: false,
             duration_ms: 1,
             stmt_count: Some(1),
             table_count: Some(0),
@@ -620,6 +663,7 @@ mod tests {
                 entry.result_json,
                 entry.result_truncated as i32,
                 entry.error_msg,
+                entry.alias_warning,
             ],
         )
         .expect("insert");
@@ -676,7 +720,7 @@ mod tests {
         insert_direct(&conn, &make_entry(None, Some("foo.sql")));
         drop(conn);
 
-        let (total, records) =
+        let AuditQueryResponse { total, records, .. } =
             AuditWriter::query(&path, 100, 0, AuditLogListFilters::default()).unwrap();
         assert_eq!(total, 2);
         assert_eq!(records.len(), 2);
@@ -698,7 +742,7 @@ mod tests {
         insert_direct(&conn, &entry);
         drop(conn);
 
-        let (total, records) =
+        let AuditQueryResponse { total, records, .. } =
             AuditWriter::query(&path, 100, 0, AuditLogListFilters::default()).unwrap();
         assert_eq!(total, 1);
         assert_eq!(
@@ -723,7 +767,8 @@ mod tests {
             target_table_filter: Some("dw.orders"),
             ..Default::default()
         };
-        let (total, records) = AuditWriter::query(&path, 100, 0, filters).unwrap();
+        let AuditQueryResponse { total, records, .. } =
+            AuditWriter::query(&path, 100, 0, filters).unwrap();
         assert_eq!(total, 1);
         assert_eq!(records[0]["target_table"], serde_json::json!("dw.orders"));
     }
@@ -740,7 +785,8 @@ mod tests {
             source_name_filter: Some("etl-job"),
             ..Default::default()
         };
-        let (total, records) = AuditWriter::query(&path, 100, 0, filters).unwrap();
+        let AuditQueryResponse { total, records, .. } =
+            AuditWriter::query(&path, 100, 0, filters).unwrap();
         assert_eq!(total, 2);
         for rec in &records {
             let sn = rec["source_name"].as_str().unwrap();

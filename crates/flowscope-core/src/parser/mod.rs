@@ -27,6 +27,22 @@ pub fn parse_sql_with_dialect_output(
             parser_fallback_used: false,
         }),
         Err(primary_err) => {
+            if dialect == Dialect::Hive {
+                if let Some(statements) = recover_hive_orphan_as(sql, sqlparser_dialect.as_ref()) {
+                    return Ok(ParseSqlOutput {
+                        statements,
+                        parser_fallback_used: true,
+                    });
+                }
+                let recovery =
+                    crate::dialect_ext::FlowscopeHiveDialect::for_implicit_alias_recovery();
+                if let Ok(statements) = Parser::parse_sql(&recovery, sql) {
+                    return Ok(ParseSqlOutput {
+                        statements,
+                        parser_fallback_used: true,
+                    });
+                }
+            }
             if let Some(sanitized_sql) = sanitize_escaped_identifiers_for_dialect(sql, dialect) {
                 if let Ok(statements) =
                     Parser::parse_sql(sqlparser_dialect.as_ref(), &sanitized_sql)
@@ -89,6 +105,55 @@ pub fn parse_sql_with_dialect_output(
             Err(primary_err.into())
         }
     }
+}
+
+/// Recover the legacy missing-alias form only after normal Hive parsing failed.
+/// Keep token locations, ignore trivia, and preserve aliases ending a list or
+/// followed by a new clause (e.g. `AS from /* ... */ ,` or `AS from FROM t`).
+fn recover_hive_orphan_as(
+    sql: &str,
+    dialect: &dyn sqlparser::dialect::Dialect,
+) -> Option<Vec<Statement>> {
+    use sqlparser::keywords::Keyword;
+    use sqlparser::tokenizer::{Token, Tokenizer};
+
+    fn clause(token: &Token) -> bool {
+        matches!(token, Token::Word(w) if matches!(w.keyword, Keyword::FROM | Keyword::WHERE
+            | Keyword::GROUP | Keyword::ORDER | Keyword::HAVING | Keyword::LIMIT | Keyword::UNION
+            | Keyword::JOIN | Keyword::LEFT | Keyword::RIGHT | Keyword::INNER | Keyword::CROSS
+            | Keyword::ON | Keyword::WHEN | Keyword::ELSE | Keyword::END | Keyword::AND
+            | Keyword::OR | Keyword::THEN))
+    }
+
+    let mut tokens = Tokenizer::new(dialect, sql).tokenize_with_location().ok()?;
+    let significant: Vec<_> = tokens
+        .iter()
+        .enumerate()
+        .filter_map(|(i, t)| (!matches!(t.token, Token::Whitespace(_))).then_some(i))
+        .collect();
+    let mut changed = false;
+    for trio in significant.windows(3) {
+        let (alias, keyword, next) = (trio[0], trio[1], trio[2]);
+        if matches!(&tokens[alias].token,Token::Word(w) if w.keyword==Keyword::AS)
+            && clause(&tokens[keyword].token)
+            && !clause(&tokens[next].token)
+            && !matches!(
+                tokens[next].token,
+                Token::Comma | Token::RParen | Token::SemiColon
+            )
+        {
+            tokens[alias].token = Token::Whitespace(sqlparser::tokenizer::Whitespace::Space);
+            changed = true;
+        }
+    }
+    changed
+        .then(|| {
+            Parser::new(dialect)
+                .with_tokens_with_locations(tokens)
+                .parse_statements()
+                .ok()
+        })
+        .flatten()
 }
 
 fn looks_like_postgres_syntax(sql: &str) -> bool {

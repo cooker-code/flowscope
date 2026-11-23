@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Hive analysis accepts Chinese and keyword aliases and suggests backticks. Named
+  STRUCT members carry lineage from their value expressions, including audit 638267.
+
 - Core Hive `LATERAL VIEW` resolves outputs by table alias and column name,
   allowing duplicate `posexplode` position names when qualified. Actual
   ambiguous references still fail; expanded value and position outputs retain

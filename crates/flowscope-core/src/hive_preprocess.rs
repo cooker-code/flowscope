@@ -25,7 +25,6 @@
 //! - Step 10: Collapse `;;;;` and leading semicolons
 //! - Step 11: Auto-insert `;` between adjacent top-level `SELECT`/`INSERT`/`WITH`
 //! - Step 12: `expr ! IN (...)` → `expr NOT IN (...)`
-//! - Step 12.5: Orphan `AS` followed by clause keyword (e.g. `END AS\nFROM`) → drop `AS`
 //! - Step 13: Preserve `GROUPING SETS`/`CUBE`/`ROLLUP`; the dialect parses
 //!   their formal AST directly.
 //!
@@ -59,8 +58,7 @@ pub fn preprocess(input: &str) -> String {
     let s = fix_cte_missing_as(&s);
     let s = collapse_semicolons(&s);
     let s = auto_split_statements(&s);
-    let s = rewrite_hive_not_in(&s);
-    fix_orphan_as(&s)
+    rewrite_hive_not_in(&s)
 }
 
 // ─── Step 1: Placeholder substitution ─────────────────────────────────────────
@@ -649,100 +647,6 @@ fn rewrite_hive_not_in(input: &str) -> String {
     bang_in_re().replace_all(input, "NOT IN (").into_owned()
 }
 
-// ─── Step 12.5: Orphan `AS` followed by clause keyword → drop AS ──────────────
-
-const AS_CLAUSE_KEYWORDS: &[&str] = &[
-    "from", "where", "group", "order", "having", "limit", "union", "join", "left", "right",
-    "inner", "cross", "on", "when", "else", "end", "and", "or", "then",
-];
-
-/// Hive sometimes tolerates `case ... end as\nfrom ...` (AS with no alias).
-/// Strip such an `AS` when the next non-blank token is a SQL clause keyword.
-/// **Must** skip comments and strings to avoid touching commented-out `as`.
-fn fix_orphan_as(input: &str) -> String {
-    let bytes = input.as_bytes();
-    let n = bytes.len();
-    let mut out = String::with_capacity(n);
-    let mut i = 0;
-    while i < n {
-        if bytes[i] == b'-' && i + 1 < n && bytes[i + 1] == b'-' {
-            if let Some(j) = find_byte(&bytes[i..], b'\n') {
-                out.push_str(&input[i..i + j]);
-                i += j;
-            } else {
-                out.push_str(&input[i..]);
-                return out;
-            }
-            continue;
-        }
-        if bytes[i] == b'/' && i + 1 < n && bytes[i + 1] == b'*' {
-            if let Some(j) = find_substr(&bytes[i + 2..], b"*/") {
-                let end = i + 2 + j + 2;
-                out.push_str(&input[i..end]);
-                i = end;
-            } else {
-                out.push_str(&input[i..]);
-                return out;
-            }
-            continue;
-        }
-        if bytes[i] == b'\'' {
-            let start = i;
-            i += 1;
-            while i < n {
-                let c = bytes[i];
-                if c == b'\\' && i + 1 < n {
-                    i += 2;
-                    continue;
-                }
-                i += 1;
-                if c == b'\'' {
-                    break;
-                }
-            }
-            out.push_str(&input[start..i]);
-            continue;
-        }
-        // detect \bAS\b
-        let is_as = (bytes[i] == b'A' || bytes[i] == b'a')
-            && i + 1 < n
-            && (bytes[i + 1] == b'S' || bytes[i + 1] == b's')
-            && (i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_'))
-            && (i + 2 >= n || !(bytes[i + 2].is_ascii_alphanumeric() || bytes[i + 2] == b'_'));
-        if is_as {
-            let mut j = i + 2;
-            while j < n && matches!(bytes[j], b' ' | b'\t' | b'\r' | b'\n') {
-                j += 1;
-            }
-            let mut k = j;
-            while k < n && (bytes[k].is_ascii_alphanumeric() || bytes[k] == b'_') {
-                k += 1;
-            }
-            let next_word = input[j..k].to_ascii_lowercase();
-            if AS_CLAUSE_KEYWORDS.contains(&next_word.as_str()) {
-                // Drop only the `AS` token; preserve the whitespace before the
-                // clause keyword so line/column drift is minimised.
-                i += 2;
-                continue;
-            }
-        }
-        // Non-special byte: advance by a full UTF-8 character.
-        let ch_len = if bytes[i] < 0x80 {
-            1
-        } else if bytes[i] < 0xE0 {
-            2
-        } else if bytes[i] < 0xF0 {
-            3
-        } else {
-            4
-        };
-        let end = (i + ch_len).min(n);
-        out.push_str(&input[i..end]);
-        i = end;
-    }
-    out
-}
-
 // ─── Unit tests ───────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -976,31 +880,6 @@ mod tests {
         );
     }
 
-    // Step 12.5
-    #[test]
-    fn orphan_as_dropped_before_from() {
-        // `end as\n` → `end \n` (drop AS, preserve the whitespace around it)
-        let input = "select case when a > 0 then 'X' end as\nfrom (select 1 a from t) tt";
-        let out = fix_orphan_as(input);
-        assert!(!out.contains("as\n"), "got: {out}");
-        // After dropping AS the line is `... end \n` (with a trailing space).
-        assert!(out.contains("end \nfrom"), "got: {out}");
-    }
-
-    #[test]
-    fn orphan_as_preserves_legitimate_alias() {
-        let input = "select a as col1, sum(x) as sum from t";
-        let out = fix_orphan_as(input);
-        assert_eq!(out, input);
-    }
-
-    #[test]
-    fn orphan_as_skips_inside_comment() {
-        let input = "-- ,count(*) as \n\nfrom t";
-        let out = fix_orphan_as(input);
-        assert!(out.contains("-- ,count(*) as"));
-    }
-
     // Step 4.5
     #[test]
     fn inline_multi_col_as_posexplode_two_col() {
@@ -1084,7 +963,7 @@ mod tests {
     fn full_pipeline_smoke() {
         // Covers Step 2 (SET filter), Step 3 (DDL filter), Step 6 (double quote),
         // Step 9 (CTE missing AS — only for *non-first* CTE following a comma),
-        // Step 12 (! IN), Step 12.5 (orphan AS), Step 13 (GROUPING SETS retained).
+        // Step 12 (! IN), Step 13 (GROUPING SETS retained).
         let input = r#"-- batch
 set hive.exec.parallel=true;
 create table t (a int) stored as orc;
@@ -1100,8 +979,8 @@ group by grouping sets((a))"#;
         assert!(!lower.contains("set hive"), "got: {out}");
         assert!(!lower.contains("create table"), "got: {out}");
         assert!(lower.contains("'pos'"), "got: {out}");
-        // orphan AS dropped (the `as\n` from `end as\nfrom` becomes ` \nfrom`)
-        assert!(!out.contains("end as\n"), "got: {out}");
+        // Keep AS for the grammar. Orphan recovery is a parser fallback.
+        assert!(out.contains("end as\n"), "got: {out}");
         assert!(lower.contains("not in"), "got: {out}");
         assert!(lower.contains("grouping sets((a))"), "got: {out}");
         // Step 9: second_cte gets AS inserted because the regex requires a leading comma.

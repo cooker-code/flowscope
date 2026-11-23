@@ -327,6 +327,7 @@ pub struct IssueCount {
 
 /// Machine-readable issue codes.
 pub mod issue_codes {
+    pub const HIVE_ALIAS_BACKTICKS: &str = "HIVE_ALIAS_BACKTICKS";
     pub const PARSE_ERROR: &str = "PARSE_ERROR";
     pub const INVALID_REQUEST: &str = "INVALID_REQUEST";
     pub const DIALECT_FALLBACK: &str = "DIALECT_FALLBACK";

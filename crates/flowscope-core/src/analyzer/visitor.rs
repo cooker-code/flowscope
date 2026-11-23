@@ -15,7 +15,7 @@ use super::query::OutputColumnParams;
 use super::select_analyzer::SelectAnalyzer;
 use super::Analyzer;
 use crate::generated::is_value_table_function;
-use crate::types::{issue_codes, Issue, Node, NodeType, Span};
+use crate::types::{issue_codes, Dialect, Issue, Node, NodeType, Span};
 use serde_json::json;
 use sqlparser::ast::{
     self, CreateView, Cte, Expr, Ident, Join, LateralView, Query, Select, SetExpr, SetOperator,
@@ -306,9 +306,10 @@ impl<'a, 'b> LineageVisitor<'a, 'b> {
             .unwrap_or_else(|| self.analyzer.normalize_table_name(table_name));
 
         if let (Some(a), Some(canonical_name)) = (alias, canonical_res) {
-            self.ctx
-                .table_aliases
-                .insert(a.name.to_string(), canonical_name);
+            self.ctx.table_aliases.insert(
+                alias_binding(&a.name, self.analyzer.request.dialect),
+                canonical_name,
+            );
         }
 
         let node_id = self
@@ -370,10 +371,15 @@ impl<'a, 'b> LineageVisitor<'a, 'b> {
                     .analyzer
                     .canonicalize_table_reference(&name.to_string())
                     .canonical;
-                self.ctx.table_aliases.insert(a.name.to_string(), canonical);
+                self.ctx.table_aliases.insert(
+                    alias_binding(&a.name, self.analyzer.request.dialect),
+                    canonical,
+                );
             }
             TableFactor::Derived { alias: Some(a), .. } => {
-                self.ctx.subquery_aliases.insert(a.name.to_string());
+                self.ctx
+                    .subquery_aliases
+                    .insert(alias_binding(&a.name, self.analyzer.request.dialect));
             }
             TableFactor::NestedJoin {
                 table_with_joins, ..
@@ -519,33 +525,47 @@ impl<'a, 'b> LineageVisitor<'a, 'b> {
     }
 }
 
-fn reserve_relation_names_in_table_with_joins(
-    ctx: &mut StatementContext,
-    table_with_joins: &TableWithJoins,
-) {
-    reserve_relation_names_in_table_factor(ctx, &table_with_joins.relation);
-    for join in &table_with_joins.joins {
-        reserve_relation_names_in_table_factor(ctx, &join.relation);
+// In Hive the quote delimiter is syntax, not part of the name used by column references.
+fn alias_binding(name: &Ident, dialect: Dialect) -> String {
+    if dialect == Dialect::Hive {
+        name.value.clone()
+    } else {
+        name.to_string()
     }
 }
 
-fn reserve_relation_names_in_table_factor(ctx: &mut StatementContext, table_factor: &TableFactor) {
+fn reserve_relation_names_in_table_with_joins(
+    ctx: &mut StatementContext,
+    table_with_joins: &TableWithJoins,
+    dialect: Dialect,
+) {
+    reserve_relation_names_in_table_factor(ctx, &table_with_joins.relation, dialect);
+    for join in &table_with_joins.joins {
+        reserve_relation_names_in_table_factor(ctx, &join.relation, dialect);
+    }
+}
+
+fn reserve_relation_names_in_table_factor(
+    ctx: &mut StatementContext,
+    table_factor: &TableFactor,
+    dialect: Dialect,
+) {
     match table_factor {
         TableFactor::Table { name, alias, .. } => {
             ctx.reserve_relation_name_in_current_scope(name.to_string());
             if let Some(alias) = alias {
-                ctx.reserve_relation_name_in_current_scope(alias.name.to_string());
+                ctx.reserve_relation_name_in_current_scope(alias_binding(&alias.name, dialect));
             }
         }
         TableFactor::Derived {
             alias: Some(alias), ..
-        } => ctx.reserve_relation_name_in_current_scope(alias.name.to_string()),
+        } => ctx.reserve_relation_name_in_current_scope(alias_binding(&alias.name, dialect)),
         TableFactor::NestedJoin {
             table_with_joins, ..
-        } => reserve_relation_names_in_table_with_joins(ctx, table_with_joins),
+        } => reserve_relation_names_in_table_with_joins(ctx, table_with_joins, dialect),
         TableFactor::TableFunction {
             alias: Some(alias), ..
-        } => ctx.reserve_relation_name_in_current_scope(alias.name.to_string()),
+        } => ctx.reserve_relation_name_in_current_scope(alias_binding(&alias.name, dialect)),
         _ => {}
     }
 }
@@ -632,7 +652,7 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
         if let Some(with) = &query.with {
             let mut cte_ids: Vec<(String, Arc<str>)> = Vec::new();
             for cte in &with.cte_tables {
-                let cte_name = cte.alias.name.to_string();
+                let cte_name = alias_binding(&cte.alias.name, self.analyzer.request.dialect);
                 let cte_span = self.locate_cte_definition_span(&cte_name);
                 let body_span = cte_span.and_then(|span| {
                     let sql = if let Some(source) = &self.analyzer.current_statement_source {
@@ -677,8 +697,10 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
                     LineageVisitor::new(self.analyzer, self.ctx, Some(cte_id.to_string()));
                 cte_visitor.visit_query(&cte.query);
                 let columns = self.ctx.take_output_columns_since(projection_checkpoint);
-                self.ctx
-                    .register_cte_output_columns(cte.alias.name.to_string(), columns);
+                self.ctx.register_cte_output_columns(
+                    alias_binding(&cte.alias.name, self.analyzer.request.dialect),
+                    columns,
+                );
             }
         }
         self.visit_set_expr(&query.body);
@@ -743,7 +765,11 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
         // visited left-to-right, so without this pre-pass a later user alias
         // equal to the generated name could overwrite the earlier relation.
         for table_with_joins in &select.from {
-            reserve_relation_names_in_table_with_joins(self.ctx, table_with_joins);
+            reserve_relation_names_in_table_with_joins(
+                self.ctx,
+                table_with_joins,
+                self.analyzer.request.dialect,
+            );
         }
         for table_with_joins in &select.from {
             self.visit_table_with_joins(table_with_joins);
@@ -787,8 +813,19 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
     fn visit_table_factor(&mut self, table_factor: &TableFactor) {
         match table_factor {
             TableFactor::Table { name, alias, .. } => {
-                let table_name = name.to_string();
-                let alias_str = alias.as_ref().map(|a| a.name.to_string());
+                // CTE bindings use the identifier value; SQL display quotes are not part of that key.
+                let table_name = match name.0.as_slice() {
+                    [ast::ObjectNamePart::Identifier(ident)]
+                        if self.analyzer.request.dialect == Dialect::Hive
+                            && self.ctx.cte_definitions.contains_key(&ident.value) =>
+                    {
+                        ident.value.clone()
+                    }
+                    _ => name.to_string(),
+                };
+                let alias_str = alias
+                    .as_ref()
+                    .map(|a| alias_binding(&a.name, self.analyzer.request.dialect));
                 let canonical = self.add_source_table_with_alias(&table_name, alias_str.as_deref());
                 if let (Some(a), Some(canonical_name)) = (&alias_str, &canonical) {
                     self.ctx
@@ -802,7 +839,9 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
                 // We create a node for it in the graph, analyze its subquery to determine its
                 // output columns, and then register its alias and columns in the current scope
                 // so the outer query can reference it.
-                let alias_name = alias.as_ref().map(|a| a.name.to_string());
+                let alias_name = alias
+                    .as_ref()
+                    .map(|a| alias_binding(&a.name, self.analyzer.request.dialect));
                 // A derived relation is still a real FROM source when the SQL
                 // dialect permits omitting its alias. Give it an internal
                 // canonical name so its known projection can participate in
@@ -956,8 +995,10 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
                     self.ctx.mark_table_function_in_scope();
                 }
                 if let Some(a) = alias {
-                    self.ctx
-                        .register_subquery_alias_in_scope(a.name.to_string());
+                    self.ctx.register_subquery_alias_in_scope(alias_binding(
+                        &a.name,
+                        self.analyzer.request.dialect,
+                    ));
                 }
                 self.analyzer.issues.push(
                     Issue::info(
@@ -994,8 +1035,10 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
                     }
                 }
                 if let Some(a) = alias {
-                    self.ctx
-                        .register_subquery_alias_in_scope(a.name.to_string());
+                    self.ctx.register_subquery_alias_in_scope(alias_binding(
+                        &a.name,
+                        self.analyzer.request.dialect,
+                    ));
                 }
                 self.analyzer.issues.push(
                     Issue::warning(
@@ -1016,8 +1059,10 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
                     self.extract_identifiers_from_expr(&col.expr);
                 }
                 if let Some(a) = alias {
-                    self.ctx
-                        .register_subquery_alias_in_scope(a.name.to_string());
+                    self.ctx.register_subquery_alias_in_scope(alias_binding(
+                        &a.name,
+                        self.analyzer.request.dialect,
+                    ));
                 }
                 self.analyzer.issues.push(
                     Issue::warning(
@@ -1047,8 +1092,10 @@ impl<'a, 'b> Visitor for LineageVisitor<'a, 'b> {
                     }
                 }
                 if let Some(a) = alias {
-                    self.ctx
-                        .register_subquery_alias_in_scope(a.name.to_string());
+                    self.ctx.register_subquery_alias_in_scope(alias_binding(
+                        &a.name,
+                        self.analyzer.request.dialect,
+                    ));
                 }
             }
             _ => {}

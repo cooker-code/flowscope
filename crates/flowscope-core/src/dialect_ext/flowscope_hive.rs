@@ -36,6 +36,35 @@ use sqlparser::tokenizer::Token;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FlowscopeHiveDialect {
     inner: HiveDialect,
+    recover_implicit_aliases: bool,
+}
+
+impl FlowscopeHiveDialect {
+    pub(crate) fn for_implicit_alias_recovery() -> Self {
+        Self {
+            recover_implicit_aliases: true,
+            ..Self::default()
+        }
+    }
+
+    // Called after the candidate alias token has been consumed. A separator or
+    // a new clause gives us evidence that the preceding word was an alias.
+    fn implicit_alias_boundary(&self, kw: &Keyword, parser: &Parser, next_clause: Keyword) -> bool {
+        self.recover_implicit_aliases
+            && (parser.peek_token_ref().token == Token::Comma
+                || (*kw != Keyword::FROM
+                    && *kw != Keyword::JOIN
+                    && parser.peek_keyword(next_clause)))
+    }
+}
+
+/// Share the Unicode Han script classification with alias diagnostics.
+pub(crate) fn is_han(ch: char) -> bool {
+    static HAN: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    !ch.is_ascii()
+        && HAN
+            .get_or_init(|| regex::Regex::new(r"^\p{Han}$").unwrap())
+            .is_match(ch.encode_utf8(&mut [0; 4]))
 }
 
 impl Dialect for FlowscopeHiveDialect {
@@ -44,17 +73,11 @@ impl Dialect for FlowscopeHiveDialect {
     }
 
     fn is_identifier_start(&self, ch: char) -> bool {
-        // Spark/Hive regular identifiers allow `_` as their first character.
-        // sqlparser-rs 0.61's HiveDialect delegates this character to a
-        // punctuation token, which makes aliases such as `__semantic_tuomin`
-        // fail before the analyzer receives the original SQL. Keep every
-        // other start-character decision delegated to the upstream dialect:
-        // this deliberately does not make digits, quotes, or keywords legal.
-        ch == '_' || self.inner.is_identifier_start(ch)
+        ch == '_' || self.inner.is_identifier_start(ch) || is_han(ch)
     }
 
     fn is_identifier_part(&self, ch: char) -> bool {
-        self.inner.is_identifier_part(ch)
+        self.inner.is_identifier_part(ch) || is_han(ch)
     }
 
     fn supports_filter_during_aggregation(&self) -> bool {
@@ -146,6 +169,17 @@ impl Dialect for FlowscopeHiveDialect {
         }
 
         parse_hive_typed_numeric_literal(parser).map(Ok)
+    }
+
+    fn is_select_item_alias(&self, explicit: bool, kw: &Keyword, parser: &mut Parser) -> bool {
+        self.inner.is_select_item_alias(explicit, kw, parser)
+            || self.implicit_alias_boundary(kw, parser, Keyword::FROM)
+    }
+
+    fn is_table_factor_alias(&self, explicit: bool, kw: &Keyword, parser: &mut Parser) -> bool {
+        explicit
+            || self.is_table_alias(kw, parser)
+            || self.implicit_alias_boundary(kw, parser, Keyword::WHERE)
     }
 
     // ── PR3 override ────────────────────────────────────────────────────────
@@ -795,7 +829,7 @@ mod tests {
     #[test]
     fn leading_underscore_override_keeps_invalid_identifier_boundaries() {
         // The override is intentionally only for a leading underscore. All
-        // existing numeric and Unicode behavior remains delegated upstream.
+        // numeric and non-Han boundaries remain delegated upstream.
         let dialect = FlowscopeHiveDialect::default();
         let upstream = HiveDialect {};
         assert!(dialect.is_identifier_start('_'));
@@ -804,8 +838,8 @@ mod tests {
             upstream.is_identifier_start('1')
         );
         assert_eq!(
-            dialect.is_identifier_start('中'),
-            upstream.is_identifier_start('中')
+            dialect.is_identifier_start('é'),
+            upstream.is_identifier_start('é')
         );
         assert_eq!(
             dialect.is_identifier_part('_'),

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, Loader2, XCircle } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, Loader2, TriangleAlert, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -45,12 +45,14 @@ interface AuditListRecord {
   target_table: string | null;
   sql_type: string | null;
   success: boolean;
+  alias_warning: boolean;
   duration_ms: number;
   table_count: number | null;
 }
 
 interface AuditQueryResponse {
   total: number;
+  distinct_sql?: number;
   records: AuditListRecord[];
 }
 
@@ -156,7 +158,12 @@ export function AuditPage() {
       if (!Number.isNaN(d.getTime())) p.set('to', d.toISOString());
     }
     if (sqlType && sqlType !== ANY) p.set('sql_type', sqlType);
-    if (success === 'true' || success === 'false') p.set('success', success);
+    if (success === 'warn' || success === 'true') {
+      p.set('success', 'true');
+      p.set('alias_warning', String(success === 'warn'));
+    } else if (success === 'false') {
+      p.set('success', 'false');
+    }
     if (fileName.trim()) p.set('file_name', fileName.trim());
     if (sourceName.trim()) p.set('source_name', sourceName.trim());
     if (targetTable.trim()) p.set('target_table', targetTable.trim());
@@ -164,11 +171,11 @@ export function AuditPage() {
     return p.toString();
   }, [page, from, to, sqlType, success, fileName, sourceName, targetTable, urlKeyword]);
 
-  const fetchList = useCallback(async () => {
+  const fetchList = useCallback(async (signal: AbortSignal) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/audit?${queryString}`);
+      const res = await fetch(`/api/audit?${queryString}`, { signal });
       if (!res.ok) {
         setError(`Request failed (${res.status})`);
         setData(null);
@@ -191,17 +198,20 @@ export function AuditPage() {
         return;
       }
       const json = (await res.json()) as AuditQueryResponse;
-      setData(json);
+      if (!signal.aborted) setData(json);
     } catch (e) {
+      if (signal.aborted) return;
       setError(e instanceof Error ? e.message : String(e));
       setData(null);
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
   }, [queryString]);
 
   useEffect(() => {
-    void fetchList();
+    const controller = new AbortController();
+    void fetchList(controller.signal);
+    return () => controller.abort();
   }, [fetchList]);
 
   // Persist the current list URL so "Back to audit list" on the lineage detail
@@ -294,14 +304,15 @@ export function AuditPage() {
             </Select>
           </div>
           <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Success</label>
+            <label htmlFor="audit-status" className="text-xs text-muted-foreground">Status</label>
             <Select value={success} onValueChange={setSuccess}>
-              <SelectTrigger className="h-9 w-[120px] text-xs">
+              <SelectTrigger id="audit-status" className="h-9 w-[120px] text-xs">
                 <SelectValue placeholder="Any" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={ANY}>Any</SelectItem>
                 <SelectItem value="true">Success</SelectItem>
+                <SelectItem value="warn">Warn</SelectItem>
                 <SelectItem value="false">Failed</SelectItem>
               </SelectContent>
             </Select>
@@ -360,6 +371,7 @@ export function AuditPage() {
                 <>
                   <span className="font-medium">{data.total}</span> record
                   {data.total === 1 ? '' : 's'}
+                  {data.distinct_sql != null && ` · ${data.distinct_sql} distinct SQL`}
                 </>
               ) : (
                 '—'
@@ -409,7 +421,7 @@ export function AuditPage() {
                   <th className="px-3 py-2 font-medium">Name</th>
                   <th className="px-3 py-2 font-medium">Target table</th>
                   <th className="px-3 py-2 font-medium">Type</th>
-                  <th className="px-3 py-2 font-medium">OK</th>
+                  <th className="px-3 py-2 font-medium">Status</th>
                   <th className="px-3 py-2 font-medium">ms</th>
                   <th className="px-3 py-2 font-medium">Tables</th>
                   <th className="px-3 py-2 font-medium text-right">Action</th>
@@ -448,10 +460,14 @@ export function AuditPage() {
                     </td>
                     <td className="px-3 py-2">{r.sql_type ?? '—'}</td>
                     <td className="px-3 py-2">
-                      {r.success ? (
-                        <CheckCircle2 className="size-4 text-emerald-600" />
+                      {!r.success ? (
+                        <XCircle role="img" aria-label="Failed" className="size-4 text-destructive" />
+                      ) : r.alias_warning ? (
+                        <span title="Warn: alias should use backticks" className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                          <TriangleAlert aria-hidden="true" className="size-4" /> Warn
+                        </span>
                       ) : (
-                        <XCircle className="size-4 text-destructive" />
+                        <CheckCircle2 role="img" aria-label="Success" className="size-4 text-emerald-600" />
                       )}
                     </td>
                     <td className="px-3 py-2 tabular-nums">{r.duration_ms}</td>

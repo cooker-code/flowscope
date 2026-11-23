@@ -67,7 +67,7 @@ parse 通过率提升到 **99.96%+**（warehouse corpus 5105 文件实测 100% �
 
 **关键顺序**：三重 → 双重 → 单 `$`。反过来会让 `{{{x}}}` 变成 `'__ph__'}`，多漏一个 `}` 破坏后续 SQL。
 
-**实现要求：单次字符级扫描器统一处理三种上下文**（与 Step 6 / Step 12.5 同形）：
+**实现要求：单次字符级扫描器统一处理三种上下文**（与 Step 6 同形）：
 
 - 行注释 `-- ... \n` / 块注释 `/* ... */`：整段保留，**不替换**注释里的占位符
 - 字符串字面量 `'...'` / `"..."`：body 含 `{{{` / `{{` / `${` 任一 marker 即整段替换为
@@ -179,21 +179,14 @@ Step 3 把 DDL 替换为空字符串后用 `;` 重新拼接，会产生 `;;;`。
 
 Hive 接受 `expr ! IN (a, b)` 作为 NOT IN 的别写。
 
-### Step 12.5 — 孤立 `AS` 后无别名 → 删 AS
+### Hive 别名与孤立 AS 的边界
 
-原作者 typo：`case ... end as\nfrom (...)`（AS 后没有别名，下一个 token
-直接是子句关键字）。Hive 在某些版本容忍，parser 不容忍。
+先按 Hive 语法解析完整语句。分析器按语法树中的别名角色处理包含汉字或命中 sqlparser 关键词表的名称，输出 `HIVE_ALIAS_BACKTICKS` 警告及建议写法。已有反引号的别名无需提示。普通子句、CAST 类型、源字段和字符串不属于别名。
 
-**实现要求**：上下文感知扫描，跳过注释和字符串中的 `as`，**只**在以下子句
-关键字（FROM/WHERE/GROUP/ORDER/HAVING/LIMIT/UNION/JOIN/LEFT/RIGHT/INNER/
-CROSS/ON/WHEN/ELSE/END/AND/OR/THEN）之前删除 AS。删除时只删 AS 两字节，
-保留前后空白以最小化 line/column 偏移。
-
-**回归用例**：
-
-- `-- ,count(*) as \nfrom t` → **保留**（注释里的 AS）
-- `select sum(x) as sum from t` → **保留**（`sum` 不是子句关键字）
-- `case when ... end as\nfrom (...)` → 删 AS ✓
+- `STRUCT(season_user_from AS from)` 必须保留取值表达式。字段血缘沿 `Expr::Struct.values` 和 `Expr::Named.expr` 追溯，成员名只用于显示。
+- 公共表表达式及表别名按标识符的值登记，声明与引用使用不同引用样式时也应找到同一关系。
+- 原生解析失败时才尝试恢复孤立 AS，例如 `CASE WHEN x THEN 1 END AS FROM src`。恢复使用词法单元并保留坐标。
+- 省略 AS 的保留字仅在可识别的别名位置兼容。投影别名后面的逗号或 FROM、表别名后面的逗号或 WHERE 可以确定边界。有效的普通查询沿用原生语法。
 
 ### 原 Step 13 已移除：高级分组必须保留正式结构
 
@@ -300,7 +293,7 @@ pub fn analyze(request: &AnalyzeRequest) -> AnalyzeResult {
   inline_multi_col_as_cast_with_inner_as_not_touched /
   inline_multi_col_as_lateral_view_form_not_touched
 - auto_split_does_not_break_with_insert / with_cube
-- orphan_as_preserves_legitimate_alias / skips_inside_comment
+- `cargo test -p flowscope-core --test hive_alias_lineage`
 - 高级分组原文保留、空集/并列集合、数组 exists/NOT exists 和正常子查询分支
 - full_pipeline_smoke
 
