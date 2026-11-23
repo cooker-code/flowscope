@@ -17,7 +17,8 @@ use chrono::SecondsFormat;
 use serde::{Deserialize, Serialize};
 
 use super::audit::{
-    extract_audit_flags, extract_target_table, sha256_hex, truncate_result_json, AuditEntry,
+    extract_audit_flags, extract_target_table, has_alias_warning, sha256_hex, truncate_result_json,
+    AuditEntry, AuditQueryResponse,
 };
 use super::AppState;
 
@@ -153,6 +154,7 @@ struct AuditQueryParams {
     sql_type: Option<String>,
     /// Filter by success flag
     success: Option<bool>,
+    alias_warning: Option<bool>,
     /// Substring match on `file_name`
     file_name: Option<String>,
     /// Substring match on `source_name` (caller-supplied identifier).
@@ -168,12 +170,6 @@ struct AuditQueryParams {
 
 fn default_audit_limit() -> i64 {
     50
-}
-
-#[derive(Serialize)]
-struct AuditQueryResponse {
-    total: i64,
-    records: Vec<serde_json::Value>,
 }
 
 // === Handlers ===
@@ -264,6 +260,7 @@ async fn analyze(
                     has_cte,
                     has_union,
                     success,
+                    alias_warning: has_alias_warning(&result, Some(&file.name)),
                     duration_ms,
                     stmt_count: Some(stmt_count),
                     table_count: Some(table_count),
@@ -291,6 +288,7 @@ async fn analyze(
                 has_cte,
                 has_union,
                 success,
+                alias_warning: has_alias_warning(&result, None),
                 duration_ms,
                 stmt_count: Some(stmt_count),
                 table_count: Some(table_count),
@@ -363,6 +361,7 @@ async fn split(
             has_cte: false,
             has_union: false,
             success,
+            alias_warning: false,
             duration_ms,
             stmt_count: Some(stmt_count),
             table_count: None,
@@ -427,6 +426,7 @@ async fn lint_fix(
             has_cte: false,
             has_union: false,
             success,
+            alias_warning: false,
             duration_ms,
             stmt_count: None,
             table_count: None,
@@ -541,6 +541,7 @@ async fn export(
                     has_cte,
                     has_union,
                     success,
+                    alias_warning: has_alias_warning(&result, Some(&file.name)),
                     duration_ms,
                     stmt_count: Some(stmt_count),
                     table_count: Some(table_count),
@@ -567,6 +568,7 @@ async fn export(
                 has_cte,
                 has_union,
                 success,
+                alias_warning: has_alias_warning(&result, None),
                 duration_ms,
                 stmt_count: Some(stmt_count),
                 table_count: Some(table_count),
@@ -670,20 +672,12 @@ async fn audit_records(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let Some(ref _audit) = state.audit else {
         // Audit not enabled: return empty result
-        return Ok(Json(AuditQueryResponse {
-            total: 0,
-            records: vec![],
-        }));
+        return Ok(Json(AuditQueryResponse::default()));
     };
 
     let audit_path = match state.config.audit_log_path {
         Some(ref p) => p.clone(),
-        None => {
-            return Ok(Json(AuditQueryResponse {
-                total: 0,
-                records: vec![],
-            }))
-        }
+        None => return Ok(Json(AuditQueryResponse::default())),
     };
 
     let limit = params.limit.clamp(1, 500);
@@ -705,6 +699,7 @@ async fn audit_records(
             endpoint: endpoint_filter.as_deref(),
             sql_type: sql_type.as_deref(),
             success,
+            alias_warning: params.alias_warning,
             file_name_filter: file_name.as_deref(),
             source_name_filter: source_name.as_deref(),
             target_table_filter: target_table.as_deref(),
@@ -726,10 +721,7 @@ async fn audit_records(
         )
     })?;
 
-    Ok(Json(AuditQueryResponse {
-        total: result.0,
-        records: result.1,
-    }))
+    Ok(Json(result))
 }
 
 /// GET /api/audit/files - List distinct files from the audit log (latest record per file)

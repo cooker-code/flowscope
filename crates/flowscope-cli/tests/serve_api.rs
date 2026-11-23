@@ -2516,6 +2516,59 @@ async fn config_exposes_audit_storage_when_enabled() {
 }
 
 #[tokio::test]
+async fn audit_warn_counts_records_and_distinct_sql_by_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("audit.db");
+    let mut state = test_state_with_audit(&path);
+    Arc::get_mut(&mut state).unwrap().config.dialect = Dialect::Hive;
+    let app = test_router(state);
+    let warn_sql = "SELECT STRUCT(1 AS from) AS 收入";
+    let (status, _) = post_json(&app, "/api/analyze", json!({"sql": warn_sql})).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = post_json(
+        &app,
+        "/api/analyze",
+        json!({"sql": "", "files": [
+            {"name": "warn.sql", "content": warn_sql},
+            {"name": "ok.sql", "content": "SELECT 1 AS `收入`"}
+        ]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    wait_for_audit_rows(&path, 3).await;
+
+    for (filter, count) in [("true", 2), ("false", 1)] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(format!(
+                    "/api/audit?success=true&alias_warning={filter}&limit=1"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let page: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(page["total"], count);
+        assert_eq!(page["records"].as_array().unwrap().len(), 1);
+        let row = &page["records"][0];
+        assert_eq!(row["success"], true);
+        assert_eq!(row["alias_warning"], filter == "true");
+        if filter == "true" {
+            assert_eq!(page["distinct_sql"], 1);
+            assert_eq!(row["file_name"], "warn.sql");
+        } else {
+            assert_eq!(row["file_name"], "ok.sql");
+        }
+    }
+}
+
+#[tokio::test]
 async fn audit_query_filter_by_sql_type() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("audit.db");

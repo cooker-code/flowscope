@@ -23,6 +23,7 @@ mod expression;
 mod functions;
 mod global;
 pub mod helpers;
+mod hive_aliases;
 mod input;
 mod query;
 pub(crate) mod schema_registry;
@@ -374,7 +375,7 @@ impl<'a> Analyzer<'a> {
         for (
             parse_index,
             StatementInput {
-                statement,
+                mut statement,
                 source_name,
                 source_sql,
                 source_range,
@@ -415,6 +416,14 @@ impl<'a> Analyzer<'a> {
             });
 
             let source_name_owned = source_name.as_deref().map(String::from);
+            if dialect == Dialect::Hive {
+                hive_aliases::normalize(
+                    &mut statement,
+                    lineage_statement_index,
+                    source_name.as_deref().map(String::as_str),
+                    &mut self.issues,
+                );
+            }
             let result = self.analyze_statement(
                 lineage_statement_index,
                 &statement,

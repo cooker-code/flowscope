@@ -143,6 +143,7 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
             }
             Expr::UnaryOp { expr, .. }
             | Expr::Nested(expr)
+            | Expr::Named { expr, .. }
             | Expr::Cast { expr, .. }
             | Expr::Ceil { expr, .. }
             | Expr::Floor { expr, .. }
@@ -343,7 +344,7 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
                     next_depth,
                 );
             }
-            Expr::Tuple(values) => {
+            Expr::Tuple(values) | Expr::Struct { values, .. } => {
                 for value in values {
                     Self::collect_window_controls(
                         value,
@@ -527,7 +528,14 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
                 self.visit_expression_for_subqueries(right, next_depth);
             }
             Expr::UnaryOp { expr, .. } => self.visit_expression_for_subqueries(expr, next_depth),
-            Expr::Nested(expr) => self.visit_expression_for_subqueries(expr, next_depth),
+            Expr::Struct { values, .. } => {
+                for value in values {
+                    self.visit_expression_for_subqueries(value, next_depth);
+                }
+            }
+            Expr::Named { expr, .. } | Expr::Nested(expr) => {
+                self.visit_expression_for_subqueries(expr, next_depth)
+            }
             Expr::Case {
                 operand,
                 conditions,
@@ -795,7 +803,7 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
                     depth_limited |= Self::collect_column_refs(el, refs, dialect, next_depth);
                 }
             }
-            Expr::Cast { expr, .. } => {
+            Expr::Named { expr, .. } | Expr::Cast { expr, .. } => {
                 depth_limited |= Self::collect_column_refs(expr, refs, dialect, next_depth);
             }
             Expr::Ceil { expr, .. } | Expr::Floor { expr, .. } => {
@@ -872,7 +880,7 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
                 depth_limited |= Self::collect_column_refs(expr, refs, dialect, next_depth);
                 depth_limited |= Self::collect_column_refs(pattern, refs, dialect, next_depth);
             }
-            Expr::Tuple(exprs) => {
+            Expr::Tuple(exprs) | Expr::Struct { values: exprs, .. } => {
                 for e in exprs {
                     depth_limited |= Self::collect_column_refs(e, refs, dialect, next_depth);
                 }
@@ -1037,9 +1045,13 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
             Expr::BinaryOp { left, right, .. } => self
                 .find_aggregate_function(left, next_depth)
                 .or_else(|| self.find_aggregate_function(right, next_depth)),
-            Expr::UnaryOp { expr, .. } | Expr::Nested(expr) | Expr::Cast { expr, .. } => {
-                self.find_aggregate_function(expr, next_depth)
-            }
+            Expr::UnaryOp { expr, .. }
+            | Expr::Nested(expr)
+            | Expr::Named { expr, .. }
+            | Expr::Cast { expr, .. } => self.find_aggregate_function(expr, next_depth),
+            Expr::Struct { values, .. } => values
+                .iter()
+                .find_map(|v| self.find_aggregate_function(v, next_depth)),
             Expr::Case {
                 operand,
                 conditions,
@@ -1312,6 +1324,7 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
 
             // Single expression wrappers
             Expr::UnaryOp { expr: e, .. }
+            | Expr::Named { expr: e, .. }
             | Expr::Cast { expr: e, .. }
             | Expr::Nested(e)
             | Expr::Extract { expr: e, .. }
@@ -1379,7 +1392,7 @@ impl<'a, 'b> ExpressionAnalyzer<'a, 'b> {
             }
 
             // List patterns
-            Expr::Tuple(exprs) => {
+            Expr::Tuple(exprs) | Expr::Struct { values: exprs, .. } => {
                 for e in exprs {
                     Self::collect_simple_identifiers(e, identifiers, next_depth);
                 }
