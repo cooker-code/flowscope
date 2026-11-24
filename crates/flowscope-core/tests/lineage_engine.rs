@@ -6989,6 +6989,25 @@ fn multiple_join_types_captured() {
 }
 
 #[test]
+fn hive_chained_cross_joins_preserve_optional_conditions() {
+    let sql = "SELECT * FROM reports r
+               CROSS JOIN op_health h CROSS JOIN dual_guard g ON TRUE";
+    let result = run_analysis(sql, Dialect::Hive, None);
+    let stmt = first_statement(&result);
+    for (source, condition) in [("op_health", None), ("dual_guard", Some("true"))] {
+        let table = find_table_node(&stmt, source).expect("joined source table");
+        assert!(
+            stmt.edges.iter().any(|edge| {
+                edge.from == table.id
+                    && edge.join_type == Some(flowscope_core::JoinType::Cross)
+                    && edge.join_condition.as_deref() == condition
+            }),
+            "missing cross join metadata for {source}"
+        );
+    }
+}
+
+#[test]
 fn cte_join_metadata_captured() {
     let sql = r#"
         WITH user_ltv AS (

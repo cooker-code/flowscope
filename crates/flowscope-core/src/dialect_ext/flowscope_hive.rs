@@ -104,6 +104,11 @@ impl Dialect for FlowscopeHiveDialect {
         self.inner.supports_table_sample_before_alias()
     }
 
+    // Spark/Hive queries can attach an ON predicate to an explicit CROSS JOIN.
+    fn supports_cross_join_constraint(&self) -> bool {
+        true
+    }
+
     fn supports_group_by_with_modifier(&self) -> bool {
         self.inner.supports_group_by_with_modifier()
     }

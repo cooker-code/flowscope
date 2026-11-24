@@ -1448,7 +1448,10 @@ impl<'a> Analyzer<'a> {
                 Some(JoinType::Full),
                 Self::extract_join_condition(constraint),
             ),
-            ast::JoinOperator::CrossJoin(_) => (Some(JoinType::Cross), None),
+            ast::JoinOperator::CrossJoin(constraint) => (
+                Some(JoinType::Cross),
+                Self::extract_join_condition(constraint),
+            ),
             ast::JoinOperator::Semi(constraint) | ast::JoinOperator::LeftSemi(constraint) => (
                 Some(JoinType::LeftSemi),
                 Self::extract_join_condition(constraint),

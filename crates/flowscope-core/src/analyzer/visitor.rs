@@ -182,11 +182,10 @@ impl<'a, 'b> LineageVisitor<'a, 'b> {
             | ast::JoinOperator::Anti(c)
             | ast::JoinOperator::LeftAnti(c)
             | ast::JoinOperator::RightAnti(c)
+            | ast::JoinOperator::CrossJoin(c)
             | ast::JoinOperator::StraightJoin(c) => Some(c),
             ast::JoinOperator::AsOf { constraint, .. } => Some(constraint),
-            ast::JoinOperator::CrossJoin(_)
-            | ast::JoinOperator::CrossApply
-            | ast::JoinOperator::OuterApply => None,
+            ast::JoinOperator::CrossApply | ast::JoinOperator::OuterApply => None,
         };
 
         constraint.and_then(|c| match c {
