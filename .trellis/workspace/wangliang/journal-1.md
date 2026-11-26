@@ -451,3 +451,36 @@ Created GitLab issue 1; enabled Hive FROM VALUES table factor, added parser and 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 14: Token 列表显示真实凭据并隐藏已撤销记录
+
+**Date**: 2026-11-26
+**Task**: Token 列表显示真实凭据并隐藏已撤销记录
+**Branch**: `codex/token-value-display`
+
+### Summary
+
+Token 管理显示实际凭据，管理员可在刷新和重启后再次读取；采用加密持久化与独立密钥，旧哈希记录在成功认证后补存完整值；撤销后隐藏并清除密文，保留历史ID引用。前端构建/lint/3项传输测试、16项服务端测试、Rust Clippy、1750项核心测试、18个SQL回归以及Token管理浏览器检查通过。浏览器、临时目录与测试服务已清理。本次按用户要求不创建Trellis task。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `HEAD` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

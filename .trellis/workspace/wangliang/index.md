@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 13
+- **Total Sessions**: 14
 - **Last Active**: 2026-11-26
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~453 | Active |
+| `journal-1.md` | ~486 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 14 | 2026-11-26 | Token 列表显示真实凭据并隐藏已撤销记录 | HEAD | `codex/token-value-display` |
 | 13 | 2026-11-26 | 合并遗留分支并保留工作树资料 | `9815f02b`, `8b35d60a` | `codex/audit-graph-status` |
 | 12 | 2026-09-28 | Hive FROM VALUES audit 443044 fix（补录分支记录） | `3f6f6538` | `codex/fix-hive-from-values-443044` |
 | 11 | 2026-11-26 | 审计表增加入图状态与问号说明 | `7b6e72ae` | `codex/audit-graph-status` |
