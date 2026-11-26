@@ -1,0 +1,43 @@
+{
+  "rustServerUnitTests": {
+    "passed": 28
+  },
+  "serveApiTests": {
+    "passed": 92
+  },
+  "serveIntegrationTests": {
+    "passed": 11
+  },
+  "isolatedNeo4jHttpTests": {
+    "skipped": 2,
+    "reason": "requires explicitly supplied task-owned loopback Neo4j"
+  },
+  "frontendTargetedTests": {
+    "passed": 17
+  },
+  "appTypecheck": "passed",
+  "appBuild": "passed",
+  "appLint": "passed",
+  "prettierChangedFiles": "passed",
+  "cargoFmt": "passed",
+  "cargoClippyServeWarningsAsErrors": "passed",
+  "embeddedCliBuild": "passed",
+  "nativeHttpAndBrowserChecks": [
+    "real audit 652177 SQL returns select and persists SELECT through HTTP",
+    "fresh embedded UI loads server default 7 days",
+    "saving retention preserves unsaved caller draft",
+    "reload reads persisted server value 14",
+    "browser blocks non-positive values",
+    "390px viewport keeps retention controls visible without page overflow",
+    "keyboard focus and page runtime have no errors"
+  ],
+  "resourceCleanup": {
+    "uiServerExited": true,
+    "ownedBrowserPidsExited": true,
+    "uiTemporaryDirectoryRemoved": true,
+    "benchmarkServersExited": true,
+    "benchmarkDriverExited": true,
+    "benchmarkTemporaryDatabaseRemoved": true
+  },
+  "deployment": "not performed; no production data changed"
+}

@@ -1,0 +1,2015 @@
+{
+  "elapsedMs": 69.39999999850988,
+  "record": {
+    "alias_warning": false,
+    "client_ip": "10.11.60.150",
+    "dialect": "Hive",
+    "duration_ms": 3,
+    "endpoint": "/api/analyze",
+    "error_msg": null,
+    "event_id": "35bdb742-d0ab-4d5b-9f11-4a5ef7bc8d05",
+    "file_name": null,
+    "has_cte": true,
+    "has_union": false,
+    "id": 652177,
+    "lineage_status": "queued",
+    "policy_reason": null,
+    "principal_id": "change",
+    "result_json": {
+      "edges": [
+        {
+          "from": "table_d3d12e84fa9eb460",
+          "id": "edge_453a2d1ec47a8745",
+          "statementIds": [
+            0
+          ],
+          "to": "cte_c58a34893da30c1b",
+          "type": "data_flow"
+        },
+        {
+          "from": "cte_c58a34893da30c1b",
+          "id": "edge_79b52e02ebc011d0",
+          "statementIds": [
+            0
+          ],
+          "to": "column_ac75998509011998",
+          "type": "ownership"
+        },
+        {
+          "from": "table_d3d12e84fa9eb460",
+          "id": "edge_19855d24599703a0",
+          "statementIds": [
+            0
+          ],
+          "to": "column_636e333b53c6202f",
+          "type": "ownership"
+        },
+        {
+          "from": "column_636e333b53c6202f",
+          "id": "edge_5620b493755368cc",
+          "statementIds": [
+            0
+          ],
+          "to": "column_ac75998509011998",
+          "type": "data_flow"
+        },
+        {
+          "from": "cte_c58a34893da30c1b",
+          "id": "edge_027509d3bbb6bca1",
+          "statementIds": [
+            0
+          ],
+          "to": "column_8e7baee1f171e892",
+          "type": "ownership"
+        },
+        {
+          "from": "table_d3d12e84fa9eb460",
+          "id": "edge_28f1183a29c24eb9",
+          "statementIds": [
+            0
+          ],
+          "to": "column_2fd68b309d07094f",
+          "type": "ownership"
+        },
+        {
+          "from": "column_2fd68b309d07094f",
+          "id": "edge_dd98e7ff75478acc",
+          "statementIds": [
+            0
+          ],
+          "to": "column_8e7baee1f171e892",
+          "type": "data_flow"
+        },
+        {
+          "from": "cte_c58a34893da30c1b",
+          "id": "edge_9305b11484047f8b",
+          "statementIds": [
+            0
+          ],
+          "to": "column_4901619a66ede1ce",
+          "type": "ownership"
+        },
+        {
+          "from": "table_d3d12e84fa9eb460",
+          "id": "edge_42d77373a4135512",
+          "statementIds": [
+            0
+          ],
+          "to": "column_c2c8ba0e76682819",
+          "type": "ownership"
+        },
+        {
+          "from": "column_c2c8ba0e76682819",
+          "id": "edge_ae0b85f897e22153",
+          "statementIds": [
+            0
+          ],
+          "to": "column_4901619a66ede1ce",
+          "type": "data_flow"
+        },
+        {
+          "from": "cte_c58a34893da30c1b",
+          "id": "edge_0d06f079c66eca89",
+          "statementIds": [
+            0
+          ],
+          "to": "column_7b34728163eca1a5",
+          "type": "ownership"
+        },
+        {
+          "from": "table_d3d12e84fa9eb460",
+          "id": "edge_08fca4794066410e",
+          "statementIds": [
+            0
+          ],
+          "to": "column_cf28ababeb8d7e76",
+          "type": "ownership"
+        },
+        {
+          "expression": "CASE WHEN interview_week BETWEEN 13 AND 16 THEN 12 WHEN interview_week BETWEEN 25 AND 28 THEN 24 WHEN interview_week BETWEEN 37 AND 40 THEN 36 END",
+          "from": "column_cf28ababeb8d7e76",
+          "id": "edge_e06e0e6083383364",
+          "statementIds": [
+            0
+          ],
+          "to": "column_7b34728163eca1a5",
+          "type": "derivation"
+        },
+        {
+          "from": "cte_c58a34893da30c1b",
+          "id": "edge_949c82c1c25f17cb",
+          "statementIds": [
+            0
+          ],
+          "to": "column_4c07c6cfaa581d60",
+          "type": "ownership"
+        },
+        {
+          "from": "table_d3d12e84fa9eb460",
+          "id": "edge_6fdb1534478aa3a9",
+          "statementIds": [
+            0
+          ],
+          "to": "column_2b6c352898ec9192",
+          "type": "ownership"
+        },
+        {
+          "expression": "SUM(coalesce(duration, 0))",
+          "from": "column_2b6c352898ec9192",
+          "id": "edge_a3c6394c8d93250e",
+          "statementIds": [
+            0
+          ],
+          "to": "column_4c07c6cfaa581d60",
+          "type": "derivation"
+        },
+        {
+          "from": "table_bca5d605847246ee",
+          "id": "edge_683fb76ca9862ee2",
+          "statementIds": [
+            0
+          ],
+          "to": "derived_d20f98222c1841f6",
+          "type": "data_flow"
+        },
+        {
+          "from": "derived_d20f98222c1841f6",
+          "id": "edge_e7a29a776d22ee40",
+          "statementIds": [
+            0
+          ],
+          "to": "column_063fcfbfeba84e07",
+          "type": "ownership"
+        },
+        {
+          "from": "table_bca5d605847246ee",
+          "id": "edge_1f9eba489a7bd3a9",
+          "statementIds": [
+            0
+          ],
+          "to": "column_ef9e240948b130eb",
+          "type": "ownership"
+        },
+        {
+          "from": "column_ef9e240948b130eb",
+          "id": "edge_439f821187cda363",
+          "statementIds": [
+            0
+          ],
+          "to": "column_063fcfbfeba84e07",
+          "type": "data_flow"
+        },
+        {
+          "from": "derived_d20f98222c1841f6",
+          "id": "edge_edd1448a572b1298",
+          "statementIds": [
+            0
+          ],
+          "to": "column_afd05a7d51313149",
+          "type": "ownership"
+        },
+        {
+          "from": "table_bca5d605847246ee",
+          "id": "edge_0629058429a84fa4",
+          "statementIds": [
+            0
+          ],
+          "to": "column_0c1d10526ffd900d",
+          "type": "ownership"
+        },
+        {
+          "from": "column_0c1d10526ffd900d",
+          "id": "edge_ec4492e6d9385925",
+          "statementIds": [
+            0
+          ],
+          "to": "column_afd05a7d51313149",
+          "type": "data_flow"
+        },
+        {
+          "from": "derived_d20f98222c1841f6",
+          "id": "edge_10731e0f2b79bc5f",
+          "statementIds": [
+            0
+          ],
+          "to": "column_df23fef519492609",
+          "type": "ownership"
+        },
+        {
+          "from": "table_bca5d605847246ee",
+          "id": "edge_2c46ef47deb9c454",
+          "statementIds": [
+            0
+          ],
+          "to": "column_716ca06ff99cdcbf",
+          "type": "ownership"
+        },
+        {
+          "from": "column_716ca06ff99cdcbf",
+          "id": "edge_9e3de69e09aa1742",
+          "statementIds": [
+            0
+          ],
+          "to": "column_df23fef519492609",
+          "type": "data_flow"
+        },
+        {
+          "from": "derived_d20f98222c1841f6",
+          "id": "edge_86744cfed06c0a09",
+          "statementIds": [
+            0
+          ],
+          "to": "column_0e8b07007ac81749",
+          "type": "ownership"
+        },
+        {
+          "from": "table_bca5d605847246ee",
+          "id": "edge_447b35641e16cc8e",
+          "statementIds": [
+            0
+          ],
+          "to": "column_dfd9757ef11986db",
+          "type": "ownership"
+        },
+        {
+          "expression": "CAST(week_num AS STRING)",
+          "from": "column_dfd9757ef11986db",
+          "id": "edge_d112d7b197f593d9",
+          "statementIds": [
+            0
+          ],
+          "to": "column_0e8b07007ac81749",
+          "type": "derivation"
+        },
+        {
+          "from": "derived_d20f98222c1841f6",
+          "id": "edge_83c72c255d3a99e8",
+          "statementIds": [
+            0
+          ],
+          "to": "column_8b45f117c8d44935",
+          "type": "ownership"
+        },
+        {
+          "from": "table_bca5d605847246ee",
+          "id": "edge_63836822c15757f7",
+          "statementIds": [
+            0
+          ],
+          "to": "column_ff48ee8a36b30a3e",
+          "type": "ownership"
+        },
+        {
+          "from": "column_ff48ee8a36b30a3e",
+          "id": "edge_f5d8f5f5b6c18c3f",
+          "statementIds": [
+            0
+          ],
+          "to": "column_8b45f117c8d44935",
+          "type": "data_flow"
+        },
+        {
+          "from": "derived_d20f98222c1841f6",
+          "id": "edge_5ab04cea6c3228d8",
+          "statementIds": [
+            0
+          ],
+          "to": "column_96e42e4225134e0a",
+          "type": "ownership"
+        },
+        {
+          "from": "table_bca5d605847246ee",
+          "id": "edge_8bba7845d0a2514d",
+          "statementIds": [
+            0
+          ],
+          "to": "column_66a29b8493380505",
+          "type": "ownership"
+        },
+        {
+          "from": "column_66a29b8493380505",
+          "id": "edge_6f3ddd2611212af0",
+          "statementIds": [
+            0
+          ],
+          "to": "column_96e42e4225134e0a",
+          "type": "data_flow"
+        },
+        {
+          "from": "derived_d20f98222c1841f6",
+          "id": "edge_4b1a11eff965c71a",
+          "statementIds": [
+            0
+          ],
+          "to": "column_600ed55333e327fe",
+          "type": "ownership"
+        },
+        {
+          "from": "table_bca5d605847246ee",
+          "id": "edge_b0b9836935a09eb0",
+          "statementIds": [
+            0
+          ],
+          "to": "column_492aa06f8486358a",
+          "type": "ownership"
+        },
+        {
+          "from": "column_492aa06f8486358a",
+          "id": "edge_506b59b58b9d8721",
+          "statementIds": [
+            0
+          ],
+          "to": "column_600ed55333e327fe",
+          "type": "data_flow"
+        },
+        {
+          "from": "output_74d22f755ec62dbc",
+          "id": "edge_8791001450f4d53a",
+          "statementIds": [
+            0
+          ],
+          "to": "column_e2e4bd660d5fc1e1",
+          "type": "ownership"
+        },
+        {
+          "from": "table_9a9ec1d283284f1d",
+          "id": "edge_3d3abfe332675aaa",
+          "statementIds": [
+            0
+          ],
+          "to": "column_07a8a3c3d9919fce",
+          "type": "ownership"
+        },
+        {
+          "from": "column_07a8a3c3d9919fce",
+          "id": "edge_7f71e1ebc3d20b18",
+          "statementIds": [
+            0
+          ],
+          "to": "column_e2e4bd660d5fc1e1",
+          "type": "data_flow"
+        },
+        {
+          "from": "output_74d22f755ec62dbc",
+          "id": "edge_8fcbd657978d56bc",
+          "statementIds": [
+            0
+          ],
+          "to": "column_3b5ac9cb24dd16a3",
+          "type": "ownership"
+        },
+        {
+          "from": "table_9a9ec1d283284f1d",
+          "id": "edge_7096b4a0f5a08c3f",
+          "statementIds": [
+            0
+          ],
+          "to": "column_8580a2befa044347",
+          "type": "ownership"
+        },
+        {
+          "from": "column_8580a2befa044347",
+          "id": "edge_6982a76433f36617",
+          "statementIds": [
+            0
+          ],
+          "to": "column_3b5ac9cb24dd16a3",
+          "type": "data_flow"
+        },
+        {
+          "from": "output_74d22f755ec62dbc",
+          "id": "edge_633b02ad8280ce6a",
+          "statementIds": [
+            0
+          ],
+          "to": "column_ab5b64820dcdc905",
+          "type": "ownership"
+        },
+        {
+          "from": "table_9a9ec1d283284f1d",
+          "id": "edge_6fca93272cf19986",
+          "statementIds": [
+            0
+          ],
+          "to": "column_0899ff12005133e2",
+          "type": "ownership"
+        },
+        {
+          "expression": "regexp_replace(split(a.period_type, '-'), '/', '-')",
+          "from": "column_0899ff12005133e2",
+          "id": "edge_08ca09f81659e26a",
+          "statementIds": [
+            0
+          ],
+          "to": "column_ab5b64820dcdc905",
+          "type": "derivation"
+        },
+        {
+          "from": "output_74d22f755ec62dbc",
+          "id": "edge_4bd4ddeab2200515",
+          "statementIds": [
+            0
+          ],
+          "to": "column_7c5bdf99ab0c8526",
+          "type": "ownership"
+        },
+        {
+          "from": "column_0899ff12005133e2",
+          "id": "edge_347da203b8338c7b",
+          "statementIds": [
+            0
+          ],
+          "to": "column_7c5bdf99ab0c8526",
+          "type": "data_flow"
+        },
+        {
+          "from": "output_74d22f755ec62dbc",
+          "id": "edge_a71630be8251e6b2",
+          "statementIds": [
+            0
+          ],
+          "to": "column_8df4dd93464369f3",
+          "type": "ownership"
+        },
+        {
+          "from": "table_9a9ec1d283284f1d",
+          "id": "edge_5946978d59747484",
+          "statementIds": [
+            0
+          ],
+          "to": "column_eda2c2f225ee891d",
+          "type": "ownership"
+        },
+        {
+          "from": "column_eda2c2f225ee891d",
+          "id": "edge_3c59060c84434841",
+          "statementIds": [
+            0
+          ],
+          "to": "column_8df4dd93464369f3",
+          "type": "data_flow"
+        },
+        {
+          "from": "output_74d22f755ec62dbc",
+          "id": "edge_2a31a165be695479",
+          "statementIds": [
+            0
+          ],
+          "to": "column_312efffbb13cc739",
+          "type": "ownership"
+        },
+        {
+          "from": "table_9a9ec1d283284f1d",
+          "id": "edge_157f2715bf0bfa1b",
+          "statementIds": [
+            0
+          ],
+          "to": "column_c70e34f8a8ec3bda",
+          "type": "ownership"
+        },
+        {
+          "from": "column_c70e34f8a8ec3bda",
+          "id": "edge_ed2dac00dccfd942",
+          "statementIds": [
+            0
+          ],
+          "to": "column_312efffbb13cc739",
+          "type": "data_flow"
+        },
+        {
+          "from": "output_74d22f755ec62dbc",
+          "id": "edge_591cac21007d3e00",
+          "statementIds": [
+            0
+          ],
+          "to": "column_36a735c5c90d4ae0",
+          "type": "ownership"
+        },
+        {
+          "from": "table_9a9ec1d283284f1d",
+          "id": "edge_75a31ffbebfd34e8",
+          "statementIds": [
+            0
+          ],
+          "to": "column_efe0b36b30d5ee8c",
+          "type": "ownership"
+        },
+        {
+          "from": "column_efe0b36b30d5ee8c",
+          "id": "edge_2d15513f8f69140b",
+          "statementIds": [
+            0
+          ],
+          "to": "column_36a735c5c90d4ae0",
+          "type": "data_flow"
+        },
+        {
+          "from": "output_74d22f755ec62dbc",
+          "id": "edge_ca24a665fc769928",
+          "statementIds": [
+            0
+          ],
+          "to": "column_d0fde010b1f1a88e",
+          "type": "ownership"
+        },
+        {
+          "from": "table_9a9ec1d283284f1d",
+          "id": "edge_cc8428c0e661180b",
+          "statementIds": [
+            0
+          ],
+          "to": "column_a906dbcdfe2dc44c",
+          "type": "ownership"
+        },
+        {
+          "expression": "CAST(a.stage_week_idx AS INT)",
+          "from": "column_a906dbcdfe2dc44c",
+          "id": "edge_d94f48b96052efc8",
+          "statementIds": [
+            0
+          ],
+          "to": "column_d0fde010b1f1a88e",
+          "type": "derivation"
+        },
+        {
+          "from": "output_74d22f755ec62dbc",
+          "id": "edge_a991427c2573d166",
+          "statementIds": [
+            0
+          ],
+          "to": "column_b293ae176291e5b5",
+          "type": "ownership"
+        },
+        {
+          "from": "table_9a9ec1d283284f1d",
+          "id": "edge_273e941dbd465758",
+          "statementIds": [
+            0
+          ],
+          "to": "column_5335be51244d80fc",
+          "type": "ownership"
+        },
+        {
+          "from": "column_5335be51244d80fc",
+          "id": "edge_8dbaf79408f6c449",
+          "statementIds": [
+            0
+          ],
+          "to": "column_b293ae176291e5b5",
+          "type": "data_flow"
+        },
+        {
+          "from": "output_74d22f755ec62dbc",
+          "id": "edge_2ca2300d0f0e7c75",
+          "statementIds": [
+            0
+          ],
+          "to": "column_de00117c038ef136",
+          "type": "ownership"
+        },
+        {
+          "expression": "if(e.resource_id IS NOT NULL, 1, 0)",
+          "from": "column_8b45f117c8d44935",
+          "id": "edge_f99385402519100b",
+          "joinCondition": "e.user_id = a.user_id AND e.semester_id = a.semester_id AND e.stage_id = a.stage_id AND e.exam_stage_week_idx = CAST(a.stage_week_idx AS STRING)",
+          "joinType": "LEFT",
+          "statementIds": [
+            0
+          ],
+          "to": "column_de00117c038ef136",
+          "type": "derivation"
+        },
+        {
+          "from": "output_74d22f755ec62dbc",
+          "id": "edge_b76369e6ca7eb815",
+          "statementIds": [
+            0
+          ],
+          "to": "column_669d1c6ad2673d34",
+          "type": "ownership"
+        },
+        {
+          "expression": "if(e.is_finish_official_exam = '1' OR e.is_finish_makeup_exam = '1', 1, 0)",
+          "from": "column_96e42e4225134e0a",
+          "id": "edge_8f37e84e41a09c43",
+          "joinCondition": "e.user_id = a.user_id AND e.semester_id = a.semester_id AND e.stage_id = a.stage_id AND e.exam_stage_week_idx = CAST(a.stage_week_idx AS STRING)",
+          "joinType": "LEFT",
+          "statementIds": [
+            0
+          ],
+          "to": "column_669d1c6ad2673d34",
+          "type": "derivation"
+        },
+        {
+          "expression": "if(e.is_finish_official_exam = '1' OR e.is_finish_makeup_exam = '1', 1, 0)",
+          "from": "column_600ed55333e327fe",
+          "id": "edge_3fe87f7b5cc56cfb",
+          "joinCondition": "e.user_id = a.user_id AND e.semester_id = a.semester_id AND e.stage_id = a.stage_id AND e.exam_stage_week_idx = CAST(a.stage_week_idx AS STRING)",
+          "joinType": "LEFT",
+          "statementIds": [
+            0
+          ],
+          "to": "column_669d1c6ad2673d34",
+          "type": "derivation"
+        },
+        {
+          "from": "output_74d22f755ec62dbc",
+          "id": "edge_672a1483b7e8999c",
+          "statementIds": [
+            0
+          ],
+          "to": "column_104700118d74cbe5",
+          "type": "ownership"
+        },
+        {
+          "expression": "if(e.is_finish_official_exam = '1', 1, 0)",
+          "from": "column_96e42e4225134e0a",
+          "id": "edge_8a9807f30a2ee8f3",
+          "joinCondition": "e.user_id = a.user_id AND e.semester_id = a.semester_id AND e.stage_id = a.stage_id AND e.exam_stage_week_idx = CAST(a.stage_week_idx AS STRING)",
+          "joinType": "LEFT",
+          "statementIds": [
+            0
+          ],
+          "to": "column_104700118d74cbe5",
+          "type": "derivation"
+        },
+        {
+          "from": "output_74d22f755ec62dbc",
+          "id": "edge_0fb06258934984f8",
+          "statementIds": [
+            0
+          ],
+          "to": "column_92a194f2664e3900",
+          "type": "ownership"
+        },
+        {
+          "expression": "if(e.is_finish_makeup_exam = '1', 1, 0)",
+          "from": "column_600ed55333e327fe",
+          "id": "edge_2ab4ed4fa91542a2",
+          "joinCondition": "e.user_id = a.user_id AND e.semester_id = a.semester_id AND e.stage_id = a.stage_id AND e.exam_stage_week_idx = CAST(a.stage_week_idx AS STRING)",
+          "joinType": "LEFT",
+          "statementIds": [
+            0
+          ],
+          "to": "column_92a194f2664e3900",
+          "type": "derivation"
+        },
+        {
+          "from": "output_74d22f755ec62dbc",
+          "id": "edge_b96c8377d9f4390c",
+          "statementIds": [
+            0
+          ],
+          "to": "column_f06b4460575c8ab0",
+          "type": "ownership"
+        },
+        {
+          "expression": "CASE WHEN CAST(a.stage_week_idx AS INT) = 48 THEN NULL WHEN c.userid IS NOT NULL THEN 1 ELSE 0 END",
+          "from": "column_a906dbcdfe2dc44c",
+          "id": "edge_1345a4b53251f732",
+          "statementIds": [
+            0
+          ],
+          "to": "column_f06b4460575c8ab0",
+          "type": "derivation"
+        },
+        {
+          "expression": "CASE WHEN CAST(a.stage_week_idx AS INT) = 48 THEN NULL WHEN c.userid IS NOT NULL THEN 1 ELSE 0 END",
+          "from": "column_ac75998509011998",
+          "id": "edge_6a23d258b906275d",
+          "joinCondition": "c.userid = a.user_id AND c.subject = a.subject_id AND c.stage_name = a.stage_name AND c.stage_exam_week = CAST(a.stage_week_idx AS INT)",
+          "joinType": "LEFT",
+          "statementIds": [
+            0
+          ],
+          "to": "column_f06b4460575c8ab0",
+          "type": "derivation"
+        },
+        {
+          "from": "output_74d22f755ec62dbc",
+          "id": "edge_063efd366650068f",
+          "statementIds": [
+            0
+          ],
+          "to": "column_574e1b65e88dc11b",
+          "type": "ownership"
+        },
+        {
+          "expression": "CASE WHEN CAST(a.stage_week_idx AS INT) = 48 THEN NULL ELSE coalesce(c.stage_summary_duration_sec, 0) END",
+          "from": "column_a906dbcdfe2dc44c",
+          "id": "edge_2049705a6a772f36",
+          "statementIds": [
+            0
+          ],
+          "to": "column_574e1b65e88dc11b",
+          "type": "derivation"
+        },
+        {
+          "expression": "CASE WHEN CAST(a.stage_week_idx AS INT) = 48 THEN NULL ELSE coalesce(c.stage_summary_duration_sec, 0) END",
+          "from": "column_4c07c6cfaa581d60",
+          "id": "edge_8d9167c6882c46f8",
+          "joinCondition": "c.userid = a.user_id AND c.subject = a.subject_id AND c.stage_name = a.stage_name AND c.stage_exam_week = CAST(a.stage_week_idx AS INT)",
+          "joinType": "LEFT",
+          "statementIds": [
+            0
+          ],
+          "to": "column_574e1b65e88dc11b",
+          "type": "derivation"
+        }
+      ],
+      "issues": [],
+      "nodes": [
+        {
+          "canonicalName": {
+            "name": "Output"
+          },
+          "id": "output_74d22f755ec62dbc",
+          "label": "Output",
+          "statementIds": [
+            0
+          ],
+          "type": "output"
+        },
+        {
+          "bodySpan": {
+            "end": 959,
+            "start": 27
+          },
+          "canonicalName": {
+            "name": "stage_summary_comm"
+          },
+          "id": "cte_c58a34893da30c1b",
+          "label": "stage_summary_comm",
+          "metadata": {
+            "bodySourceNames": [
+              "阶段测参考情况用户明细"
+            ],
+            "bodySpans": [
+              {
+                "end": 959,
+                "start": 27
+              }
+            ],
+            "bodyStatementIds": [
+              0
+            ],
+            "occurrenceSourceNames": [
+              "阶段测参考情况用户明细",
+              "阶段测参考情况用户明细"
+            ],
+            "occurrenceSpans": [
+              {
+                "end": 23,
+                "start": 5
+              },
+              {
+                "end": 3409,
+                "start": 3391
+              }
+            ],
+            "occurrenceStatementIds": [
+              0,
+              0
+            ]
+          },
+          "nameSpans": [
+            {
+              "end": 23,
+              "start": 5
+            },
+            {
+              "end": 3409,
+              "start": 3391
+            }
+          ],
+          "qualifiedName": "stage_summary_comm",
+          "span": {
+            "end": 23,
+            "start": 5
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "cte"
+        },
+        {
+          "canonicalName": {
+            "name": "dwd_conan_user_mentor_interview_season_da",
+            "schema": "dw_conan_dwd"
+          },
+          "filters": [
+            {
+              "clauseType": "WHERE",
+              "expression": "dt = date_sub(current_date, 1)"
+            },
+            {
+              "clauseType": "WHERE",
+              "expression": "communication_reasons = '21'"
+            },
+            {
+              "clauseType": "WHERE",
+              "expression": "interview_week IN (13, 14, 15, 16, 25, 26, 27, 28, 37, 38, 39, 40)"
+            }
+          ],
+          "id": "table_d3d12e84fa9eb460",
+          "label": "dwd_conan_user_mentor_interview_season_da",
+          "metadata": {
+            "occurrenceSourceNames": [
+              "阶段测参考情况用户明细"
+            ],
+            "occurrenceSpans": [
+              {
+                "end": 477,
+                "start": 436
+              }
+            ],
+            "occurrenceStatementIds": [
+              0
+            ],
+            "statementFilters": {
+              "0": [
+                {
+                  "clauseType": "WHERE",
+                  "expression": "dt = date_sub(current_date, 1)"
+                },
+                {
+                  "clauseType": "WHERE",
+                  "expression": "communication_reasons = '21'"
+                },
+                {
+                  "clauseType": "WHERE",
+                  "expression": "interview_week IN (13, 14, 15, 16, 25, 26, 27, 28, 37, 38, 39, 40)"
+                }
+              ]
+            }
+          },
+          "nameSpans": [
+            {
+              "end": 477,
+              "start": 436
+            }
+          ],
+          "qualifiedName": "dw_conan_dwd.dwd_conan_user_mentor_interview_season_da",
+          "statementIds": [
+            0
+          ],
+          "type": "table"
+        },
+        {
+          "aggregation": {
+            "isGroupingKey": true
+          },
+          "canonicalName": {
+            "name": "userid"
+          },
+          "id": "column_ac75998509011998",
+          "label": "userid",
+          "metadata": {
+            "statementAggregations": {
+              "0": {
+                "isGroupingKey": true
+              }
+            },
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "catalog": "dw_conan_dwd",
+            "name": "userid",
+            "schema": "dwd_conan_user_mentor_interview_season_da"
+          },
+          "id": "column_636e333b53c6202f",
+          "label": "userid",
+          "qualifiedName": "dw_conan_dwd.dwd_conan_user_mentor_interview_season_da.userid",
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "aggregation": {
+            "isGroupingKey": true
+          },
+          "canonicalName": {
+            "name": "subject"
+          },
+          "id": "column_8e7baee1f171e892",
+          "label": "subject",
+          "metadata": {
+            "statementAggregations": {
+              "0": {
+                "isGroupingKey": true
+              }
+            },
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "catalog": "dw_conan_dwd",
+            "name": "subject",
+            "schema": "dwd_conan_user_mentor_interview_season_da"
+          },
+          "id": "column_2fd68b309d07094f",
+          "label": "subject",
+          "qualifiedName": "dw_conan_dwd.dwd_conan_user_mentor_interview_season_da.subject",
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "aggregation": {
+            "isGroupingKey": true
+          },
+          "canonicalName": {
+            "name": "stage_name"
+          },
+          "id": "column_4901619a66ede1ce",
+          "label": "stage_name",
+          "metadata": {
+            "statementAggregations": {
+              "0": {
+                "isGroupingKey": true
+              }
+            },
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "catalog": "dw_conan_dwd",
+            "name": "stage_name",
+            "schema": "dwd_conan_user_mentor_interview_season_da"
+          },
+          "id": "column_c2c8ba0e76682819",
+          "label": "stage_name",
+          "qualifiedName": "dw_conan_dwd.dwd_conan_user_mentor_interview_season_da.stage_name",
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "aggregation": {
+            "isGroupingKey": true
+          },
+          "canonicalName": {
+            "name": "stage_exam_week"
+          },
+          "expression": "CASE WHEN interview_week BETWEEN 13 AND 16 THEN 12 WHEN interview_week BETWEEN 25 AND 28 THEN 24 WHEN interview_week BETWEEN 37 AND 40 THEN 36 END",
+          "id": "column_7b34728163eca1a5",
+          "label": "stage_exam_week",
+          "metadata": {
+            "data_type": "FLOAT",
+            "statementAggregations": {
+              "0": {
+                "isGroupingKey": true
+              }
+            },
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "catalog": "dw_conan_dwd",
+            "name": "interview_week",
+            "schema": "dwd_conan_user_mentor_interview_season_da"
+          },
+          "id": "column_cf28ababeb8d7e76",
+          "label": "interview_week",
+          "qualifiedName": "dw_conan_dwd.dwd_conan_user_mentor_interview_season_da.interview_week",
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "aggregation": {
+            "function": "SUM",
+            "isGroupingKey": false
+          },
+          "canonicalName": {
+            "name": "stage_summary_duration_sec"
+          },
+          "expression": "SUM(coalesce(duration, 0))",
+          "id": "column_4c07c6cfaa581d60",
+          "label": "stage_summary_duration_sec",
+          "metadata": {
+            "data_type": "FLOAT",
+            "statementAggregations": {
+              "0": {
+                "function": "SUM",
+                "isGroupingKey": false
+              }
+            },
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "catalog": "dw_conan_dwd",
+            "name": "duration",
+            "schema": "dwd_conan_user_mentor_interview_season_da"
+          },
+          "id": "column_2b6c352898ec9192",
+          "label": "duration",
+          "qualifiedName": "dw_conan_dwd.dwd_conan_user_mentor_interview_season_da.duration",
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "ads_course_season_user_class_week_all_info_da",
+            "schema": "dw_conan_ads"
+          },
+          "filters": [
+            {
+              "clauseType": "WHERE",
+              "expression": "a.dt = date_sub(current_date, 1)"
+            },
+            {
+              "clauseType": "WHERE",
+              "expression": "a.subject_id IN ('1', '2', '3')"
+            },
+            {
+              "clauseType": "WHERE",
+              "expression": "a.week_dt <= date_sub(next_day(current_date, 'MO'), 14)"
+            }
+          ],
+          "id": "table_9a9ec1d283284f1d",
+          "label": "ads_course_season_user_class_week_all_info_da",
+          "metadata": {
+            "occurrenceSourceNames": [
+              "阶段测参考情况用户明细"
+            ],
+            "occurrenceSpans": [
+              {
+                "end": 2828,
+                "start": 2783
+              }
+            ],
+            "occurrenceStatementIds": [
+              0
+            ],
+            "statementFilters": {
+              "0": [
+                {
+                  "clauseType": "WHERE",
+                  "expression": "a.dt = date_sub(current_date, 1)"
+                },
+                {
+                  "clauseType": "WHERE",
+                  "expression": "a.subject_id IN ('1', '2', '3')"
+                },
+                {
+                  "clauseType": "WHERE",
+                  "expression": "a.week_dt <= date_sub(next_day(current_date, 'MO'), 14)"
+                }
+              ]
+            }
+          },
+          "nameSpans": [
+            {
+              "end": 2828,
+              "start": 2783
+            }
+          ],
+          "qualifiedName": "dw_conan_ads.ads_course_season_user_class_week_all_info_da",
+          "statementIds": [
+            0
+          ],
+          "type": "table"
+        },
+        {
+          "canonicalName": {
+            "name": "e"
+          },
+          "id": "derived_d20f98222c1841f6",
+          "label": "e",
+          "metadata": {
+            "occurrenceSourceNames": [
+              "阶段测参考情况用户明细"
+            ],
+            "occurrenceSpans": [
+              {
+                "end": 3191,
+                "start": 3190
+              }
+            ],
+            "occurrenceStatementIds": [
+              0
+            ]
+          },
+          "nameSpans": [
+            {
+              "end": 3191,
+              "start": 3190
+            }
+          ],
+          "qualifiedName": "e",
+          "span": {
+            "end": 3191,
+            "start": 3190
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "cte"
+        },
+        {
+          "canonicalName": {
+            "name": "dwd_conan_course_user_periodical_exam_da",
+            "schema": "dw_conan_dwd"
+          },
+          "filters": [
+            {
+              "clauseType": "WHERE",
+              "expression": "dt = date_sub(current_date, 1)"
+            },
+            {
+              "clauseType": "WHERE",
+              "expression": "exam_source_type = '2'"
+            }
+          ],
+          "id": "table_bca5d605847246ee",
+          "label": "dwd_conan_course_user_periodical_exam_da",
+          "metadata": {
+            "occurrenceSourceNames": [
+              "阶段测参考情况用户明细"
+            ],
+            "occurrenceSpans": [
+              {
+                "end": 3113,
+                "start": 3073
+              }
+            ],
+            "occurrenceStatementIds": [
+              0
+            ],
+            "statementFilters": {
+              "0": [
+                {
+                  "clauseType": "WHERE",
+                  "expression": "dt = date_sub(current_date, 1)"
+                },
+                {
+                  "clauseType": "WHERE",
+                  "expression": "exam_source_type = '2'"
+                }
+              ]
+            }
+          },
+          "nameSpans": [
+            {
+              "end": 3113,
+              "start": 3073
+            }
+          ],
+          "qualifiedName": "dw_conan_dwd.dwd_conan_course_user_periodical_exam_da",
+          "statementIds": [
+            0
+          ],
+          "type": "table"
+        },
+        {
+          "canonicalName": {
+            "name": "user_id"
+          },
+          "id": "column_063fcfbfeba84e07",
+          "label": "user_id",
+          "metadata": {
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "catalog": "dw_conan_dwd",
+            "name": "user_id",
+            "schema": "dwd_conan_course_user_periodical_exam_da"
+          },
+          "id": "column_ef9e240948b130eb",
+          "label": "user_id",
+          "qualifiedName": "dw_conan_dwd.dwd_conan_course_user_periodical_exam_da.user_id",
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "semester_id"
+          },
+          "id": "column_afd05a7d51313149",
+          "label": "semester_id",
+          "metadata": {
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "catalog": "dw_conan_dwd",
+            "name": "semester_id",
+            "schema": "dwd_conan_course_user_periodical_exam_da"
+          },
+          "id": "column_0c1d10526ffd900d",
+          "label": "semester_id",
+          "qualifiedName": "dw_conan_dwd.dwd_conan_course_user_periodical_exam_da.semester_id",
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "stage_id"
+          },
+          "id": "column_df23fef519492609",
+          "label": "stage_id",
+          "metadata": {
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "catalog": "dw_conan_dwd",
+            "name": "stage_id",
+            "schema": "dwd_conan_course_user_periodical_exam_da"
+          },
+          "id": "column_716ca06ff99cdcbf",
+          "label": "stage_id",
+          "qualifiedName": "dw_conan_dwd.dwd_conan_course_user_periodical_exam_da.stage_id",
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "exam_stage_week_idx"
+          },
+          "expression": "CAST(week_num AS STRING)",
+          "id": "column_0e8b07007ac81749",
+          "label": "exam_stage_week_idx",
+          "metadata": {
+            "data_type": "TEXT",
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "catalog": "dw_conan_dwd",
+            "name": "week_num",
+            "schema": "dwd_conan_course_user_periodical_exam_da"
+          },
+          "id": "column_dfd9757ef11986db",
+          "label": "week_num",
+          "qualifiedName": "dw_conan_dwd.dwd_conan_course_user_periodical_exam_da.week_num",
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "resource_id"
+          },
+          "id": "column_8b45f117c8d44935",
+          "label": "resource_id",
+          "metadata": {
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "catalog": "dw_conan_dwd",
+            "name": "resource_id",
+            "schema": "dwd_conan_course_user_periodical_exam_da"
+          },
+          "id": "column_ff48ee8a36b30a3e",
+          "label": "resource_id",
+          "qualifiedName": "dw_conan_dwd.dwd_conan_course_user_periodical_exam_da.resource_id",
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "is_finish_official_exam"
+          },
+          "id": "column_96e42e4225134e0a",
+          "label": "is_finish_official_exam",
+          "metadata": {
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "catalog": "dw_conan_dwd",
+            "name": "is_finish_official_exam",
+            "schema": "dwd_conan_course_user_periodical_exam_da"
+          },
+          "id": "column_66a29b8493380505",
+          "label": "is_finish_official_exam",
+          "qualifiedName": "dw_conan_dwd.dwd_conan_course_user_periodical_exam_da.is_finish_official_exam",
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "is_finish_makeup_exam"
+          },
+          "id": "column_600ed55333e327fe",
+          "label": "is_finish_makeup_exam",
+          "metadata": {
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "catalog": "dw_conan_dwd",
+            "name": "is_finish_makeup_exam",
+            "schema": "dwd_conan_course_user_periodical_exam_da"
+          },
+          "id": "column_492aa06f8486358a",
+          "label": "is_finish_makeup_exam",
+          "qualifiedName": "dw_conan_dwd.dwd_conan_course_user_periodical_exam_da.is_finish_makeup_exam",
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "在课周周一"
+          },
+          "id": "column_e2e4bd660d5fc1e1",
+          "label": "在课周周一",
+          "metadata": {
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "catalog": "dw_conan_ads",
+            "name": "week_dt",
+            "schema": "ads_course_season_user_class_week_all_info_da"
+          },
+          "id": "column_07a8a3c3d9919fce",
+          "label": "week_dt",
+          "qualifiedName": "dw_conan_ads.ads_course_season_user_class_week_all_info_da.week_dt",
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "学科"
+          },
+          "id": "column_3b5ac9cb24dd16a3",
+          "label": "学科",
+          "metadata": {
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "catalog": "dw_conan_ads",
+            "name": "subject_id",
+            "schema": "ads_course_season_user_class_week_all_info_da"
+          },
+          "id": "column_8580a2befa044347",
+          "label": "subject_id",
+          "qualifiedName": "dw_conan_ads.ads_course_season_user_class_week_all_info_da.subject_id",
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "开课周"
+          },
+          "expression": "regexp_replace(split(a.period_type, '-'), '/', '-')",
+          "id": "column_ab5b64820dcdc905",
+          "label": "开课周",
+          "metadata": {
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "catalog": "dw_conan_ads",
+            "name": "period_type",
+            "schema": "ads_course_season_user_class_week_all_info_da"
+          },
+          "id": "column_0899ff12005133e2",
+          "label": "period_type",
+          "qualifiedName": "dw_conan_ads.ads_course_season_user_class_week_all_info_da.period_type",
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "期型"
+          },
+          "id": "column_7c5bdf99ab0c8526",
+          "label": "期型",
+          "metadata": {
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "阶段"
+          },
+          "id": "column_8df4dd93464369f3",
+          "label": "阶段",
+          "metadata": {
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "catalog": "dw_conan_ads",
+            "name": "stage_name",
+            "schema": "ads_course_season_user_class_week_all_info_da"
+          },
+          "id": "column_eda2c2f225ee891d",
+          "label": "stage_name",
+          "qualifiedName": "dw_conan_ads.ads_course_season_user_class_week_all_info_da.stage_name",
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "老师城市"
+          },
+          "id": "column_312efffbb13cc739",
+          "label": "老师城市",
+          "metadata": {
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "catalog": "dw_conan_ads",
+            "name": "teacher_city",
+            "schema": "ads_course_season_user_class_week_all_info_da"
+          },
+          "id": "column_c70e34f8a8ec3bda",
+          "label": "teacher_city",
+          "qualifiedName": "dw_conan_ads.ads_course_season_user_class_week_all_info_da.teacher_city",
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "用户id"
+          },
+          "id": "column_36a735c5c90d4ae0",
+          "label": "用户id",
+          "metadata": {
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "catalog": "dw_conan_ads",
+            "name": "user_id",
+            "schema": "ads_course_season_user_class_week_all_info_da"
+          },
+          "id": "column_efe0b36b30d5ee8c",
+          "label": "user_id",
+          "qualifiedName": "dw_conan_ads.ads_course_season_user_class_week_all_info_da.user_id",
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "在课周进度"
+          },
+          "expression": "CAST(a.stage_week_idx AS INT)",
+          "id": "column_d0fde010b1f1a88e",
+          "label": "在课周进度",
+          "metadata": {
+            "data_type": "INTEGER",
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "catalog": "dw_conan_ads",
+            "name": "stage_week_idx",
+            "schema": "ads_course_season_user_class_week_all_info_da"
+          },
+          "id": "column_a906dbcdfe2dc44c",
+          "label": "stage_week_idx",
+          "qualifiedName": "dw_conan_ads.ads_course_season_user_class_week_all_info_da.stage_week_idx",
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "是否首购"
+          },
+          "id": "column_b293ae176291e5b5",
+          "label": "是否首购",
+          "metadata": {
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "catalog": "dw_conan_ads",
+            "name": "is_first_purchase_user",
+            "schema": "ads_course_season_user_class_week_all_info_da"
+          },
+          "id": "column_5335be51244d80fc",
+          "label": "is_first_purchase_user",
+          "qualifiedName": "dw_conan_ads.ads_course_season_user_class_week_all_info_da.is_first_purchase_user",
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "是否应参考"
+          },
+          "expression": "if(e.resource_id IS NOT NULL, 1, 0)",
+          "id": "column_de00117c038ef136",
+          "label": "是否应参考",
+          "metadata": {
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "是否参考"
+          },
+          "expression": "if(e.is_finish_official_exam = '1' OR e.is_finish_makeup_exam = '1', 1, 0)",
+          "id": "column_669d1c6ad2673d34",
+          "label": "是否参考",
+          "metadata": {
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "是否参与正式考"
+          },
+          "expression": "if(e.is_finish_official_exam = '1', 1, 0)",
+          "id": "column_104700118d74cbe5",
+          "label": "是否参与正式考",
+          "metadata": {
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "是否补考"
+          },
+          "expression": "if(e.is_finish_makeup_exam = '1', 1, 0)",
+          "id": "column_92a194f2664e3900",
+          "label": "是否补考",
+          "metadata": {
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "是否覆盖阶段总结沟通"
+          },
+          "expression": "CASE WHEN CAST(a.stage_week_idx AS INT) = 48 THEN NULL WHEN c.userid IS NOT NULL THEN 1 ELSE 0 END",
+          "id": "column_f06b4460575c8ab0",
+          "label": "是否覆盖阶段总结沟通",
+          "metadata": {
+            "data_type": "FLOAT",
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        },
+        {
+          "canonicalName": {
+            "name": "阶段总结沟通时长"
+          },
+          "expression": "CASE WHEN CAST(a.stage_week_idx AS INT) = 48 THEN NULL ELSE coalesce(c.stage_summary_duration_sec, 0) END",
+          "id": "column_574e1b65e88dc11b",
+          "label": "阶段总结沟通时长",
+          "metadata": {
+            "data_type": "FLOAT",
+            "windowControlStatus": "complete"
+          },
+          "statementIds": [
+            0
+          ],
+          "type": "column"
+        }
+      ],
+      "resolvedSchema": {
+        "tables": [
+          {
+            "columns": [
+              {
+                "name": "dt",
+                "origin": "implied"
+              },
+              {
+                "name": "is_first_purchase_user",
+                "origin": "implied"
+              },
+              {
+                "name": "period_type",
+                "origin": "implied"
+              },
+              {
+                "foreignKey": {
+                  "column": "semester_id",
+                  "table": "e"
+                },
+                "name": "semester_id",
+                "origin": "implied"
+              },
+              {
+                "foreignKey": {
+                  "column": "stage_id",
+                  "table": "e"
+                },
+                "name": "stage_id",
+                "origin": "implied"
+              },
+              {
+                "foreignKey": {
+                  "column": "stage_name",
+                  "table": "stage_summary_comm"
+                },
+                "name": "stage_name",
+                "origin": "implied"
+              },
+              {
+                "name": "stage_week_idx",
+                "origin": "implied"
+              },
+              {
+                "foreignKey": {
+                  "column": "subject",
+                  "table": "stage_summary_comm"
+                },
+                "name": "subject_id",
+                "origin": "implied"
+              },
+              {
+                "name": "teacher_city",
+                "origin": "implied"
+              },
+              {
+                "foreignKey": {
+                  "column": "userid",
+                  "table": "stage_summary_comm"
+                },
+                "name": "user_id",
+                "origin": "implied"
+              },
+              {
+                "name": "week_dt",
+                "origin": "implied"
+              }
+            ],
+            "constraints": [
+              {
+                "columns": [
+                  "semester_id",
+                  "stage_id"
+                ],
+                "constraintType": "foreign_key",
+                "referencedColumns": [
+                  "semester_id",
+                  "stage_id"
+                ],
+                "referencedTable": "e"
+              },
+              {
+                "columns": [
+                  "stage_name",
+                  "subject_id",
+                  "user_id"
+                ],
+                "constraintType": "foreign_key",
+                "referencedColumns": [
+                  "stage_name",
+                  "subject",
+                  "userid"
+                ],
+                "referencedTable": "stage_summary_comm"
+              }
+            ],
+            "name": "ads_course_season_user_class_week_all_info_da",
+            "origin": "implied",
+            "schema": "dw_conan_ads",
+            "sourceStatementIndex": 0,
+            "updatedAt": "2026-11-26T08:21:35.729846869+00:00"
+          },
+          {
+            "columns": [
+              {
+                "name": "exam_stage_week_idx",
+                "origin": "implied"
+              },
+              {
+                "name": "is_finish_makeup_exam",
+                "origin": "implied"
+              },
+              {
+                "name": "is_finish_official_exam",
+                "origin": "implied"
+              },
+              {
+                "name": "resource_id",
+                "origin": "implied"
+              },
+              {
+                "foreignKey": {
+                  "column": "semester_id",
+                  "table": "dw_conan_ads.ads_course_season_user_class_week_all_info_da"
+                },
+                "name": "semester_id",
+                "origin": "implied"
+              },
+              {
+                "foreignKey": {
+                  "column": "stage_id",
+                  "table": "dw_conan_ads.ads_course_season_user_class_week_all_info_da"
+                },
+                "name": "stage_id",
+                "origin": "implied"
+              },
+              {
+                "foreignKey": {
+                  "column": "user_id",
+                  "table": "dw_conan_ads.ads_course_season_user_class_week_all_info_da"
+                },
+                "name": "user_id",
+                "origin": "implied"
+              }
+            ],
+            "constraints": [
+              {
+                "columns": [
+                  "semester_id",
+                  "stage_id",
+                  "user_id"
+                ],
+                "constraintType": "foreign_key",
+                "referencedColumns": [
+                  "semester_id",
+                  "stage_id",
+                  "user_id"
+                ],
+                "referencedTable": "dw_conan_ads.ads_course_season_user_class_week_all_info_da"
+              }
+            ],
+            "name": "e",
+            "origin": "implied",
+            "sourceStatementIndex": 0,
+            "updatedAt": "2026-11-26T08:21:35.729835326+00:00"
+          }
+        ]
+      },
+      "sourceTables": [
+        {
+          "canonicalName": {
+            "name": "ads_course_season_user_class_week_all_info_da",
+            "schema": "dw_conan_ads"
+          },
+          "id": "table_9a9ec1d283284f1d",
+          "label": "ads_course_season_user_class_week_all_info_da",
+          "qualifiedName": "dw_conan_ads.ads_course_season_user_class_week_all_info_da",
+          "type": "table"
+        },
+        {
+          "canonicalName": {
+            "name": "dwd_conan_course_user_periodical_exam_da",
+            "schema": "dw_conan_dwd"
+          },
+          "id": "table_bca5d605847246ee",
+          "label": "dwd_conan_course_user_periodical_exam_da",
+          "qualifiedName": "dw_conan_dwd.dwd_conan_course_user_periodical_exam_da",
+          "type": "table"
+        },
+        {
+          "canonicalName": {
+            "name": "dwd_conan_user_mentor_interview_season_da",
+            "schema": "dw_conan_dwd"
+          },
+          "id": "table_d3d12e84fa9eb460",
+          "label": "dwd_conan_user_mentor_interview_season_da",
+          "qualifiedName": "dw_conan_dwd.dwd_conan_user_mentor_interview_season_da",
+          "type": "table"
+        }
+      ],
+      "sqlFingerprint": "3a84bc35512acccd8e603fa3173d9c3cabda0b7abc2c0469f229d99dbdffefcd",
+      "sqlFingerprintVersion": "flowscope-sql-v1",
+      "sqlType": "select",
+      "statements": [
+        {
+          "complexityScore": 67,
+          "joinCount": 2,
+          "sourceName": "阶段测参考情况用户明细",
+          "span": {
+            "end": 3779,
+            "start": 0
+          },
+          "statementIndex": 0,
+          "statementType": "WITH"
+        }
+      ],
+      "summary": {
+        "columnCount": 47,
+        "complexityScore": 67,
+        "hasErrors": false,
+        "issueCount": {
+          "errors": 0,
+          "infos": 0,
+          "warnings": 0
+        },
+        "joinCount": 2,
+        "statementCount": 1,
+        "tableCount": 5
+      }
+    },
+    "result_truncated": false,
+    "source_name": "阶段测参考情况用户明细",
+    "sql_hash": "d3465f220caa879a18e1e40af5bf599f9559e9513aa281ab206a1b4b833aa4ee",
+    "sql_len": 3844,
+    "sql_text": "WITH stage_summary_comm AS (\n    SELECT\n        userid,\n        subject,\n        stage_name,\n        CASE\n            WHEN interview_week BETWEEN 13 AND 16 THEN 12\n            WHEN interview_week BETWEEN 25 AND 28 THEN 24\n            WHEN interview_week BETWEEN 37 AND 40 THEN 36\n        END                               AS stage_exam_week,\n        SUM(coalesce(duration, 0))        AS stage_summary_duration_sec\n    FROM dw_conan_dwd.dwd_conan_user_mentor_interview_season_da\n    WHERE dt = date_sub(current_date, 1)\n      AND communication_reasons = '21'\n      AND interview_week IN (13, 14, 15, 16,\n                             25, 26, 27, 28,\n                             37, 38, 39, 40)\n    GROUP BY\n        userid,\n        subject,\n        stage_name,\n        CASE\n            WHEN interview_week BETWEEN 13 AND 16 THEN 12\n            WHEN interview_week BETWEEN 25 AND 28 THEN 24\n            WHEN interview_week BETWEEN 37 AND 40 THEN 36\n        END\n)\nSELECT\n    a.week_dt                                                                      AS `在课周周一`,\n    a.subject_id                                                                   AS `学科`,\n    regexp_replace(split(a.period_type, '-')[1], '/', '-')                         AS `开课周`,\n    a.period_type                                                                  AS `期型`,\n    a.stage_name                                                                   AS `阶段`,\n    a.teacher_city                                                                 AS `老师城市`,\n    a.user_id                                                                      AS `用户ID`,\n    cast(a.stage_week_idx AS int)                                                  AS `在课周进度`,\n    a.is_first_purchase_user                                                       AS `是否首购`,\n    if(e.resource_id is not null, 1, 0)                                    AS `是否应参考`,\n    if(e.is_finish_official_exam = '1' OR e.is_finish_makeup_exam = '1', 1, 0)     AS `是否参考`,\n    if(e.is_finish_official_exam = '1', 1, 0)                                      AS `是否参与正式考`,\n    if(e.is_finish_makeup_exam = '1', 1, 0)                                        AS `是否补考`,\n    CASE\n        WHEN cast(a.stage_week_idx AS int) = 48 THEN NULL\n        WHEN c.userid IS NOT NULL             THEN 1\n        ELSE 0\n    END                                                                            AS `是否覆盖阶段总结沟通`,\n    CASE\n        WHEN cast(a.stage_week_idx AS int) = 48 THEN NULL\n        ELSE coalesce(c.stage_summary_duration_sec, 0)\n    END                                                                            AS `阶段总结沟通时长`\nFROM dw_conan_ads.ads_course_season_user_class_week_all_info_da a\nLEFT JOIN (\n    SELECT\n        user_id,\n        semester_id,\n        stage_id,\n        cast(week_num AS string) AS exam_stage_week_idx,\n        resource_id,\n        is_finish_official_exam,\n        is_finish_makeup_exam\n    FROM dw_conan_dwd.dwd_conan_course_user_periodical_exam_da\n    WHERE dt = date_sub(current_date, 1)\n      AND exam_source_type = '2'\n) e\n       ON e.user_id        = a.user_id\n      AND e.semester_id    = a.semester_id\n      AND e.stage_id       = a.stage_id\n      AND e.exam_stage_week_idx = cast(a.stage_week_idx AS string)\nLEFT JOIN stage_summary_comm c\n       ON c.userid          = a.user_id\n      AND c.subject         = a.subject_id\n      AND c.stage_name      = a.stage_name\n      AND c.stage_exam_week = cast(a.stage_week_idx AS int)\nWHERE a.dt = date_sub(current_date, 1)\n  AND a.subject_id IN ('1','2','3')\n  AND a.week_dt <= date_sub(next_day(current_date, 'MO'), 14)\n  AND {{week_dt}}\n  AND {{subject_id as subject}}\n  AND {{cast(stage_week_idx as int) as stage_weekidx}}\n;",
+    "sql_type": "WITH",
+    "stmt_count": 1,
+    "success": true,
+    "table_count": 3,
+    "target_table": null,
+    "ts": "2026-11-26T08:21:35.730Z",
+    "usage_status": "not_requested"
+  },
+  "status": 200
+}

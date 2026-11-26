@@ -37,6 +37,17 @@ no `--lineage-config` preserves the existing parser/audit behavior and does not
 start a graph writer. `allowAnonymousParse=true` is an explicit migration
 option; anonymous calls can only parse and cannot create any Neo4j event.
 
+Audit logs default to a rolling seven-day retention period, including existing
+history. Administrators can change the positive integer day count in
+`/policies`, below the caller list, or through `GET/POST /api/audit/settings`
+with `{"retentionDays":7}`. Settings persist in the audit SQLite database.
+Saving schedules background cleanup; it does not wait for historical deletion.
+The worker deletes at most 200 audit rows per transaction after the listener
+starts, preserves queued-event audit rows until processing ends, and retries
+lock contention. SQL and saved analysis JSON in expired audit rows are deleted;
+durable events, policies, credentials, and committed Neo4j lineage remain.
+Freed SQLite pages are reused; online cleanup does not run a full `VACUUM`.
+
 Open `/access` and supply your own token. Browser credentials stay in the current
 tab's session storage; they are never embedded into the web assets or URLs.
 An administrator can open `/policies` to register stable caller identities,

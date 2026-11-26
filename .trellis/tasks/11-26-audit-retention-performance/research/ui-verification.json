@@ -1,0 +1,21 @@
+{
+  "serverPid": 64384,
+  "checks": [
+    "real audit 652177 SQL returns select and persists SELECT through HTTP",
+    "fresh embedded UI loads server default 7 days",
+    "saving retention preserves unsaved caller draft",
+    "reload reads persisted server value 14",
+    "browser blocks non-positive values",
+    "390px viewport keeps retention controls visible without page overflow",
+    "keyboard focus and page runtime have no errors"
+  ],
+  "browserPids": [
+    64417,
+    64418,
+    64419,
+    64420
+  ],
+  "survivingOwnedPids": [],
+  "serverExitCode": 0,
+  "temporaryDirectoryRemoved": true
+}

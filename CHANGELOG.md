@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Audit type/time filtering uses a composite index built after listening and
+  cleanup. Graph status filters use indexed event lookups, and page metadata is
+  fetched in one read snapshot instead of per-row queries.
+
 - Audit startup no longer scans historical analysis JSON before listening.
   Legacy SQL types are corrected in bounded, resumable background batches with
   progress logs, preserving audit writes and health checks during maintenance.
@@ -25,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hive analysis now recognizes `FROM VALUES (...), (...)` as an inline row source, including audit 443044, while preserving target table and column lineage.
 
 ### Added
+
+- Administrator-configurable global audit retention, defaulting to seven days.
+  Expired SQL and analysis records are deleted in bounded background batches;
+  pending-event audit records and durable lineage events are preserved.
 
 - Audit history supports formal graph status filtering with consistent server-side counts and pagination.
 

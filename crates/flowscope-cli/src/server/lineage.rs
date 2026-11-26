@@ -597,6 +597,91 @@ mod tests {
         issued["token"].as_str().unwrap().into()
     }
     #[tokio::test]
+    async fn audit_missing_event_metadata_matches_unknown_filter() {
+        let (dir, _state, app) = fixture().await;
+        let conn = rusqlite::Connection::open(dir.path().join("state.db")).unwrap();
+        conn.execute("INSERT INTO audit_log(ts,client_ip,endpoint,dialect,sql_text,sql_hash,sql_len,success,duration_ms,principal_id,event_id)
+            VALUES('2026-11-26T00:00:00.000Z','127.0.0.1','/api/analyze','Hive','SELECT 1','missing-event',8,1,1,'legacy-owner','missing')", []).unwrap();
+        for path in ["/api/audit", "/api/audit?lineage_status=unknown"] {
+            let (status, _, page) = request(&app, path, Some(ADMIN), None).await;
+            assert_eq!(status, StatusCode::OK, "{page}");
+            assert_eq!(page["total"], 1);
+            assert_eq!(page["records"][0]["lineage_status"], "unknown");
+        }
+    }
+
+    #[tokio::test]
+    async fn audit_retention_settings_require_admin_and_persist() {
+        let (dir, state, app) = fixture().await;
+        let person = provision(&app, "retention_person", "person", "record_usage").await;
+        for token in [None, Some(person.as_str())] {
+            for body in [None, Some(json!({"retentionDays":3}))] {
+                let (status, _, _) = request(&app, "/api/audit/settings", token, body).await;
+                assert!(status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN);
+            }
+        }
+        let (_, _, initial) = request(&app, "/api/audit/settings", Some(ADMIN), None).await;
+        assert_eq!(initial["retentionDays"], 7);
+        for invalid in [
+            json!(0),
+            json!(-1),
+            json!(1.5),
+            json!("7"),
+            json!(4294967295u64),
+        ] {
+            let (status, _, _) = request(
+                &app,
+                "/api/audit/settings",
+                Some(ADMIN),
+                Some(json!({"retentionDays":invalid})),
+            )
+            .await;
+            assert!(
+                status == StatusCode::BAD_REQUEST || status == StatusCode::UNPROCESSABLE_ENTITY
+            );
+        }
+        let (status, _, saved) = request(
+            &app,
+            "/api/audit/settings",
+            Some(ADMIN),
+            Some(json!({"retentionDays":3})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{saved}");
+        assert_eq!(saved["retentionDays"], 3);
+        drop(super::super::audit::AuditWriter::new(dir.path().join("state.db")).unwrap());
+        assert_eq!(
+            super::super::audit_retention::read(&dir.path().join("state.db"))
+                .unwrap()
+                .retention_days,
+            3
+        );
+
+        let conn = rusqlite::Connection::open(dir.path().join("state.db")).unwrap();
+        conn.execute("INSERT INTO audit_log(ts,client_ip,endpoint,dialect,sql_text,sql_hash,sql_len,success,duration_ms)
+            VALUES('2026-01-01T00:00:00.000Z','127.0.0.1','/api/analyze','Hive','SELECT 1','expired',8,1,1)", []).unwrap();
+        let id = conn.last_insert_rowid();
+        assert_eq!(
+            super::super::audit_retention::cleanup_batch(
+                &dir.path().join("state.db"),
+                chrono::Utc::now()
+            )
+            .unwrap(),
+            1
+        );
+        let (status, _, _) = request(&app, &format!("/api/audit/{id}"), Some(ADMIN), None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (_, _, page) = request(&app, "/api/audit", Some(ADMIN), None).await;
+        assert_eq!(page["total"], 0);
+        assert_eq!(
+            super::super::audit_retention::read(state.config.audit_log_path.as_ref().unwrap())
+                .unwrap()
+                .retention_days,
+            3
+        );
+    }
+
+    #[tokio::test]
     async fn audit_lineage_filter_matches_displayed_outcomes_before_pagination() {
         let (dir, state, app) = fixture().await;
         let owner = provision(&app, "filter_owner", "scheduler", "publish").await;

@@ -450,62 +450,72 @@ pub(super) fn decorate_audit_rows(
     conn: &Connection,
     records: &mut [Value],
 ) -> Result<(), ApiError> {
-    for record in records {
-        let Some(id) = record["id"].as_i64() else {
-            continue;
-        };
-        let (principal, event): (Option<String>, Option<String>) = conn
-            .query_row(
-                "SELECT principal_id,event_id FROM audit_log WHERE id=?1",
-                [id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .map_err(db_error)?;
-        let status = if principal.is_some() {
+    let ids: Vec<i64> = records
+        .iter()
+        .filter_map(|record| record["id"].as_i64())
+        .collect();
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let placeholders = vec!["?"; ids.len()].join(",");
+    // Read all metadata in one query; never fetch an event's large body here.
+    let mut statement = conn
+        .prepare(&format!(
+            "SELECT a.id,a.principal_id,a.event_id,e.action,e.status,e.outcome,e.last_error
+         FROM audit_log a LEFT JOIN lineage_events e ON e.id=a.event_id
+         WHERE a.id IN ({placeholders})"
+        ))
+        .map_err(db_error)?;
+    let mut rows = statement
+        .query(rusqlite::params_from_iter(ids))
+        .map_err(db_error)?;
+    let mut metadata = std::collections::HashMap::new();
+    while let Some(row) = rows.next().map_err(db_error)? {
+        let id: i64 = row.get(0).map_err(db_error)?;
+        let principal: Option<String> = row.get(1).map_err(db_error)?;
+        let event: Option<String> = row.get(2).map_err(db_error)?;
+        let action: Option<String> = row.get(3).map_err(db_error)?;
+        let status: Option<String> = row.get(4).map_err(db_error)?;
+        let outcome: Option<String> = row.get(5).map_err(db_error)?;
+        let reason: Option<String> = row.get(6).map_err(db_error)?;
+        let default_status = if principal.is_some() && event.is_none() {
             "not_requested"
         } else {
             "unknown"
         };
-        let mut extra = json!({"principal_id":principal,"event_id":event,"lineage_status":status,"usage_status":status});
-        if let Some(event) = event {
-            let (action, status, outcome, reason): (
-                String,
-                String,
-                Option<String>,
-                Option<String>,
-            ) = conn
-                .query_row(
-                    "SELECT action,status,outcome,last_error FROM lineage_events WHERE id=?1",
-                    [event],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-                )
-                .map_err(db_error)?;
+        let mut extra = json!({"principal_id":principal,"event_id":event,
+            "lineage_status":default_status,"usage_status":default_status});
+        if let Some(action) = action {
             extra["lineage_status"] = json!(if action == "publish" {
-                status.as_str()
+                status.as_deref()
             } else {
-                "not_requested"
+                Some("not_requested")
             });
             extra["usage_status"] = json!(if action == "record_usage" {
-                status.as_str()
+                status.as_deref()
             } else {
-                "not_requested"
+                Some("not_requested")
             });
             extra["policy_reason"] = json!(reason);
             if let Some(outcome) = outcome {
                 if let Ok(outcome) = serde_json::from_str::<Value>(&outcome) {
-                    for key in ["lineageStatus", "usageStatus", "reason"] {
-                        let field = match key {
-                            "lineageStatus" => "lineage_status",
-                            "usageStatus" => "usage_status",
-                            _ => "policy_reason",
-                        };
+                    for (key, field) in [
+                        ("lineageStatus", "lineage_status"),
+                        ("usageStatus", "usage_status"),
+                        ("reason", "policy_reason"),
+                    ] {
                         extra[field] = outcome[key].clone();
                     }
                 }
             }
         }
-        for (key, value) in extra.as_object().expect("audit metadata object") {
-            record[key] = value.clone();
+        metadata.insert(id, extra);
+    }
+    for record in records {
+        if let Some(extra) = record["id"].as_i64().and_then(|id| metadata.get(&id)) {
+            for (key, value) in extra.as_object().expect("audit metadata object") {
+                record[key] = value.clone();
+            }
         }
     }
     Ok(())
