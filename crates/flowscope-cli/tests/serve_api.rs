@@ -35,6 +35,7 @@ fn test_state(config: ServerConfig, files: Vec<FileSource>) -> Arc<AppState> {
         schema: RwLock::new(None),
         mtimes: RwLock::new(HashMap::new()),
         audit: None,
+        lineage: None,
     })
 }
 
@@ -55,6 +56,7 @@ fn default_config() -> ServerConfig {
         schema_path: None,
         host: std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
         audit_log_path: None,
+        lineage_config_path: None,
         #[cfg(feature = "templating")]
         template_config: None,
     }
@@ -1999,6 +2001,7 @@ async fn config_returns_server_configuration() {
         schema_path: None,
         host: std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
         audit_log_path: None,
+        lineage_config_path: None,
         #[cfg(feature = "templating")]
         template_config: None,
     };
@@ -2125,6 +2128,7 @@ fn test_state_with_audit(db_path: &std::path::Path) -> Arc<AppState> {
         schema: RwLock::new(None),
         mtimes: RwLock::new(HashMap::new()),
         audit: Some(std::sync::Arc::new(writer)),
+        lineage: None,
     })
 }
 

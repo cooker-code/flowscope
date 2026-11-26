@@ -43,6 +43,8 @@ pub struct ServerConfig {
     pub host: IpAddr,
     /// Path to SQLite file for audit logging; None disables auditing
     pub audit_log_path: Option<PathBuf>,
+    /// Optional Rust lineage policy/state and Neo4j configuration.
+    pub lineage_config_path: Option<PathBuf>,
 }
 
 /// Shared application state.
@@ -57,11 +59,12 @@ pub struct AppState {
     pub mtimes: RwLock<HashMap<PathBuf, SystemTime>>,
     /// Optional audit log writer (None when --audit-log not specified)
     pub audit: Option<Arc<AuditWriter>>,
+    pub lineage: Option<Arc<super::lineage::LineageRuntime>>,
 }
 
 impl AppState {
     /// Create new application state, loading initial files and schema.
-    pub async fn new(config: ServerConfig) -> Result<Self> {
+    pub async fn new(mut config: ServerConfig) -> Result<Self> {
         // Load files either from static_files or by scanning watch directories
         let (files, mtimes) = if let Some(ref static_files) = config.static_files {
             // Use static files directly, no mtimes needed (no watching)
@@ -84,6 +87,25 @@ impl AppState {
             println!("flowscope: loaded {} SQL file(s)", file_count);
         }
 
+        let lineage_settings = config
+            .lineage_config_path
+            .as_deref()
+            .map(super::lineage_policy::Settings::load)
+            .transpose()?;
+        if let Some(settings) = &lineage_settings {
+            if let Some(path) = &config.audit_log_path {
+                anyhow::ensure!(
+                    path == &settings.state_db,
+                    "audit log and lineage state must use the same SQLite file"
+                );
+            }
+            config.audit_log_path = Some(settings.state_db.clone());
+            if let Some(parent) = settings.state_db.parent() {
+                if !parent.as_os_str().is_empty() {
+                    std::fs::create_dir_all(parent)?;
+                }
+            }
+        }
         // Initialise audit writer if a path was provided
         let audit = if let Some(ref audit_path) = config.audit_log_path {
             match AuditWriter::new(audit_path.clone()) {
@@ -100,12 +122,21 @@ impl AppState {
             None
         };
 
+        let lineage = lineage_settings
+            .map(super::lineage::LineageRuntime::new)
+            .transpose()?
+            .map(Arc::new);
+        anyhow::ensure!(
+            lineage.is_none() || audit.is_some(),
+            "lineage requires initialized SQLite audit schema"
+        );
         Ok(Self {
             config,
             files: RwLock::new(files),
             schema: RwLock::new(schema),
             mtimes: RwLock::new(mtimes),
             audit,
+            lineage,
         })
     }
 

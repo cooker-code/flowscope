@@ -1,6 +1,15 @@
+import { apiFetch, graphStatus } from '@/lib/lineage-api';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, Loader2, TriangleAlert, XCircle } from 'lucide-react';
+import {
+  ArrowLeft,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  TriangleAlert,
+  XCircle,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -48,6 +57,11 @@ interface AuditListRecord {
   alias_warning: boolean;
   duration_ms: number;
   table_count: number | null;
+  principal_id?: string;
+  event_id?: string;
+  lineage_status?: string;
+  usage_status?: string;
+  policy_reason?: string;
 }
 
 interface AuditQueryResponse {
@@ -171,48 +185,64 @@ export function AuditPage() {
     return p.toString();
   }, [page, from, to, sqlType, success, fileName, sourceName, targetTable, urlKeyword]);
 
-  const fetchList = useCallback(async (signal: AbortSignal) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/audit?${queryString}`, { signal });
-      if (!res.ok) {
-        setError(`Request failed (${res.status})`);
+  const fetchList = useCallback(
+    async (signal: AbortSignal) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await apiFetch(`/api/audit?${queryString}`, { signal });
+        if (!res.ok) {
+          setError(
+            res.status === 401 ? '请先配置有效的访问凭据。' : `Request failed (${res.status})`
+          );
+          setData(null);
+          return;
+        }
+        // Guard against the Vite-dev-without-proxy footgun: when `/api/*` is
+        // not proxied to the CLI server (default port 3099), the request
+        // falls through to the SPA fallback and returns `index.html`. Parsing
+        // that as JSON yields a cryptic `Unexpected token '<'`. Detect the
+        // HTML shape up front and produce an actionable hint instead.
+        const contentType = res.headers.get('content-type') ?? '';
+        if (!contentType.includes('application/json')) {
+          const preview = (await res.text()).slice(0, 60).replace(/\s+/g, ' ');
+          setError(
+            `Audit API did not return JSON (got: "${preview}…"). ` +
+              'In dev mode make sure the CLI is running on http://localhost:3099 ' +
+              'and that Vite has `/api` proxied to it (see app/vite.config.ts).'
+          );
+          setData(null);
+          return;
+        }
+        const json = (await res.json()) as AuditQueryResponse;
+        if (!signal.aborted) setData(json);
+      } catch (e) {
+        if (signal.aborted) return;
+        setError(e instanceof Error ? e.message : String(e));
         setData(null);
-        return;
+      } finally {
+        if (!signal.aborted) setLoading(false);
       }
-      // Guard against the Vite-dev-without-proxy footgun: when `/api/*` is
-      // not proxied to the CLI server (default port 3099), the request
-      // falls through to the SPA fallback and returns `index.html`. Parsing
-      // that as JSON yields a cryptic `Unexpected token '<'`. Detect the
-      // HTML shape up front and produce an actionable hint instead.
-      const contentType = res.headers.get('content-type') ?? '';
-      if (!contentType.includes('application/json')) {
-        const preview = (await res.text()).slice(0, 60).replace(/\s+/g, ' ');
-        setError(
-          `Audit API did not return JSON (got: "${preview}…"). ` +
-            'In dev mode make sure the CLI is running on http://localhost:3099 ' +
-            'and that Vite has `/api` proxied to it (see app/vite.config.ts).'
-        );
-        setData(null);
-        return;
-      }
-      const json = (await res.json()) as AuditQueryResponse;
-      if (!signal.aborted) setData(json);
-    } catch (e) {
-      if (signal.aborted) return;
-      setError(e instanceof Error ? e.message : String(e));
-      setData(null);
-    } finally {
-      if (!signal.aborted) setLoading(false);
-    }
-  }, [queryString]);
+    },
+    [queryString]
+  );
 
   useEffect(() => {
     const controller = new AbortController();
     void fetchList(controller.signal);
     return () => controller.abort();
   }, [fetchList]);
+
+  useEffect(() => {
+    if (!data?.records.some((r) => r.lineage_status === 'queued' || r.usage_status === 'queued'))
+      return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void fetchList(controller.signal), 2000);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [data, fetchList]);
 
   // Persist the current list URL so "Back to audit list" on the lineage detail
   // can restore the exact same filtered/paginated view even after a hard refresh.
@@ -243,7 +273,8 @@ export function AuditPage() {
     setSearchParams(new URLSearchParams(), { replace: true });
   };
 
-  const auditDisabled = isBackendMode && backendAuditStorage !== null && !backendAuditStorage.enabled;
+  const auditDisabled =
+    isBackendMode && backendAuditStorage !== null && !backendAuditStorage.enabled;
 
   return (
     <div className="flex flex-col h-svh bg-background text-foreground">
@@ -255,6 +286,12 @@ export function AuditPage() {
           </Link>
         </Button>
         <h1 className="text-sm font-semibold">Audit log</h1>
+        <Button variant="outline" size="sm" asChild>
+          <Link to="/policies">写入策略</Link>
+        </Button>
+        <Button variant="ghost" size="sm" className="ml-auto" asChild>
+          <Link to="/access">访问凭据</Link>
+        </Button>
       </header>
 
       <div className="flex-1 overflow-auto p-4 space-y-4">
@@ -304,7 +341,9 @@ export function AuditPage() {
             </Select>
           </div>
           <div className="space-y-1">
-            <label htmlFor="audit-status" className="text-xs text-muted-foreground">Status</label>
+            <label htmlFor="audit-status" className="text-xs text-muted-foreground">
+              解析状态
+            </label>
             <Select value={success} onValueChange={setSuccess}>
               <SelectTrigger id="audit-status" className="h-9 w-[120px] text-xs">
                 <SelectValue placeholder="Any" />
@@ -410,7 +449,7 @@ export function AuditPage() {
                 <Loader2 className="size-6 animate-spin text-muted-foreground" />
               </div>
             )}
-            <table className="w-full text-left text-xs">
+            <table className="w-full min-w-[1200px] text-left text-xs">
               <thead className="bg-muted/30 text-muted-foreground border-b">
                 <tr>
                   <th className="px-3 py-2 font-medium w-10">#</th>
@@ -421,7 +460,10 @@ export function AuditPage() {
                   <th className="px-3 py-2 font-medium">Name</th>
                   <th className="px-3 py-2 font-medium">Target table</th>
                   <th className="px-3 py-2 font-medium">Type</th>
-                  <th className="px-3 py-2 font-medium">Status</th>
+                  <th className="px-3 py-2 font-medium">解析</th>
+                  <th className="px-3 py-2 font-medium">正式血缘</th>
+                  <th className="px-3 py-2 font-medium">个人使用</th>
+                  <th className="px-3 py-2 font-medium">调用方 / 原因</th>
                   <th className="px-3 py-2 font-medium">ms</th>
                   <th className="px-3 py-2 font-medium">Tables</th>
                   <th className="px-3 py-2 font-medium text-right">Action</th>
@@ -435,10 +477,7 @@ export function AuditPage() {
                     onClick={() => openLineage(r.id)}
                   >
                     <td className="px-3 py-2 font-mono text-muted-foreground">{r.id}</td>
-                    <td
-                      className="px-3 py-2 whitespace-nowrap font-mono"
-                      title={r.ts}
-                    >
+                    <td className="px-3 py-2 whitespace-nowrap font-mono" title={r.ts}>
                       {formatLocalTs(r.ts)}
                     </td>
                     <td className="px-3 py-2 max-w-[140px] truncate">{r.endpoint}</td>
@@ -446,29 +485,45 @@ export function AuditPage() {
                     <td className="px-3 py-2 max-w-[180px] truncate" title={r.file_name ?? ''}>
                       {r.file_name ?? '—'}
                     </td>
-                    <td
-                      className="px-3 py-2 max-w-[160px] truncate"
-                      title={r.source_name ?? ''}
-                    >
+                    <td className="px-3 py-2 max-w-[160px] truncate" title={r.source_name ?? ''}>
                       {r.source_name ?? '—'}
                     </td>
-                    <td
-                      className="px-3 py-2 max-w-[220px] truncate"
-                      title={r.target_table ?? ''}
-                    >
+                    <td className="px-3 py-2 max-w-[220px] truncate" title={r.target_table ?? ''}>
                       {r.target_table ?? '—'}
                     </td>
                     <td className="px-3 py-2">{r.sql_type ?? '—'}</td>
                     <td className="px-3 py-2">
                       {!r.success ? (
-                        <XCircle role="img" aria-label="Failed" className="size-4 text-destructive" />
+                        <XCircle
+                          role="img"
+                          aria-label="Failed"
+                          className="size-4 text-destructive"
+                        />
                       ) : r.alias_warning ? (
-                        <span title="Warn: alias should use backticks" className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                        <span
+                          title="Warn: alias should use backticks"
+                          className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400"
+                        >
                           <TriangleAlert aria-hidden="true" className="size-4" /> Warn
                         </span>
                       ) : (
-                        <CheckCircle2 role="img" aria-label="Success" className="size-4 text-emerald-600" />
+                        <CheckCircle2
+                          role="img"
+                          aria-label="Success"
+                          className="size-4 text-emerald-600"
+                        />
                       )}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">{graphStatus(r.lineage_status)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{graphStatus(r.usage_status)}</td>
+                    <td className="px-3 py-2 max-w-64">
+                      <span className="block">{r.principal_id ?? '历史未知身份'}</span>
+                      <span
+                        className="block break-words text-muted-foreground"
+                        title={r.policy_reason ?? ''}
+                      >
+                        {r.policy_reason}
+                      </span>
                     </td>
                     <td className="px-3 py-2 tabular-nums">{r.duration_ms}</td>
                     <td className="px-3 py-2 tabular-nums">{r.table_count ?? '—'}</td>
@@ -490,7 +545,7 @@ export function AuditPage() {
                 ))}
                 {data && data.records.length === 0 && (
                   <tr>
-                    <td colSpan={12} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={15} className="px-4 py-8 text-center text-muted-foreground">
                       No audit records match the current filters.
                     </td>
                   </tr>

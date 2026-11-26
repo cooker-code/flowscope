@@ -12,7 +12,8 @@
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:lineage": "vitest run --config vitest.lineage.config.ts"
   },
   "dependencies": {
     "@pondpilot/flowscope-core": "file:../packages/core",

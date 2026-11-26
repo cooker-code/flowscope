@@ -11,12 +11,15 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { STORAGE_KEYS } from '@/lib/constants';
+import { useBackend } from '@/lib/backend-context';
 
 interface WelcomeModalProps {
   onClose?: () => void;
 }
 
 export function WelcomeModal({ onClose }: WelcomeModalProps) {
+  const { backendType } = useBackend();
+  const serverMode = backendType === 'rest';
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -38,7 +41,9 @@ export function WelcomeModal({ onClose }: WelcomeModalProps) {
         <DialogHeader>
           <DialogTitle className="text-xl">Welcome to FlowScope</DialogTitle>
           <DialogDescription>
-            A privacy-first SQL lineage engine that runs entirely in your browser.
+            {serverMode
+              ? 'SQL lineage analysis through your FlowScope server.'
+              : 'A privacy-first SQL lineage engine that runs entirely in your browser.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -66,9 +71,13 @@ export function WelcomeModal({ onClose }: WelcomeModalProps) {
           <div className="flex items-start gap-3">
             <Shield className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
             <div>
-              <p className="font-medium text-sm">Privacy First</p>
+              <p className="font-medium text-sm">
+                {serverMode ? 'Caller Policies' : 'Privacy First'}
+              </p>
               <p className="text-sm text-muted-foreground">
-                All analysis runs locally in your browser. Your SQL never leaves your machine.
+                {serverMode
+                  ? 'Your server policy controls whether analysis only parses, updates formal lineage, or records personal query usage.'
+                  : 'All analysis runs locally in your browser. Your SQL never leaves your machine.'}
               </p>
             </div>
           </div>

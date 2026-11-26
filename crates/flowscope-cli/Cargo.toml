@@ -34,11 +34,13 @@ duckdb = ["flowscope-export/duckdb"]
 # Integration tests require database connectivity
 integration-tests = ["metadata-provider"]
 # Serve mode: embedded web UI with REST API
-serve = ["dep:axum", "dep:tower-http", "dep:rust-embed", "dep:notify-debouncer-mini", "dep:mime_guess", "dep:open", "dep:walkdir", "dep:chrono", "dep:rusqlite", "dep:sha2", "tokio/macros", "tokio/signal"]
+serve = ["dep:axum", "dep:tower-http", "dep:rust-embed", "dep:notify-debouncer-mini", "dep:mime_guess", "dep:open", "dep:walkdir", "dep:chrono", "dep:rusqlite", "dep:sha2", "dep:flowscope-storage", "dep:uuid", "tokio/macros", "tokio/signal", "tokio/time"]
 
 [dependencies]
 flowscope-core.workspace = true
 flowscope-export.workspace = true
+flowscope-storage = { workspace = true, optional = true }
+uuid = { version = "1", features = ["v4"], optional = true }
 sqlparser.workspace = true
 clap = { version = "4", features = ["derive"] }
 serde.workspace = true
@@ -66,6 +68,7 @@ rusqlite = { version = "0.32", features = ["bundled"], optional = true }
 sha2 = { version = "0.10", optional = true }
 
 [dev-dependencies]
+neo4rs = "0.8.0"
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 tower = { version = "0.5", features = ["util"] }

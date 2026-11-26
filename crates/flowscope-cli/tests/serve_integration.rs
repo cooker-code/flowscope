@@ -29,6 +29,7 @@ fn test_state_from_files(config: ServerConfig, files: Vec<FileSource>) -> Arc<Ap
         schema: RwLock::new(None),
         mtimes: RwLock::new(HashMap::new()),
         audit: None,
+        lineage: None,
     })
 }
 
@@ -76,6 +77,7 @@ async fn server_starts_and_responds_to_health() {
         schema_path: None,
         host: std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
         audit_log_path: None,
+        lineage_config_path: None,
         #[cfg(feature = "templating")]
         template_config: None,
     };
@@ -114,6 +116,7 @@ async fn analyze_endpoint_processes_complex_query() {
         schema_path: None,
         host: std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
         audit_log_path: None,
+        lineage_config_path: None,
         #[cfg(feature = "templating")]
         template_config: None,
     };
@@ -175,6 +178,7 @@ async fn analyze_endpoint_with_multiple_files() {
         schema_path: None,
         host: std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
         audit_log_path: None,
+        lineage_config_path: None,
         #[cfg(feature = "templating")]
         template_config: None,
     };
@@ -333,6 +337,7 @@ async fn app_state_reload_updates_files() {
         schema_path: None,
         host: std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
         audit_log_path: None,
+        lineage_config_path: None,
         #[cfg(feature = "templating")]
         template_config: None,
     };
@@ -345,6 +350,7 @@ async fn app_state_reload_updates_files() {
         schema: RwLock::new(None),
         mtimes: RwLock::new(mtimes),
         audit: None,
+        lineage: None,
     });
 
     // Verify initial state
@@ -383,6 +389,7 @@ async fn export_html_returns_valid_html() {
         schema_path: None,
         host: std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
         audit_log_path: None,
+        lineage_config_path: None,
         #[cfg(feature = "templating")]
         template_config: None,
     };
@@ -422,6 +429,7 @@ async fn export_csv_returns_zip() {
         schema_path: None,
         host: std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
         audit_log_path: None,
+        lineage_config_path: None,
         #[cfg(feature = "templating")]
         template_config: None,
     };

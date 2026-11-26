@@ -8,7 +8,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use axum::{
     extract::{ConnectInfo, Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -25,6 +25,7 @@ use super::AppState;
 /// Build the API router with all endpoints.
 pub fn api_routes() -> Router<Arc<AppState>> {
     Router::new()
+        .merge(super::lineage::routes())
         .route("/health", get(health))
         .route("/analyze", post(analyze))
         .route("/completion", post(completion))
@@ -50,6 +51,12 @@ struct HealthResponse {
 #[derive(Deserialize)]
 struct AnalyzeRequest {
     sql: String,
+    #[serde(default)]
+    schema: Option<flowscope_core::SchemaMetadata>,
+    #[serde(default)]
+    lineage: Option<flowscope_storage::SourceContext>,
+    #[serde(default, alias = "storageMode")]
+    storage_mode: Option<flowscope_storage::Action>,
     #[serde(default)]
     files: Option<Vec<flowscope_core::FileSource>>,
     #[serde(default)]
@@ -89,6 +96,7 @@ struct AuditStorageResponse {
 
 #[derive(Serialize)]
 struct ConfigResponse {
+    lineage_enabled: bool,
     dialect: String,
     watch_dirs: Vec<String>,
     has_schema: bool,
@@ -186,10 +194,28 @@ async fn health() -> Json<HealthResponse> {
 async fn analyze(
     State(state): State<Arc<AppState>>,
     ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(payload): Json<AnalyzeRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let caller = if let Some(runtime) = &state.lineage {
+        let caller = runtime.caller(&headers, payload.storage_mode).await?;
+        runtime.source_allowed(&caller, &payload.lineage)?;
+        if caller
+            .as_ref()
+            .is_some_and(|c| c.action == flowscope_storage::Action::Publish)
+            && (payload.hide_ctes == Some(true) || payload.enable_column_lineage == Some(false))
+        {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "publish_requires_complete_lineage_options".into(),
+            ));
+        }
+        caller
+    } else {
+        None
+    };
     let start = std::time::Instant::now();
-    let schema = state.schema.read().await.clone();
+    let schema = payload.schema.clone().or(state.schema.read().await.clone());
 
     // Build analysis options from request
     let options = if payload.hide_ctes.is_some() || payload.enable_column_lineage.is_some() {
@@ -221,7 +247,8 @@ async fn analyze(
     let duration_ms = start.elapsed().as_millis() as u64;
 
     // Record audit entries if audit logging is enabled
-    if let Some(ref audit) = state.audit {
+    let mut audit_entries = Vec::new();
+    if state.audit.is_some() || state.lineage.is_some() {
         let ts = chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
         let client_ip = client_addr.ip().to_string();
         let dialect = format!("{:?}", state.config.dialect);
@@ -246,7 +273,7 @@ async fn analyze(
             for file in files {
                 let sql_hash = sha256_hex(&file.content);
                 let sql_len = file.content.len();
-                audit.record(AuditEntry {
+                audit_entries.push(AuditEntry {
                     ts: ts.clone(),
                     client_ip: client_ip.clone(),
                     endpoint: "/api/analyze".to_string(),
@@ -274,7 +301,7 @@ async fn analyze(
             // Inline SQL mode
             let sql_hash = sha256_hex(&payload.sql);
             let sql_len = payload.sql.len();
-            audit.record(AuditEntry {
+            audit_entries.push(AuditEntry {
                 ts,
                 client_ip,
                 endpoint: "/api/analyze".to_string(),
@@ -300,7 +327,40 @@ async fn analyze(
         }
     }
 
-    Ok(Json(result))
+    let storage_headers = if let Some(runtime) = &state.lineage {
+        let combined_sql = payload
+            .files
+            .as_ref()
+            .map(|files| {
+                files
+                    .iter()
+                    .map(|f| f.content.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_else(|| payload.sql.clone());
+        runtime
+            .accept(
+                caller,
+                &headers,
+                super::lineage::ParsedSubmission {
+                    sql: combined_sql,
+                    result: result.clone(),
+                    source: payload.lineage,
+                    dialect: format!("{:?}", state.config.dialect),
+                },
+                audit_entries,
+            )
+            .await?
+    } else {
+        if let Some(audit) = &state.audit {
+            for entry in audit_entries {
+                audit.record(entry);
+            }
+        }
+        HeaderMap::new()
+    };
+    Ok((storage_headers, Json(result)))
 }
 
 /// POST /api/completion - Get code completion items
@@ -647,6 +707,7 @@ async fn config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     };
 
     Json(ConfigResponse {
+        lineage_enabled: state.lineage.is_some(),
         dialect: format!("{:?}", state.config.dialect),
         watch_dirs: state
             .config
@@ -668,8 +729,19 @@ async fn config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 /// GET /api/audit - Query audit log records with optional filtering
 async fn audit_records(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Query(params): Query<AuditQueryParams>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let owner = if let Some(runtime) = &state.lineage {
+        let caller = runtime
+            .db
+            .authenticate(&headers, None, false)
+            .await?
+            .expect("authenticated");
+        (caller.principal.kind != "admin").then_some(caller.principal.id)
+    } else {
+        None
+    };
     let Some(ref _audit) = state.audit else {
         // Audit not enabled: return empty result
         return Ok(Json(AuditQueryResponse::default()));
@@ -694,6 +766,7 @@ async fn audit_records(
 
     let result = tokio::task::spawn_blocking(move || {
         let filters = super::audit::AuditLogListFilters {
+            principal_id: owner.as_deref(),
             from: from.as_deref(),
             to: to.as_deref(),
             endpoint: endpoint_filter.as_deref(),
@@ -721,13 +794,21 @@ async fn audit_records(
         )
     })?;
 
+    let mut result = result;
+    if let Some(runtime) = &state.lineage {
+        runtime.db.decorate_audits(&mut result.records).await?;
+    }
     Ok(Json(result))
 }
 
 /// GET /api/audit/files - List distinct files from the audit log (latest record per file)
 async fn audit_files(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if let Some(runtime) = &state.lineage {
+        runtime.db.admin(&headers).await?;
+    }
     let Some(ref _audit) = state.audit else {
         // Audit not enabled: return empty array
         return Ok(Json(Vec::<serde_json::Value>::new()));
@@ -760,8 +841,17 @@ async fn audit_files(
 /// GET /api/audit/:id - Fetch a single audit record with sql_text and result_json
 async fn audit_record_detail(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if let Some(runtime) = &state.lineage {
+        let caller = runtime
+            .db
+            .authenticate(&headers, None, false)
+            .await?
+            .expect("authenticated");
+        runtime.db.audit_access(id, caller).await?;
+    }
     let audit_path = match state.config.audit_log_path {
         Some(ref p) => p.clone(),
         None => {
@@ -789,7 +879,13 @@ async fn audit_record_detail(
             })?;
 
     match result {
-        Some(record) => Ok(Json(record).into_response()),
+        Some(record) => {
+            let mut records = vec![record];
+            if let Some(runtime) = &state.lineage {
+                runtime.db.decorate_audits(&mut records).await?;
+            }
+            Ok(Json(records.remove(0)).into_response())
+        }
         None => Err((
             StatusCode::NOT_FOUND,
             format!("Audit record {id} not found"),

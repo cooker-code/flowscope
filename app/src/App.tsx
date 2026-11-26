@@ -14,6 +14,8 @@ import { useShareImport } from './hooks';
 import { DebugPanel } from './components/debug/DebugPanel';
 import { initializeTheme } from './lib/theme-store';
 import { AuditPage } from './pages/AuditPage';
+import { PolicyPage } from './pages/PolicyPage';
+import { ApiAccessPage } from './pages/ApiAccessPage';
 
 function ShareImportHandler() {
   useShareImport();
@@ -29,11 +31,18 @@ function AppContent() {
       <LineageProvider defaultLayoutAlgorithm="dagre">
         <Routes>
           <Route path="/audit" element={<AuditPage />} />
+          <Route path="/policies" element={<PolicyPage />} />
+          <Route path="/access" element={<ApiAccessPage />} />
           <Route
             path="/"
             element={
               <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
-                <Workspace backendReady={ready} error={error} onRetry={retry} isRetrying={isRetrying} />
+                <Workspace
+                  backendReady={ready}
+                  error={error}
+                  onRetry={retry}
+                  isRetrying={isRetrying}
+                />
               </div>
             }
           />

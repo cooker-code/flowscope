@@ -364,9 +364,13 @@ export function Workspace({ backendReady, error, onRetry, isRetrying }: Workspac
           )}
         </div>
 
+        {isBackendMode && (
+          <Button variant="ghost" size="sm" asChild>
+            <Link to="/access">访问凭据</Link>
+          </Button>
+        )}
         {/* Header Actions */}
         <div className="flex items-center gap-1">
-
           {currentProject && (
             <>
               <ExportDialog
@@ -422,7 +426,6 @@ export function Workspace({ backendReady, error, onRetry, isRetrying }: Workspac
           <ThemeToggle />
         </div>
       </header>
-
 
       {/* Share Dialog */}
       {currentProject && (

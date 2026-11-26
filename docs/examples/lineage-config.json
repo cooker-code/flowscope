@@ -1,0 +1,12 @@
+{
+  "stateDb": "data/audit.db",
+  "adminTokenEnv": "FLOWSCOPE_LINEAGE_ADMIN_TOKEN",
+  "allowAnonymousParse": false,
+  "neo4j": {
+    "uri": "127.0.0.1:7687",
+    "user": "neo4j",
+    "passwordEnv": "FLOWSCOPE_NEO4J_PASSWORD",
+    "database": "neo4j",
+    "environment": "dev"
+  }
+}

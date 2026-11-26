@@ -312,3 +312,11 @@ If `--metadata-url` isn't providing schema:
 - Verify database connectivity: `psql $DATABASE_URL -c '\dt'`
 - Check schema permissions for the database user
 - Use `--metadata-schema` to filter to a specific schema
+
+## Rust graph storage and caller policies
+
+Serve mode supports `--lineage-config <JSON>` for Bearer identities, scheduler
+publishing and personal query usage in Neo4j. SQLite durably queues the complete
+event before acknowledging it; parsing and graph commit states are separate.
+Use `/access`, `/policies` and `/audit` for token setup, policy administration and
+results. See [configuration, API and isolated verification](../../docs/guides/lineage-storage.md).

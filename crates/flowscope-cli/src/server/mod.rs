@@ -6,6 +6,8 @@
 pub mod api;
 mod assets;
 pub mod audit;
+pub mod lineage;
+pub mod lineage_policy;
 pub mod state;
 mod watcher;
 
@@ -27,6 +29,13 @@ pub use state::{AppState, ServerConfig};
 pub async fn run_server(config: ServerConfig) -> Result<()> {
     let state = Arc::new(AppState::new(config.clone()).await?);
 
+    let addr = SocketAddr::new(config.host, config.port);
+
+    // Bind to port first to ensure it's available before opening browser
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .context("Failed to bind to address")?;
+
     // Start file watcher in background
     let watcher_state = Arc::clone(&state);
     let watcher_handle = tokio::spawn(async move {
@@ -35,14 +44,12 @@ pub async fn run_server(config: ServerConfig) -> Result<()> {
         }
     });
 
+    let (lineage_stop, lineage_stopped) = tokio::sync::watch::channel(false);
+    let lineage_worker = state
+        .lineage
+        .as_ref()
+        .map(|runtime| tokio::spawn(Arc::clone(runtime).run(lineage_stopped)));
     let app = build_router(Arc::clone(&state));
-
-    let addr = SocketAddr::new(config.host, config.port);
-
-    // Bind to port first to ensure it's available before opening browser
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .context("Failed to bind to address")?;
 
     println!("flowscope: server listening on http://{addr}");
 
@@ -54,18 +61,23 @@ pub async fn run_server(config: ServerConfig) -> Result<()> {
         }
     }
 
-    axum::serve(
+    let served = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown_signal())
     .await
-    .context("Server error")?;
+    .context("Server error");
 
+    let _ = lineage_stop.send(true);
+    if let Some(worker) = lineage_worker {
+        let _ = worker.await;
+    }
     watcher_handle.abort();
+    let _ = watcher_handle.await;
     println!("\nflowscope: server stopped");
 
-    Ok(())
+    served
 }
 
 // =============================================================================
@@ -99,20 +111,79 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             .allow_methods([
                 axum::http::Method::GET,
                 axum::http::Method::POST,
+                axum::http::Method::DELETE,
                 axum::http::Method::OPTIONS,
             ])
-            .allow_headers([axum::http::header::CONTENT_TYPE])
+            .allow_headers([
+                axum::http::header::CONTENT_TYPE,
+                axum::http::header::AUTHORIZATION,
+                axum::http::HeaderName::from_static("idempotency-key"),
+            ])
+            .expose_headers(
+                [
+                    "x-flowscope-event-id",
+                    "x-flowscope-request-id",
+                    "x-flowscope-action",
+                    "x-flowscope-storage-status",
+                ]
+                .map(axum::http::HeaderName::from_static),
+            )
     } else {
         // External access: allow all origins
-        CorsLayer::permissive()
+        CorsLayer::permissive().expose_headers(
+            [
+                "x-flowscope-event-id",
+                "x-flowscope-request-id",
+                "x-flowscope-action",
+                "x-flowscope-storage-status",
+            ]
+            .map(axum::http::HeaderName::from_static),
+        )
     };
 
     Router::new()
         .nest("/api", api::api_routes())
         .fallback(assets::static_handler)
-        .with_state(state)
+        .with_state(Arc::clone(&state))
         .layer(cors)
         .layer(RequestBodyLimitLayer::new(MAX_REQUEST_BODY_SIZE))
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            enforce_lineage_identity,
+        ))
+}
+
+async fn enforce_lineage_identity(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let path = request.uri().path();
+    if request.method() != axum::http::Method::OPTIONS
+        && path.starts_with("/api/")
+        && !matches!(path, "/api/health" | "/api/config")
+    {
+        if let Some(runtime) = &state.lineage {
+            let anonymous = path == "/api/analyze" && runtime.settings.allow_anonymous_parse;
+            let auth = runtime
+                .db
+                .authenticate(request.headers(), None, anonymous)
+                .await;
+            match auth {
+                Err(err) => return err.into_response(),
+                Ok(caller)
+                    if path == "/api/files"
+                        && caller.as_ref().is_none_or(|c| c.principal.kind != "admin") =>
+                {
+                    return (axum::http::StatusCode::FORBIDDEN, "policy_admin_required")
+                        .into_response()
+                }
+                _ => {}
+            }
+        }
+    }
+    next.run(request).await
 }
 
 /// Wait for shutdown signal (Ctrl+C or SIGTERM on Unix).

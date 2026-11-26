@@ -1,3 +1,4 @@
+import { apiFetch } from '@/lib/lineage-api';
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { ChevronDown, Plus, Upload, FolderUp, Search, History } from 'lucide-react';
 import { useProject } from '@/lib/project-store';
@@ -33,7 +34,11 @@ interface FileSelectorProps {
   setResultFromCache?: (result: AnalyzeResult) => void;
 }
 
-export function FileSelector({ open: controlledOpen, onOpenChange, setResultFromCache }: FileSelectorProps) {
+export function FileSelector({
+  open: controlledOpen,
+  onOpenChange,
+  setResultFromCache,
+}: FileSelectorProps) {
   const {
     currentProject,
     createFile,
@@ -147,7 +152,7 @@ export function FileSelector({ open: controlledOpen, onOpenChange, setResultFrom
   const handleSelectAuditFile = async (auditId: number, fileName: string) => {
     setLoadingAuditId(auditId);
     try {
-      const res = await fetch(`/api/audit/${auditId}`);
+      const res = await apiFetch(`/api/audit/${auditId}`);
       if (!res.ok) {
         console.error(`Failed to fetch audit record ${auditId}: ${res.status}`);
         return;
@@ -543,8 +548,7 @@ export function FileSelector({ open: controlledOpen, onOpenChange, setResultFrom
                 {auditFiles
                   .filter(
                     (af) =>
-                      !search.trim() ||
-                      af.file_name.toLowerCase().includes(search.toLowerCase())
+                      !search.trim() || af.file_name.toLowerCase().includes(search.toLowerCase())
                   )
                   .map((af) => {
                     const baseName = af.file_name.split('/').pop() || af.file_name;

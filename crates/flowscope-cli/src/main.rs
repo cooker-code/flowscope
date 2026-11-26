@@ -143,6 +143,7 @@ fn run_serve_mode(args: Args) -> ExitCode {
         open_browser: args.open,
         host: args.host,
         audit_log_path: args.audit_log.clone(),
+        lineage_config_path: args.lineage_config.clone(),
         #[cfg(feature = "templating")]
         template_config,
     };

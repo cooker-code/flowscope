@@ -1,3 +1,4 @@
+import { apiFetch } from '@/lib/lineage-api';
 import { useCallback, useEffect, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -41,7 +42,7 @@ export function SqlPreviewCapsule({ auditId }: SqlPreviewCapsuleProps) {
   const loadDetail = useCallback(async () => {
     setLoadError(null);
     try {
-      const res = await fetch(`/api/audit/${auditId}`);
+      const res = await apiFetch(`/api/audit/${auditId}`);
       if (!res.ok) {
         setLoadError(`HTTP ${res.status}`);
         setDetail(null);
@@ -140,8 +141,8 @@ export function SqlPreviewCapsule({ auditId }: SqlPreviewCapsuleProps) {
                   {detail.success ? 'yes' : 'no'}
                 </p>
                 <p>
-                  <span className="font-medium text-foreground">Duration:</span> {detail.duration_ms}{' '}
-                  ms
+                  <span className="font-medium text-foreground">Duration:</span>{' '}
+                  {detail.duration_ms} ms
                 </p>
                 <p>
                   <span className="font-medium text-foreground">Tables:</span>{' '}

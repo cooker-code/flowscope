@@ -67,3 +67,5 @@ FlowScope code is released under Apache-2.0 unless stated otherwise. The `app/` 
 
 - `publishing.md`
   NPM publishing flow for `@pondpilot/flowscope-core`.
+
+- [Rust lineage storage and caller policies](guides/lineage-storage.md)

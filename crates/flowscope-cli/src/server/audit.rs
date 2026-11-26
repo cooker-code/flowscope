@@ -50,6 +50,7 @@ pub struct AuditEntry {
 /// Filters for listing audit rows (`GET /api/audit`).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AuditLogListFilters<'a> {
+    pub principal_id: Option<&'a str>,
     pub from: Option<&'a str>,
     pub to: Option<&'a str>,
     pub endpoint: Option<&'a str>,
@@ -205,7 +206,9 @@ CREATE TABLE IF NOT EXISTS audit_log (
     sql_type         TEXT,
     result_json      TEXT,
     result_truncated INTEGER NOT NULL DEFAULT 0,
-    error_msg        TEXT
+    error_msg        TEXT,
+    principal_id     TEXT,
+    event_id         TEXT
 );
 "#;
 
@@ -221,6 +224,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_has_cte     ON audit_log(has_cte);
 CREATE INDEX IF NOT EXISTS idx_audit_sql_type    ON audit_log(sql_type);
 CREATE INDEX IF NOT EXISTS idx_audit_source_name ON audit_log(source_name);
 CREATE INDEX IF NOT EXISTS idx_audit_target_table ON audit_log(target_table);
+CREATE INDEX IF NOT EXISTS idx_audit_principal_ts ON audit_log(principal_id,ts);
+CREATE INDEX IF NOT EXISTS idx_audit_event ON audit_log(event_id);
 "#;
 
 /// Step 2: additive column migrations. Each migration is applied at
@@ -229,6 +234,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_target_table ON audit_log(target_table);
 /// columns here, do that through a fresh migration with renamed table
 /// semantics.
 const ADDITIVE_MIGRATIONS: &[&str] = &[
+    "ALTER TABLE audit_log ADD COLUMN principal_id TEXT",
+    "ALTER TABLE audit_log ADD COLUMN event_id TEXT",
     "ALTER TABLE audit_log ADD COLUMN alias_warning INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE audit_log ADD COLUMN sql_type TEXT",
     "ALTER TABLE audit_log ADD COLUMN source_name TEXT",
@@ -248,6 +255,38 @@ INSERT INTO audit_log (
     ?15, ?16, ?17, ?18, ?19, ?20, ?21
 )
 "#;
+
+pub(crate) fn insert_entry(
+    conn: &rusqlite::Connection,
+    entry: &AuditEntry,
+) -> rusqlite::Result<usize> {
+    conn.execute(
+        INSERT_SQL,
+        rusqlite::params![
+            entry.ts,
+            entry.client_ip,
+            entry.endpoint,
+            entry.dialect,
+            entry.file_name,
+            entry.source_name,
+            entry.target_table,
+            entry.sql_text,
+            entry.sql_hash,
+            entry.sql_len as i64,
+            entry.has_cte as i32,
+            entry.has_union as i32,
+            entry.success as i32,
+            entry.duration_ms as i64,
+            entry.stmt_count.map(|v| v as i64),
+            entry.table_count.map(|v| v as i64),
+            entry.sql_type,
+            entry.result_json,
+            entry.result_truncated as i32,
+            entry.error_msg,
+            entry.alias_warning,
+        ],
+    )
+}
 
 /// Asynchronous audit log writer backed by a SQLite database.
 ///
@@ -308,32 +347,7 @@ impl AuditWriter {
                 let conn = Arc::clone(&conn);
                 let result = tokio::task::spawn_blocking(move || {
                     let conn = conn.lock().expect("audit db mutex");
-                    conn.execute(
-                        INSERT_SQL,
-                        rusqlite::params![
-                            entry.ts,
-                            entry.client_ip,
-                            entry.endpoint,
-                            entry.dialect,
-                            entry.file_name,
-                            entry.source_name,
-                            entry.target_table,
-                            entry.sql_text,
-                            entry.sql_hash,
-                            entry.sql_len as i64,
-                            entry.has_cte as i32,
-                            entry.has_union as i32,
-                            entry.success as i32,
-                            entry.duration_ms as i64,
-                            entry.stmt_count.map(|v| v as i64),
-                            entry.table_count.map(|v| v as i64),
-                            entry.sql_type,
-                            entry.result_json,
-                            entry.result_truncated as i32,
-                            entry.error_msg,
-                            entry.alias_warning,
-                        ],
-                    )
+                    insert_entry(&conn, &entry)
                 })
                 .await;
 
@@ -373,6 +387,10 @@ impl AuditWriter {
         // Collect dynamic filter conditions and their parameter values
         let mut cond_parts: Vec<&'static str> = Vec::new();
         let mut extra_params: Vec<String> = Vec::new();
+        if let Some(id) = filters.principal_id {
+            cond_parts.push("principal_id = ?");
+            extra_params.push(id.to_string());
+        }
 
         if let Some(f) = filters.from {
             cond_parts.push("ts >= ?");

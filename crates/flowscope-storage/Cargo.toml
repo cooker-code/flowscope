@@ -1,0 +1,18 @@
+[package]
+name = "flowscope-storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Versioned lineage and query-usage persistence for FlowScope"
+
+[dependencies]
+flowscope-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+neo4rs = { version = "0.8.0", features = ["json"] }
+sha2 = "0.10"
+md-5 = "0.10"
+thiserror = "2.0"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

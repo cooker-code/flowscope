@@ -146,6 +146,11 @@ pub struct Args {
     #[cfg(feature = "serve")]
     #[arg(long, value_name = "PATH")]
     pub audit_log: Option<PathBuf>,
+
+    /// JSON configuration for authenticated Rust lineage storage and policy management
+    #[cfg(feature = "serve")]
+    #[arg(long, value_name = "PATH")]
+    pub lineage_config: Option<PathBuf>,
 }
 
 /// SQL dialect options

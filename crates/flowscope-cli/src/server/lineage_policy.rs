@@ -1,0 +1,481 @@
+//! Persistent caller identity and policy. All SQLite access runs off the async executor.
+use super::audit::{insert_entry, AuditEntry};
+use axum::http::{HeaderMap, StatusCode};
+use flowscope_storage::{digest, Action, Neo4jConfig, StorageEvent};
+use rusqlite::{params, Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::{
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+
+pub type ApiError = (StatusCode, String);
+type StoredEventRow = (
+    String,
+    String,
+    String,
+    i64,
+    Option<String>,
+    Option<String>,
+    String,
+);
+pub fn failure(status: StatusCode, code: &str) -> ApiError {
+    (status, code.to_string())
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Settings {
+    pub state_db: PathBuf,
+    pub neo4j: Neo4jConfig,
+    #[serde(default)]
+    pub allow_anonymous_parse: bool,
+    #[serde(default = "admin_env")]
+    pub admin_token_env: String,
+}
+fn admin_env() -> String {
+    "FLOWSCOPE_LINEAGE_ADMIN_TOKEN".into()
+}
+impl Settings {
+    pub fn load(path: &Path) -> anyhow::Result<Self> {
+        let settings: Self = serde_json::from_slice(&std::fs::read(path)?)?;
+        anyhow::ensure!(
+            !settings.neo4j.uri.is_empty()
+                && !settings.neo4j.uri.contains('@')
+                && !settings.neo4j.user.is_empty()
+                && !settings.neo4j.database.is_empty(),
+            "Neo4j requires URI without embedded credentials, user and database"
+        );
+        anyhow::ensure!(
+            !settings.neo4j.environment.trim().is_empty()
+                && !settings.neo4j.password_env.is_empty()
+                && !settings.admin_token_env.is_empty(),
+            "environment and secret environment variable names are required"
+        );
+        Ok(settings)
+    }
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Principal {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub enabled: bool,
+    pub action: Action,
+    pub revision: i64,
+}
+impl Principal {
+    pub fn validate(&self) -> Result<(), ApiError> {
+        if self.id.is_empty()
+            || self.id.len() > 128
+            || !self
+                .id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "_-.".contains(c))
+            || self.name.trim().is_empty()
+        {
+            return Err(failure(
+                StatusCode::BAD_REQUEST,
+                "invalid_principal_identity",
+            ));
+        }
+        if !["scheduler", "person", "admin"].contains(&self.kind.as_str())
+            || (self.action == Action::Publish && self.kind != "scheduler")
+            || (self.action == Action::RecordUsage && self.kind != "person")
+        {
+            return Err(failure(StatusCode::BAD_REQUEST, "invalid_principal_policy"));
+        }
+        Ok(())
+    }
+    pub fn choose(&self, requested: Option<Action>) -> Result<Action, ApiError> {
+        if !self.enabled {
+            return Err(failure(StatusCode::FORBIDDEN, "principal_disabled"));
+        }
+        let action = requested.unwrap_or(self.action);
+        if action != self.action
+            && !(action == Action::ParseOnly
+                || action == Action::Observe
+                    && matches!(self.action, Action::Publish | Action::RecordUsage))
+        {
+            return Err(failure(StatusCode::FORBIDDEN, "action_not_allowed"));
+        }
+        Ok(action)
+    }
+}
+#[derive(Clone)]
+pub struct Caller {
+    pub principal: Principal,
+    pub token_id: String,
+    pub action: Action,
+}
+#[derive(Clone)]
+pub struct PolicyDb {
+    conn: Arc<Mutex<Connection>>,
+}
+impl PolicyDb {
+    pub fn open(path: &Path, admin_token: &str) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            admin_token.len() >= 32,
+            "bootstrap admin token must contain at least 32 characters"
+        );
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)?;
+            }
+        }
+        let mut conn = Connection::open(path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        }
+        conn.busy_timeout(Duration::from_secs(5))?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
+            CREATE TABLE IF NOT EXISTS lineage_principals(id TEXT PRIMARY KEY,document TEXT NOT NULL,revision INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS lineage_tokens(id TEXT PRIMARY KEY,principal_id TEXT NOT NULL REFERENCES lineage_principals(id),digest TEXT NOT NULL UNIQUE,enabled INTEGER NOT NULL,created_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS lineage_policy_changes(id INTEGER PRIMARY KEY,principal_id TEXT NOT NULL,revision INTEGER NOT NULL,actor TEXT NOT NULL,changed_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS lineage_events(id TEXT PRIMARY KEY,principal_id TEXT NOT NULL,token_id TEXT NOT NULL,action TEXT NOT NULL,body TEXT NOT NULL,content_hash TEXT NOT NULL,status TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,next_attempt INTEGER NOT NULL DEFAULT 0,outcome TEXT,last_error TEXT,created_at TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS lineage_events_pending ON lineage_events(status,next_attempt);")?;
+        migrate_token_policies(&mut conn)?;
+        let principal = Principal {
+            id: "bootstrap".into(),
+            name: "Bootstrap administrator".into(),
+            kind: "admin".into(),
+            enabled: true,
+            action: Action::Observe,
+            revision: 1,
+        };
+        conn.execute("INSERT INTO lineage_principals(id,document,revision) VALUES('bootstrap',?1,1) ON CONFLICT(id) DO UPDATE SET document=excluded.document,revision=excluded.revision",[serde_json::to_string(&principal)?])?;
+        conn.execute("INSERT INTO lineage_tokens(id,principal_id,digest,enabled,created_at) VALUES('bootstrap','bootstrap',?1,1,?2) ON CONFLICT(id) DO UPDATE SET digest=excluded.digest,enabled=1",params![digest(admin_token),chrono::Utc::now().to_rfc3339()])?;
+        Ok(Self {
+            conn: Arc::new(Mutex::new(conn)),
+        })
+    }
+    pub async fn call<T: Send + 'static>(
+        &self,
+        f: impl FnOnce(&mut Connection) -> Result<T, ApiError> + Send + 'static,
+    ) -> Result<T, ApiError> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut conn = conn.lock().map_err(|_| {
+                failure(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "policy_database_unavailable",
+                )
+            })?;
+            f(&mut conn)
+        })
+        .await
+        .map_err(|_| failure(StatusCode::INTERNAL_SERVER_ERROR, "policy_task_failed"))?
+    }
+    pub async fn authenticate(
+        &self,
+        headers: &HeaderMap,
+        requested: Option<Action>,
+        anonymous: bool,
+    ) -> Result<Option<Caller>, ApiError> {
+        let token = match headers.get(axum::http::header::AUTHORIZATION) {
+            None if anonymous => return Ok(None),
+            Some(h) => h
+                .to_str()
+                .ok()
+                .and_then(|s| s.strip_prefix("Bearer "))
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| failure(StatusCode::UNAUTHORIZED, "invalid_bearer_token"))?,
+            None => return Err(failure(StatusCode::UNAUTHORIZED, "bearer_token_required")),
+        };
+        let hash = digest(token);
+        self.call(move|conn|{
+            let row:Option<(String,String)>=conn.query_row("SELECT t.id,p.document FROM lineage_tokens t JOIN lineage_principals p ON p.id=t.principal_id WHERE t.digest=?1 AND t.enabled=1",[hash],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(db_error)?;
+            let (token_id,document)=row.ok_or_else(||failure(StatusCode::UNAUTHORIZED,"invalid_bearer_token"))?;
+            let principal:Principal=serde_json::from_str(&document).map_err(|_|failure(StatusCode::INTERNAL_SERVER_ERROR,"invalid_stored_policy"))?;
+            let action=principal.choose(requested)?;Ok(Some(Caller{principal,token_id,action}))
+        }).await
+    }
+    pub async fn admin(&self, headers: &HeaderMap) -> Result<Caller, ApiError> {
+        let caller = self
+            .authenticate(headers, None, false)
+            .await?
+            .expect("authenticated");
+        if caller.principal.kind != "admin" {
+            return Err(failure(StatusCode::FORBIDDEN, "policy_admin_required"));
+        }
+        Ok(caller)
+    }
+    pub async fn list(&self) -> Result<Value, ApiError> {
+        self.call(|conn|{
+        let mut stmt=conn.prepare("SELECT document FROM lineage_principals ORDER BY id").map_err(db_error)?;
+        let rows=stmt.query_map([],|r|r.get::<_,String>(0)).map_err(db_error)?;
+        let mut principals=vec![];for row in rows{let s=row.map_err(db_error)?;principals.push(serde_json::from_str::<Value>(&s).map_err(|_|failure(StatusCode::INTERNAL_SERVER_ERROR,"stored_policy_invalid"))?);}
+        let mut stmt=conn.prepare("SELECT id,principal_id,enabled,created_at FROM lineage_tokens ORDER BY created_at DESC").map_err(db_error)?;
+        let rows=stmt.query_map([],|r|Ok(json!({"id":r.get::<_,String>(0)?,"principalId":r.get::<_,String>(1)?,"enabled":r.get::<_,bool>(2)?,"createdAt":r.get::<_,String>(3)?}))).map_err(db_error)?;
+        let tokens=rows.collect::<Result<Vec<_>,_>>().map_err(db_error)?;Ok(json!({"principals":principals,"tokens":tokens}))
+    }).await
+    }
+    pub async fn event_for_audit(&self, id: i64) -> Result<StorageEvent, ApiError> {
+        self.call(move|conn|{
+            let body:Option<String>=conn.query_row("SELECT e.body FROM audit_log a JOIN lineage_events e ON e.id=a.event_id WHERE a.id=?1",[id],|r|r.get(0)).optional().map_err(db_error)?;
+            serde_json::from_str(&body.ok_or_else(||failure(StatusCode::NOT_FOUND,"history_has_no_storage_event"))?).map_err(|_|failure(StatusCode::INTERNAL_SERVER_ERROR,"event_invalid"))
+        }).await
+    }
+    pub async fn save(&self, mut p: Principal, actor: String) -> Result<Principal, ApiError> {
+        p.validate()?;
+        if p.id == "bootstrap" {
+            return Err(failure(
+                StatusCode::FORBIDDEN,
+                "bootstrap_policy_is_deployment_managed",
+            ));
+        }
+        self.call(move|conn|{
+            let tx=conn.transaction().map_err(db_error)?;
+            let current:Option<i64>=tx.query_row("SELECT revision FROM lineage_principals WHERE id=?1",[&p.id],|r|r.get(0)).optional().map_err(db_error)?;
+            if current.unwrap_or(0)!=p.revision{return Err(failure(StatusCode::CONFLICT,"policy_revision_conflict"));}
+            let retired:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM lineage_policy_changes WHERE principal_id=?1)",[&p.id],|r|r.get(0)).map_err(db_error)?;
+            if current.is_none() && retired {return Err(failure(StatusCode::CONFLICT,"principal_id_previously_used"));}
+            p.revision+=1;
+            tx.execute("INSERT INTO lineage_principals(id,document,revision) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET document=excluded.document,revision=excluded.revision",params![p.id,serde_json::to_string(&p).map_err(|_|failure(StatusCode::BAD_REQUEST,"invalid_policy"))?,p.revision]).map_err(db_error)?;
+            tx.execute("INSERT INTO lineage_policy_changes(principal_id,revision,actor,changed_at) VALUES(?1,?2,?3,?4)",params![p.id,p.revision,actor,chrono::Utc::now().to_rfc3339()]).map_err(db_error)?;
+            tx.commit().map_err(db_error)?;Ok(p)
+        }).await
+    }
+    pub async fn delete(
+        &self,
+        id: String,
+        revision: i64,
+        actor: String,
+    ) -> Result<Value, ApiError> {
+        if id == "bootstrap" {
+            return Err(failure(
+                StatusCode::FORBIDDEN,
+                "bootstrap_policy_is_deployment_managed",
+            ));
+        }
+        self.call(move|conn|{
+            let tx=conn.transaction().map_err(db_error)?;
+            let current:Option<i64>=tx.query_row("SELECT revision FROM lineage_principals WHERE id=?1",[&id],|r|r.get(0)).optional().map_err(db_error)?;
+            let current=current.ok_or_else(||failure(StatusCode::NOT_FOUND,"principal_not_found"))?;
+            if current!=revision {return Err(failure(StatusCode::CONFLICT,"policy_revision_conflict"));}
+            let token_count=tx.execute("DELETE FROM lineage_tokens WHERE principal_id=?1",[&id]).map_err(db_error)?;
+            tx.execute("DELETE FROM lineage_principals WHERE id=?1",[&id]).map_err(db_error)?;
+            tx.execute("INSERT INTO lineage_policy_changes(principal_id,revision,actor,changed_at) VALUES(?1,?2,?3,?4)",params![id,current+1,format!("delete:{actor}"),chrono::Utc::now().to_rfc3339()]).map_err(db_error)?;
+            tx.commit().map_err(db_error)?;
+            Ok(json!({"deleted":true,"principalId":id,"deletedTokenCount":token_count,"historyRetained":true}))
+        }).await
+    }
+    pub async fn issue(&self, principal: String) -> Result<Value, ApiError> {
+        self.call(move|conn|{
+        if principal=="bootstrap"{return Err(failure(StatusCode::FORBIDDEN,"bootstrap_token_is_deployment_managed"));}
+        let exists:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM lineage_principals WHERE id=?1)",[&principal],|r|r.get(0)).map_err(db_error)?;
+        if !exists{return Err(failure(StatusCode::NOT_FOUND,"principal_not_found"));}
+        let id=uuid::Uuid::new_v4().to_string();let raw=format!("fst_{}{}",uuid::Uuid::new_v4().simple(),uuid::Uuid::new_v4().simple());
+        conn.execute("INSERT INTO lineage_tokens(id,principal_id,digest,enabled,created_at) VALUES(?1,?2,?3,1,?4)",params![id,principal,digest(&raw),chrono::Utc::now().to_rfc3339()]).map_err(db_error)?;
+        Ok(json!({"tokenId":id,"token":raw,"principalId":principal}))
+    }).await
+    }
+    pub async fn revoke(&self, id: String) -> Result<(), ApiError> {
+        self.call(move |conn| {
+            if id == "bootstrap" {
+                return Err(failure(
+                    StatusCode::FORBIDDEN,
+                    "bootstrap_token_is_deployment_managed",
+                ));
+            }
+            let n = conn
+                .execute("UPDATE lineage_tokens SET enabled=0 WHERE id=?1", [id])
+                .map_err(db_error)?;
+            if n != 1 {
+                return Err(failure(StatusCode::NOT_FOUND, "token_not_found"));
+            }
+            Ok(())
+        })
+        .await
+    }
+    pub async fn recheck(&self, e: &StorageEvent) -> Result<bool, ApiError> {
+        let e = e.clone();
+        self.call(move|conn|{
+        let row:Option<String>=conn.query_row("SELECT p.document FROM lineage_tokens t JOIN lineage_principals p ON p.id=t.principal_id WHERE t.id=?1 AND t.principal_id=?2 AND t.enabled=1",params![e.token_id,e.principal_id],|r|r.get(0)).optional().map_err(db_error)?;
+        let Some(doc)=row else{return Ok(false);};let p:Principal=serde_json::from_str(&doc).map_err(|_|failure(StatusCode::INTERNAL_SERVER_ERROR,"invalid_stored_policy"))?;
+        Ok(p.choose(Some(e.action)).is_ok())
+    }).await
+    }
+    pub async fn record_audits(
+        &self,
+        entries: Vec<AuditEntry>,
+        principal: Option<String>,
+    ) -> Result<(), ApiError> {
+        self.call(move |conn| {
+            let tx = conn.transaction().map_err(db_error)?;
+            for entry in entries {
+                insert_entry(&tx, &entry).map_err(db_error)?;
+                let id = tx.last_insert_rowid();
+                tx.execute(
+                    "UPDATE audit_log SET principal_id=?1 WHERE id=?2",
+                    params![principal, id],
+                )
+                .map_err(db_error)?;
+            }
+            tx.commit().map_err(db_error)?;
+            Ok(())
+        })
+        .await
+    }
+    pub async fn audit_access(&self, id: i64, caller: Caller) -> Result<(), ApiError> {
+        self.call(move |conn| {
+            let owner: Option<Option<String>> = conn
+                .query_row(
+                    "SELECT principal_id FROM audit_log WHERE id=?1",
+                    [id],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(db_error)?;
+            let owner =
+                owner.ok_or_else(|| failure(StatusCode::NOT_FOUND, "audit_record_not_found"))?;
+            if caller.principal.kind != "admin"
+                && owner.as_deref() != Some(caller.principal.id.as_str())
+            {
+                return Err(failure(StatusCode::FORBIDDEN, "audit_access_denied"));
+            }
+            Ok(())
+        })
+        .await
+    }
+    pub async fn decorate_audits(&self, records: &mut Vec<Value>) -> Result<(), ApiError> {
+        let ids = records
+            .iter()
+            .filter_map(|r| r["id"].as_i64())
+            .collect::<Vec<_>>();
+        let extras=self.call(move|conn|{
+            let mut out=std::collections::BTreeMap::new();
+            for id in ids {
+                let (principal,event):(Option<String>,Option<String>)=conn.query_row("SELECT principal_id,event_id FROM audit_log WHERE id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?))).map_err(db_error)?;
+                let mut extra=json!({"principal_id":principal,"event_id":event,"lineage_status":"not_requested","usage_status":"not_requested"});
+                if let Some(event)=event {
+                    let (action,status,outcome,reason):(String,String,Option<String>,Option<String>)=conn.query_row("SELECT action,status,outcome,last_error FROM lineage_events WHERE id=?1",[event],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).map_err(db_error)?;
+                    extra["lineage_status"]=json!(if action=="publish"{status.as_str()}else{"not_requested"});extra["usage_status"]=json!(if action=="record_usage"{status.as_str()}else{"not_requested"});extra["policy_reason"]=json!(reason);
+                    if let Some(o)=outcome {if let Ok(o)=serde_json::from_str::<Value>(&o){extra["lineage_status"]=o["lineageStatus"].clone();extra["usage_status"]=o["usageStatus"].clone();extra["policy_reason"]=o["reason"].clone();}}
+                }
+                out.insert(id,extra);
+            }Ok(out)
+        }).await?;
+        for record in records {
+            if let Some(extra) = record["id"].as_i64().and_then(|id| extras.get(&id)) {
+                if let Some(map) = extra.as_object() {
+                    for (k, v) in map {
+                        record[k] = v.clone();
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    pub async fn enqueue(
+        &self,
+        e: StorageEvent,
+        entries: Vec<AuditEntry>,
+    ) -> Result<bool, ApiError> {
+        self.call(move|conn|{
+        let tx=conn.transaction().map_err(db_error)?;
+        let existing:Option<String>=tx.query_row("SELECT content_hash FROM lineage_events WHERE id=?1",[&e.event_id],|r|r.get(0)).optional().map_err(db_error)?;
+        if let Some(hash)=existing {if hash!=e.content_hash(){return Err(failure(StatusCode::CONFLICT,"idempotency_key_conflict"));}return Ok(false);}
+        tx.execute("INSERT INTO lineage_events(id,principal_id,token_id,action,body,content_hash,status,created_at) VALUES(?1,?2,?3,?4,?5,?6,'queued',?7)",params![e.event_id,e.principal_id,e.token_id,e.action.as_str(),serde_json::to_string(&e).map_err(|_|failure(StatusCode::BAD_REQUEST,"invalid_event"))?,e.content_hash(),e.observed_at]).map_err(db_error)?;
+        for entry in entries {insert_entry(&tx,&entry).map_err(db_error)?;let id=tx.last_insert_rowid();tx.execute("UPDATE audit_log SET principal_id=?1,event_id=?2 WHERE id=?3",params![e.principal_id,e.event_id,id]).map_err(db_error)?;}
+        tx.commit().map_err(db_error)?;Ok(true)
+    }).await
+    }
+    pub async fn next(&self) -> Result<Option<StorageEvent>, ApiError> {
+        self.call(|conn|{
+        let body:Option<String>=conn.query_row("SELECT body FROM lineage_events WHERE status='queued' AND next_attempt<=?1 ORDER BY created_at,id LIMIT 1",[chrono::Utc::now().timestamp_millis()],|r|r.get(0)).optional().map_err(db_error)?;
+        body.map(|b|serde_json::from_str(&b).map_err(|_|failure(StatusCode::INTERNAL_SERVER_ERROR,"invalid_queued_event"))).transpose()
+    }).await
+    }
+    pub async fn finish(
+        &self,
+        id: String,
+        status: &str,
+        outcome: Option<Value>,
+        reason: Option<String>,
+    ) -> Result<(), ApiError> {
+        let status = status.to_string();
+        self.call(move |conn| {
+            conn.execute(
+                "UPDATE lineage_events SET status=?1,outcome=?2,last_error=?3 WHERE id=?4",
+                params![status, outcome.map(|v| v.to_string()), reason, id],
+            )
+            .map_err(db_error)?;
+            Ok(())
+        })
+        .await
+    }
+    pub async fn retry(&self, id: String) -> Result<(), ApiError> {
+        self.call(move|conn|{
+        conn.execute("UPDATE lineage_events SET attempts=attempts+1,next_attempt=?1+MIN(60000,1000*(1 << MIN(attempts,6))),last_error='neo4j_temporarily_unavailable' WHERE id=?2",params![chrono::Utc::now().timestamp_millis(),id]).map_err(db_error)?;Ok(())
+    }).await
+    }
+    pub async fn event(&self, id: String, caller: Caller) -> Result<Value, ApiError> {
+        self.call(move|conn|{
+        let row:Option<StoredEventRow>=conn.query_row("SELECT principal_id,action,status,attempts,outcome,last_error,body FROM lineage_events WHERE id=?1",[&id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?))).optional().map_err(db_error)?;
+        let (principal,action,status,attempts,outcome,reason,body)=row.ok_or_else(||failure(StatusCode::NOT_FOUND,"event_not_found"))?;
+        if caller.principal.kind!="admin"&&caller.principal.id!=principal{return Err(failure(StatusCode::FORBIDDEN,"event_access_denied"));}
+        let event:StorageEvent=serde_json::from_str(&body).map_err(|_|failure(StatusCode::INTERNAL_SERVER_ERROR,"event_invalid"))?;
+        let mut result=json!({"eventId":id,"principalId":principal,"action":action,"status":status,"attempts":attempts,"reason":reason,"parseStatus":if event.analysis.summary.has_errors{"failed"}else{"succeeded"},"policyRevision":event.policy_revision,"lineageStatus":if event.action==Action::Publish{status.as_str()}else{"not_requested"},"usageStatus":if event.action==Action::RecordUsage{status.as_str()}else{"not_requested"}});
+        if let Some(o)=outcome{let o:Value=serde_json::from_str(&o).map_err(|_|failure(StatusCode::INTERNAL_SERVER_ERROR,"outcome_invalid"))?;for key in ["lineageStatus","usageStatus","reason"]{result[key]=o[key].clone();}}
+        Ok(result)
+    }).await
+    }
+}
+fn db_error(_: rusqlite::Error) -> ApiError {
+    failure(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "lineage_state_database_error",
+    )
+}
+
+/// One-time conversion of stored policies to token-only authorization. Removed
+/// scope fields do not survive in documents or continue restricting callers.
+fn migrate_token_policies(conn: &mut Connection) -> anyhow::Result<()> {
+    let tx = conn.transaction()?;
+    let rows = {
+        let mut statement = tx
+            .prepare("SELECT id,document,revision FROM lineage_principals WHERE id!='bootstrap'")?;
+        let rows = statement.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+    for (id, document, revision) in rows {
+        let mut document: Value = serde_json::from_str(&document)?;
+        let object = document
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("stored principal is not an object"))?;
+        let mut changed = false;
+        for key in ["environments", "sources", "deniedSources", "tables"] {
+            changed |= object.remove(key).is_some();
+        }
+        if !changed {
+            continue;
+        }
+        object.insert("revision".into(), json!(revision + 1));
+        let principal: Principal = serde_json::from_value(document)?;
+        principal
+            .validate()
+            .map_err(|(_, code)| anyhow::anyhow!(code))?;
+        anyhow::ensure!(
+            principal.id == id,
+            "stored principal identity differs from its key"
+        );
+        tx.execute(
+            "UPDATE lineage_principals SET document=?1,revision=?2 WHERE id=?3",
+            params![serde_json::to_string(&principal)?, principal.revision, id],
+        )?;
+        tx.execute("INSERT INTO lineage_policy_changes(principal_id,revision,actor,changed_at) VALUES(?1,?2,'system:token_policy_migration',?3)",params![id,principal.revision,chrono::Utc::now().to_rfc3339()])?;
+    }
+    tx.commit()?;
+    Ok(())
+}

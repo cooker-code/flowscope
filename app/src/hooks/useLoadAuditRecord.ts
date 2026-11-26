@@ -1,3 +1,4 @@
+import { apiFetch } from '@/lib/lineage-api';
 import { useEffect, useRef } from 'react';
 import type { AnalyzeResult } from '@pondpilot/flowscope-core';
 import { useProject } from '@/lib/project-store';
@@ -30,7 +31,7 @@ export function useLoadAuditRecord({
 
     (async () => {
       try {
-        const res = await fetch(`/api/audit/${auditId}`);
+        const res = await apiFetch(`/api/audit/${auditId}`);
         if (!res.ok || cancelled) {
           return;
         }

@@ -16,6 +16,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 |-------|-------------|--------|
 | [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |
 | [Database Guidelines](./database-guidelines.md) | SQLite via rusqlite — patterns, migrations, gotchas | ✅ Filled |
+| [Lineage policy](./lineage-policy.md) | Bearer identity, durable events and graph storage | ✅ Filled |
 | [Audit API Spec](./audit-api-spec.md) | SQLite schema, field semantics, API contracts, wrong/correct | ✅ Filled |
 | [Error Handling](./error-handling.md) | Error types, handling strategies | To fill |
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |

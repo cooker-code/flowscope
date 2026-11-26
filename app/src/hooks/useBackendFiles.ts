@@ -1,3 +1,4 @@
+import { apiFetch } from '@/lib/lineage-api';
 /**
  * Hook for fetching files from the backend REST API.
  *
@@ -183,20 +184,22 @@ export function useBackendFiles(enabled: boolean, baseUrl = ''): BackendFilesSta
         // Fetch files, schema, config, and audit files in parallel
         const [filesResponse, schemaResponse, configResponse, auditFilesResponse] =
           await Promise.all([
-            fetch(`${baseUrl}/api/files`),
-            fetch(`${baseUrl}/api/schema`),
-            fetch(`${baseUrl}/api/config`),
-            fetch(`${baseUrl}/api/audit/files`),
+            apiFetch(`${baseUrl}/api/files`),
+            apiFetch(`${baseUrl}/api/schema`),
+            apiFetch(`${baseUrl}/api/config`),
+            apiFetch(`${baseUrl}/api/audit/files`),
           ]);
 
-        if (!filesResponse.ok) {
+        if (!filesResponse.ok && filesResponse.status !== 403) {
           throw new BackendError(
             `Failed to fetch files: ${filesResponse.status} ${filesResponse.statusText}`,
             filesResponse.status
           );
         }
 
-        const filesData = (await filesResponse.json()) as FileSource[];
+        // A personal caller may inspect its own audit SQL, never server files.
+        const filesData =
+          filesResponse.status === 403 ? [] : ((await filesResponse.json()) as FileSource[]);
         setFiles(filesData);
 
         // Schema is optional (may not be configured on backend)

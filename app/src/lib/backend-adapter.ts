@@ -1,3 +1,4 @@
+import { apiFetch } from '@/lib/lineage-api';
 /**
  * Backend adapter abstraction for FlowScope analysis.
  *
@@ -89,7 +90,7 @@ export class RestBackendAdapter implements BackendAdapter {
   }
 
   async initialize(): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/health`);
+    const response = await apiFetch(`${this.baseUrl}/api/health`);
     if (!response.ok) {
       throw new Error(`Health check failed: ${response.status}`);
     }
@@ -102,7 +103,7 @@ export class RestBackendAdapter implements BackendAdapter {
 
     // Note: dialect and schema are controlled by the server (--dialect flag and database introspection)
     // so we don't send them from the client - only analysis options and files
-    const response = await fetch(`${this.baseUrl}/api/analyze`, {
+    const response = await apiFetch(`${this.baseUrl}/api/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -283,7 +284,7 @@ export async function createBackendAdapter(
  */
 export async function isRestBackendAvailable(baseUrl = ''): Promise<boolean> {
   try {
-    const response = await fetch(`${baseUrl}/api/health`, {
+    const response = await apiFetch(`${baseUrl}/api/health`, {
       method: 'GET',
       signal: AbortSignal.timeout(2000),
     });
