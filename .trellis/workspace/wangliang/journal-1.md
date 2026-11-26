@@ -417,3 +417,37 @@ Created GitLab issue 1; enabled Hive FROM VALUES table factor, added parser and 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 13: 合并遗留分支并保留工作树资料
+
+**Date**: 2026-11-26
+**Task**: 合并遗留分支并保留工作树资料
+**Branch**: `codex/audit-graph-status`
+
+### Summary
+
+合入 Hive DDL 已等价实现的历史、Hive FROM VALUES 的 3 个回归测试和旧任务记录；保留主干较新的 Hive 解析能力。保存两份旧工作树的未提交任务与验证资料，清除任务元数据中的旧工作树关联。多次出现过滤条件的本地修复已等价合入 master，按用户选择不引入外部上游历史。合并后的 1750 项核心测试通过，分支及未提交文件已保存到仓库外备份，随后执行本地分支和工作树清理。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9815f02b` | (see git log) |
+| `8b35d60a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
