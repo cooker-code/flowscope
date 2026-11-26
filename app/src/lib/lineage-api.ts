@@ -74,6 +74,7 @@ export interface CallerIdentity {
 }
 export interface CallerToken {
   id: string;
+  token?: string | null;
   principalId: string;
   enabled: boolean;
   createdAt: string;

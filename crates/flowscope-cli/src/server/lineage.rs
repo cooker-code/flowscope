@@ -3,7 +3,8 @@ use super::lineage_policy::{failure, ApiError, Caller, PolicyDb, Principal, Sett
 use super::{audit::AuditEntry, AppState};
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -381,10 +382,14 @@ async fn me(
 async fn list(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     let rt = runtime(&state)?;
     rt.db.admin(&headers).await?;
-    Ok(Json(rt.db.list().await?))
+    Ok((
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(rt.db.list().await?),
+    )
+        .into_response())
 }
 async fn save(
     State(state): State<Arc<AppState>>,
@@ -424,10 +429,14 @@ async fn issue(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Json(p): Json<IssueRequest>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     let rt = runtime(&state)?;
     rt.db.admin(&headers).await?;
-    Ok(Json(rt.db.issue(p.principal_id).await?))
+    Ok((
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(rt.db.issue(p.principal_id).await?),
+    )
+        .into_response())
 }
 async fn revoke(
     State(state): State<Arc<AppState>>,
@@ -588,6 +597,138 @@ mod tests {
         issued["token"].as_str().unwrap().into()
     }
     #[tokio::test]
+    async fn admin_lists_real_tokens_after_restart_and_revoked_tokens_disappear() {
+        let (dir, state, app) = fixture().await;
+        provision(&app, "token_owner", "scheduler", "publish").await;
+        let (status, headers, issued) = request(
+            &app,
+            "/api/lineage/tokens",
+            Some(ADMIN),
+            Some(json!({"principalId":"token_owner"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+        let token = issued["token"].as_str().unwrap();
+        let id = issued["tokenId"].as_str().unwrap();
+        assert_ne!(token, id);
+
+        let (status, headers, listing) =
+            request(&app, "/api/lineage/policies", Some(ADMIN), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+        let row = listing["tokens"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == id)
+            .unwrap();
+        assert_eq!(row["token"], token);
+        let (status, _, denied) = request(&app, "/api/lineage/policies", Some(token), None).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(!denied.to_string().contains(token));
+
+        // Neither a restart nor bootstrap credential rotation loses issued values.
+        let reopened = PolicyDb::open(
+            &dir.path().join("state.db"),
+            "rotated-test-admin-credential-with-thirty-two-characters",
+        )
+        .unwrap();
+        let listing = reopened.list().await.unwrap();
+        assert!(listing["tokens"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["id"] == id && row["token"] == token));
+        reopened.revoke(id.into()).await.unwrap();
+        let listing = reopened.list().await.unwrap();
+        assert!(listing["tokens"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["id"] != id));
+        let (status, _, _) = request(&app, "/api/lineage/me", Some(token), None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let token_id = id.to_string();
+        let secret_cleared = state
+            .lineage
+            .as_ref()
+            .unwrap()
+            .db
+            .call(move |conn| {
+                Ok(conn.query_row(
+                    "SELECT enabled=0 AND secret_ciphertext IS NULL FROM lineage_tokens WHERE id=?1",
+                    [token_id],
+                    |row| row.get::<_, bool>(0),
+                ).unwrap())
+            })
+            .await
+            .unwrap();
+        assert!(secret_cleared);
+    }
+
+    #[tokio::test]
+    async fn legacy_hash_only_token_is_preserved_and_captured_after_authentication() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("legacy.db");
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE lineage_principals(id TEXT PRIMARY KEY,document TEXT NOT NULL,revision INTEGER NOT NULL); \
+             CREATE TABLE lineage_tokens(id TEXT PRIMARY KEY,principal_id TEXT NOT NULL,digest TEXT NOT NULL UNIQUE,enabled INTEGER NOT NULL,created_at TEXT NOT NULL);",
+        )
+        .unwrap();
+        let mut policy = principal("legacy", "scheduler", "publish");
+        policy["revision"] = json!(1);
+        conn.execute(
+            "INSERT INTO lineage_principals VALUES('legacy',?1,1)",
+            [policy.to_string()],
+        )
+        .unwrap();
+        let token = "fst_legacy_test_credential_that_was_originally_hash_only";
+        conn.execute(
+            "INSERT INTO lineage_tokens VALUES('legacy-id','legacy',?1,1,'2026-01-01T00:00:00Z')",
+            [flowscope_storage::digest(token)],
+        )
+        .unwrap();
+        drop(conn);
+        let db = PolicyDb::open(&path, ADMIN).unwrap();
+        assert!(db.list().await.unwrap()["tokens"][0]["token"].is_null());
+        let mut headers = HeaderMap::new();
+        headers.insert("Authorization", HeaderValue::from_static("Bearer invalid"));
+        assert!(db.authenticate(&headers, None, false).await.is_err());
+        assert!(db.list().await.unwrap()["tokens"][0]["token"].is_null());
+        headers.insert(
+            "Authorization",
+            HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
+        );
+        let caller = db
+            .authenticate(&headers, None, false)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(caller.token_id, "legacy-id");
+        let listing = db.list().await.unwrap();
+        assert_eq!(listing["tokens"][0]["token"], token);
+        let encrypted: Vec<u8> = db
+            .call(|conn| {
+                Ok(conn
+                    .query_row(
+                        "SELECT secret_ciphertext FROM lineage_tokens WHERE id='legacy-id'",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .unwrap())
+            })
+            .await
+            .unwrap();
+        assert!(!encrypted
+            .windows(token.len())
+            .any(|bytes| bytes == token.as_bytes()));
+        drop(db);
+        let reopened = PolicyDb::open(&path, ADMIN).unwrap();
+        assert_eq!(reopened.list().await.unwrap()["tokens"][0]["token"], token);
+    }
+    #[tokio::test]
     async fn strict_bearer_privilege_boundaries_and_durable_recovery() {
         let (_dir, state, app) = fixture().await;
         assert_eq!(
@@ -718,13 +859,8 @@ mod tests {
         assert_eq!(explicit["lineage_status"], "not_requested");
         assert_eq!(explicit["usage_status"], "not_requested");
 
-        let (status, _, detail) = request(
-            &app,
-            &format!("/api/audit/{legacy_id}"),
-            Some(ADMIN),
-            None,
-        )
-        .await;
+        let (status, _, detail) =
+            request(&app, &format!("/api/audit/{legacy_id}"), Some(ADMIN), None).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(detail["lineage_status"], "unknown");
     }

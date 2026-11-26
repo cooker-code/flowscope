@@ -37,7 +37,6 @@ export function PolicyPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [issued, setIssued] = useState('');
   const [deleting, setDeleting] = useState<CallerPolicy | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const selected = params.get('principal') ?? '';
@@ -77,7 +76,6 @@ export function PolicyPage() {
   }, [data, selected, creating]);
   useEffect(() => {
     setPreview(null);
-    setIssued('');
   }, [selected, creating]);
   function choose(id: string) {
     setNotice('');
@@ -115,7 +113,6 @@ export function PolicyPage() {
       action: 'record_usage',
       revision: 0,
     });
-    setIssued('');
   };
   const save = (event: FormEvent) => {
     event.preventDefault();
@@ -426,65 +423,62 @@ export function PolicyPage() {
                           disabled={busy}
                           onClick={() =>
                             void perform(async () => {
-                              const result = await apiJson<{ token: string }>(
-                                '/api/lineage/tokens',
-                                { principalId: draft.id }
-                              );
+                              await apiJson('/api/lineage/tokens', { principalId: draft.id });
                               const list = await apiJson<PolicyList>('/api/lineage/policies');
                               setData(list);
-                              setIssued(result.token);
+                              setNotice('Token 已发放，可在列表中查看和复制。');
                             })
                           }
                         >
                           发放 token
                         </Button>
                       </div>
-                      {issued && (
-                        <div className="space-y-2 rounded-md border bg-muted/30 p-3">
-                          <p className="text-sm font-medium">请现在复制，完整 token 只显示一次。</p>
-                          <textarea
-                            aria-label="新 token"
-                            className={`${fieldClass} font-mono text-xs`}
-                            readOnly
-                            value={issued}
-                          />
-                          <Button
-                            className="bg-background! text-foreground!"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setIssued('')}
-                          >
-                            已保存，隐藏 token
-                          </Button>
-                        </div>
+                      <p className="text-xs text-muted-foreground">
+                        下方为可直接用于接口请求的完整 Token，仅显示未撤销的记录。
+                      </p>
+                      {!data.tokens.some((t) => t.principalId === draft.id && t.enabled) && (
+                        <p className="py-3 text-sm text-muted-foreground">暂无有效 Token。</p>
                       )}
-                      <ul className="divide-y text-xs">
+                      <ul className="divide-y text-xs" aria-label="有效 Token">
                         {data.tokens
-                          .filter((t) => t.principalId === draft.id)
+                          .filter((t) => t.principalId === draft.id && t.enabled)
                           .map((t) => (
-                            <li key={t.id} className="flex flex-wrap items-center gap-2 py-3">
-                              <span className="min-w-0 flex-1 break-all font-mono">{t.id}</span>
-                              <time title={t.createdAt}>{formatLocalTs(t.createdAt)}</time>
-                              <span>{t.enabled ? '有效' : '已撤销'}</span>
-                              {t.enabled && (
-                                <Button
-                                  className="bg-background! text-foreground!"
-                                  variant="outline"
-                                  size="sm"
-                                  disabled={busy}
-                                  onClick={() =>
-                                    void perform(async () => {
-                                      await apiJson(
-                                        `/api/lineage/tokens/${encodeURIComponent(t.id)}/revoke`,
-                                        {}
-                                      );
-                                      await refresh();
-                                    })
-                                  }
+                            <li
+                              key={t.id}
+                              data-testid="caller-token"
+                              className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3"
+                            >
+                              {t.token ? (
+                                <code
+                                  data-testid="token-value"
+                                  className="min-w-0 flex-[1_1_24rem] select-all break-all font-mono text-sm"
                                 >
-                                  撤销
-                                </Button>
+                                  {t.token}
+                                </code>
+                              ) : (
+                                <span className="min-w-0 flex-[1_1_24rem] text-muted-foreground">
+                                  该历史 Token 下次成功调用后可显示完整值。
+                                </span>
                               )}
+                              <time title={t.createdAt}>{formatLocalTs(t.createdAt)}</time>
+                              <span>有效</span>
+                              <Button
+                                className="bg-background! text-foreground!"
+                                variant="outline"
+                                size="sm"
+                                disabled={busy}
+                                onClick={() =>
+                                  void perform(async () => {
+                                    await apiJson(
+                                      `/api/lineage/tokens/${encodeURIComponent(t.id)}/revoke`,
+                                      {}
+                                    );
+                                    await refresh();
+                                  })
+                                }
+                              >
+                                撤销
+                              </Button>
                             </li>
                           ))}
                       </ul>

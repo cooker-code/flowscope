@@ -1,5 +1,6 @@
 //! Persistent caller identity and policy. All SQLite access runs off the async executor.
 use super::audit::{insert_entry, AuditEntry};
+use super::token_vault::TokenVault;
 use axum::http::{HeaderMap, StatusCode};
 use flowscope_storage::{digest, Action, Neo4jConfig, StorageEvent};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -113,6 +114,7 @@ pub struct Caller {
 #[derive(Clone)]
 pub struct PolicyDb {
     conn: Arc<Mutex<Connection>>,
+    token_vault: TokenVault,
 }
 impl PolicyDb {
     pub fn open(path: &Path, admin_token: &str) -> anyhow::Result<Self> {
@@ -139,6 +141,19 @@ impl PolicyDb {
             CREATE TABLE IF NOT EXISTS lineage_events(id TEXT PRIMARY KEY,principal_id TEXT NOT NULL,token_id TEXT NOT NULL,action TEXT NOT NULL,body TEXT NOT NULL,content_hash TEXT NOT NULL,status TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,next_attempt INTEGER NOT NULL DEFAULT 0,outcome TEXT,last_error TEXT,created_at TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS lineage_events_pending ON lineage_events(status,next_attempt);")?;
         migrate_token_policies(&mut conn)?;
+        if let Err(error) =
+            conn.execute_batch("ALTER TABLE lineage_tokens ADD COLUMN secret_ciphertext BLOB")
+        {
+            if !error.to_string().contains("duplicate column") {
+                return Err(error.into());
+            }
+        }
+        let has_encrypted_tokens = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM lineage_tokens WHERE secret_ciphertext IS NOT NULL)",
+            [],
+            |row| row.get(0),
+        )?;
+        let token_vault = TokenVault::load(path, has_encrypted_tokens)?;
         let principal = Principal {
             id: "bootstrap".into(),
             name: "Bootstrap administrator".into(),
@@ -151,6 +166,7 @@ impl PolicyDb {
         conn.execute("INSERT INTO lineage_tokens(id,principal_id,digest,enabled,created_at) VALUES('bootstrap','bootstrap',?1,1,?2) ON CONFLICT(id) DO UPDATE SET digest=excluded.digest,enabled=1",params![digest(admin_token),chrono::Utc::now().to_rfc3339()])?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
+            token_vault,
         })
     }
     pub async fn call<T: Send + 'static>(
@@ -187,11 +203,18 @@ impl PolicyDb {
             None => return Err(failure(StatusCode::UNAUTHORIZED, "bearer_token_required")),
         };
         let hash = digest(token);
+        let raw = token.to_owned();
+        let token_vault = self.token_vault.clone();
         self.call(move|conn|{
-            let row:Option<(String,String)>=conn.query_row("SELECT t.id,p.document FROM lineage_tokens t JOIN lineage_principals p ON p.id=t.principal_id WHERE t.digest=?1 AND t.enabled=1",[hash],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(db_error)?;
-            let (token_id,document)=row.ok_or_else(||failure(StatusCode::UNAUTHORIZED,"invalid_bearer_token"))?;
+            let row:Option<(String,String,bool)>=conn.query_row("SELECT t.id,p.document,t.secret_ciphertext IS NOT NULL FROM lineage_tokens t JOIN lineage_principals p ON p.id=t.principal_id WHERE t.digest=?1 AND t.enabled=1",[hash],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().map_err(db_error)?;
+            let (token_id,document,has_secret)=row.ok_or_else(||failure(StatusCode::UNAUTHORIZED,"invalid_bearer_token"))?;
             let principal:Principal=serde_json::from_str(&document).map_err(|_|failure(StatusCode::INTERNAL_SERVER_ERROR,"invalid_stored_policy"))?;
-            let action=principal.choose(requested)?;Ok(Some(Caller{principal,token_id,action}))
+            let action=principal.choose(requested)?;
+            if token_id!="bootstrap" && !has_secret {
+                let encrypted=token_vault.encrypt(&token_id,&raw)?;
+                conn.execute("UPDATE lineage_tokens SET secret_ciphertext=?1 WHERE id=?2 AND secret_ciphertext IS NULL",params![encrypted,token_id]).map_err(db_error)?;
+            }
+            Ok(Some(Caller{principal,token_id,action}))
         }).await
     }
     pub async fn admin(&self, headers: &HeaderMap) -> Result<Caller, ApiError> {
@@ -205,13 +228,20 @@ impl PolicyDb {
         Ok(caller)
     }
     pub async fn list(&self) -> Result<Value, ApiError> {
-        self.call(|conn|{
+        let token_vault = self.token_vault.clone();
+        self.call(move|conn|{
         let mut stmt=conn.prepare("SELECT document FROM lineage_principals ORDER BY id").map_err(db_error)?;
         let rows=stmt.query_map([],|r|r.get::<_,String>(0)).map_err(db_error)?;
         let mut principals=vec![];for row in rows{let s=row.map_err(db_error)?;principals.push(serde_json::from_str::<Value>(&s).map_err(|_|failure(StatusCode::INTERNAL_SERVER_ERROR,"stored_policy_invalid"))?);}
-        let mut stmt=conn.prepare("SELECT id,principal_id,enabled,created_at FROM lineage_tokens ORDER BY created_at DESC").map_err(db_error)?;
-        let rows=stmt.query_map([],|r|Ok(json!({"id":r.get::<_,String>(0)?,"principalId":r.get::<_,String>(1)?,"enabled":r.get::<_,bool>(2)?,"createdAt":r.get::<_,String>(3)?}))).map_err(db_error)?;
-        let tokens=rows.collect::<Result<Vec<_>,_>>().map_err(db_error)?;Ok(json!({"principals":principals,"tokens":tokens}))
+        let mut stmt=conn.prepare("SELECT id,principal_id,created_at,secret_ciphertext FROM lineage_tokens WHERE enabled=1 AND id!='bootstrap' ORDER BY created_at DESC").map_err(db_error)?;
+        let rows=stmt.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<Vec<u8>>>(3)?))).map_err(db_error)?;
+        let mut tokens=vec![];
+        for row in rows {
+            let (id,principal,created_at,encrypted)=row.map_err(db_error)?;
+            let token=encrypted.map(|value|token_vault.decrypt(&id,&value)).transpose()?;
+            tokens.push(json!({"id":id,"principalId":principal,"enabled":true,"createdAt":created_at,"token":token}));
+        }
+        Ok(json!({"principals":principals,"tokens":tokens}))
     }).await
     }
     pub async fn event_for_audit(&self, id: i64) -> Result<StorageEvent, ApiError> {
@@ -265,12 +295,14 @@ impl PolicyDb {
         }).await
     }
     pub async fn issue(&self, principal: String) -> Result<Value, ApiError> {
+        let token_vault = self.token_vault.clone();
         self.call(move|conn|{
         if principal=="bootstrap"{return Err(failure(StatusCode::FORBIDDEN,"bootstrap_token_is_deployment_managed"));}
         let exists:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM lineage_principals WHERE id=?1)",[&principal],|r|r.get(0)).map_err(db_error)?;
         if !exists{return Err(failure(StatusCode::NOT_FOUND,"principal_not_found"));}
         let id=uuid::Uuid::new_v4().to_string();let raw=format!("fst_{}{}",uuid::Uuid::new_v4().simple(),uuid::Uuid::new_v4().simple());
-        conn.execute("INSERT INTO lineage_tokens(id,principal_id,digest,enabled,created_at) VALUES(?1,?2,?3,1,?4)",params![id,principal,digest(&raw),chrono::Utc::now().to_rfc3339()]).map_err(db_error)?;
+        let encrypted=token_vault.encrypt(&id,&raw)?;
+        conn.execute("INSERT INTO lineage_tokens(id,principal_id,digest,enabled,created_at,secret_ciphertext) VALUES(?1,?2,?3,1,?4,?5)",params![id,principal,digest(&raw),chrono::Utc::now().to_rfc3339(),encrypted]).map_err(db_error)?;
         Ok(json!({"tokenId":id,"token":raw,"principalId":principal}))
     }).await
     }
@@ -283,7 +315,10 @@ impl PolicyDb {
                 ));
             }
             let n = conn
-                .execute("UPDATE lineage_tokens SET enabled=0 WHERE id=?1", [id])
+                .execute(
+                    "UPDATE lineage_tokens SET enabled=0,secret_ciphertext=NULL WHERE id=?1",
+                    [id],
+                )
                 .map_err(db_error)?;
             if n != 1 {
                 return Err(failure(StatusCode::NOT_FOUND, "token_not_found"));

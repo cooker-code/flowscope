@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Token management shows full usable credentials instead of internal IDs, keeps
+  them available to administrators after reload, and hides revoked records.
+
 #### Core Engine (flowscope-core)
 
 - Hive analysis now recognizes `FROM VALUES (...), (...)` as an inline row source, including audit 443044, while preserving target table and column lineage.
