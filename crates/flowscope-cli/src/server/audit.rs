@@ -6,10 +6,11 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use flowscope_core::{AnalyzeResult, InsertType, NodeType, SqlType};
 use sha2::{Digest, Sha256};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 /// One row written to `audit_log`.
 #[derive(Debug, Clone)]
@@ -302,30 +303,115 @@ const ADDITIVE_MIGRATIONS: &[&str] = &[
     "ALTER TABLE audit_log ADD COLUMN target_table TEXT",
 ];
 
-/// Correct legacy statement labels using saved analyzer metadata. Never guess
-/// an INSERT variant from a WITH prefix or inspect truncated JSON as valid JSON.
-const NORMALIZE_SQL_TYPES_SQL: &str = r#"
-WITH classified AS (
-    SELECT id, sql_type,
-        CASE WHEN json_valid(result_json) THEN
-            CASE json_extract(result_json, '$.sqlType')
-                WHEN 'select' THEN 'SELECT'
-                WHEN 'insert' THEN
-                    CASE json_extract(result_json, '$.insertType')
-                        WHEN 'into' THEN 'INSERT INTO'
-                        WHEN 'overwrite' THEN 'INSERT OVERWRITE'
-                        ELSE sql_type
-                    END
-                ELSE sql_type
-            END
-        ELSE sql_type END AS normalized_type
-    FROM audit_log
-    WHERE sql_type IN ('WITH', 'INSERT', 'SELECT', 'CREATE_TABLE_AS')
-)
-UPDATE audit_log
-SET sql_type = (SELECT normalized_type FROM classified WHERE classified.id = audit_log.id)
-WHERE id IN (SELECT id FROM classified WHERE sql_type IS NOT normalized_type);
+// Capture a fixed legacy boundary using the primary-key index. Startup must
+// never read historical result_json values or rewrite all audit rows.
+const INIT_SQL_TYPE_BACKFILL: &str = r#"
+CREATE TABLE IF NOT EXISTS audit_sql_type_backfill (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_id INTEGER NOT NULL,
+    upper_id INTEGER NOT NULL,
+    completed INTEGER NOT NULL DEFAULT 0
+);
+INSERT OR IGNORE INTO audit_sql_type_backfill (id, last_id, upper_id, completed)
+SELECT 1, 0, COALESCE(MAX(id), 0), MAX(id) IS NULL FROM audit_log;
 "#;
+
+const SQL_TYPE_BACKFILL_BATCH_SIZE: i64 = 32;
+
+struct SqlTypeBackfillProgress {
+    last_id: i64,
+    upper_id: i64,
+    completed: bool,
+    updated: usize,
+}
+
+/// Read a bounded page, release its read lock, parse only classification fields,
+/// then commit small updates and the resume cursor together.
+fn normalize_sql_type_batch(db_path: &std::path::Path) -> anyhow::Result<SqlTypeBackfillProgress> {
+    let mut conn = rusqlite::Connection::open(db_path)?;
+    conn.busy_timeout(Duration::from_millis(200))?;
+    let mut progress = conn.query_row(
+        "SELECT last_id,upper_id,completed FROM audit_sql_type_backfill WHERE id=1",
+        [],
+        |row| {
+            Ok(SqlTypeBackfillProgress {
+                last_id: row.get(0)?,
+                upper_id: row.get(1)?,
+                completed: row.get(2)?,
+                updated: 0,
+            })
+        },
+    )?;
+    if progress.completed {
+        return Ok(progress);
+    }
+    let rows = {
+        let mut statement = conn.prepare(
+            "SELECT id,sql_type,CASE
+                WHEN sql_type IN ('WITH','INSERT','SELECT','CREATE_TABLE_AS')
+                    AND result_truncated=0 THEN result_json ELSE NULL END
+             FROM audit_log WHERE id>?1 AND id<=?2 ORDER BY id LIMIT ?3",
+        )?;
+        let rows = statement.query_map(
+            rusqlite::params![
+                progress.last_id,
+                progress.upper_id,
+                SQL_TYPE_BACKFILL_BATCH_SIZE
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
+        )?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SavedClassification {
+        sql_type: Option<serde_json::Value>,
+        insert_type: Option<serde_json::Value>,
+    }
+    let mut updates = Vec::new();
+    for (id, old_type, saved) in &rows {
+        let Some(saved) = saved else { continue };
+        let Ok(saved) = serde_json::from_str::<SavedClassification>(saved) else {
+            continue;
+        };
+        let normalized = match (
+            saved.sql_type.as_ref().and_then(serde_json::Value::as_str),
+            saved
+                .insert_type
+                .as_ref()
+                .and_then(serde_json::Value::as_str),
+        ) {
+            (Some("select"), _) => "SELECT",
+            (Some("insert"), Some("into")) => "INSERT INTO",
+            (Some("insert"), Some("overwrite")) => "INSERT OVERWRITE",
+            _ => continue,
+        };
+        if old_type.as_deref() != Some(normalized) {
+            updates.push((*id, old_type, normalized));
+        }
+    }
+    progress.last_id = rows.last().map_or(progress.upper_id, |row| row.0);
+    progress.completed = progress.last_id >= progress.upper_id;
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    for (id, old_type, normalized) in updates {
+        progress.updated += tx.execute(
+            "UPDATE audit_log SET sql_type=?1 WHERE id=?2 AND sql_type IS ?3",
+            rusqlite::params![normalized, id, old_type],
+        )?;
+    }
+    tx.execute(
+        "UPDATE audit_sql_type_backfill SET last_id=MAX(last_id,?1),completed=MAX(completed,?2) WHERE id=1",
+        rusqlite::params![progress.last_id, progress.completed],
+    )?;
+    tx.commit()?;
+    Ok(progress)
+}
 
 const INSERT_SQL: &str = r#"
 INSERT INTO audit_log (
@@ -380,6 +466,7 @@ pub(crate) fn insert_entry(
 /// blocked by SQLite I/O.
 pub struct AuditWriter {
     tx: mpsc::UnboundedSender<AuditEntry>,
+    db_path: PathBuf,
 }
 
 impl AuditWriter {
@@ -418,8 +505,9 @@ impl AuditWriter {
             }
             conn.execute_batch(CREATE_INDEXES_SQL)
                 .map_err(|e| anyhow::anyhow!("Failed to create audit indexes: {}", e))?;
-            conn.execute_batch(NORMALIZE_SQL_TYPES_SQL)
-                .map_err(|e| anyhow::anyhow!("Failed to normalize audit SQL types: {}", e))?;
+            conn.execute_batch(INIT_SQL_TYPE_BACKFILL).map_err(|e| {
+                anyhow::anyhow!("Failed to initialize audit backfill progress: {}", e)
+            })?;
             conn
         };
 
@@ -446,7 +534,52 @@ impl AuditWriter {
             }
         });
 
-        Ok(Self { tx })
+        Ok(Self { tx, db_path })
+    }
+
+    /// Started only after the listener is bound. Database contention pauses
+    /// maintenance rather than blocking startup or sharing the audit writer lock.
+    pub async fn backfill_sql_types(&self, mut stop: watch::Receiver<bool>) {
+        let mut batches = 0;
+        let mut updated = 0;
+        while !*stop.borrow() {
+            let path = self.db_path.clone();
+            match tokio::task::spawn_blocking(move || normalize_sql_type_batch(&path)).await {
+                Ok(Ok(progress)) => {
+                    batches += 1;
+                    updated += progress.updated;
+                    if batches == 1 || batches % 100 == 0 || progress.completed {
+                        eprintln!(
+                            "flowscope: audit SQL type backfill {}/{} (updated {}, {})",
+                            progress.last_id,
+                            progress.upper_id,
+                            updated,
+                            if progress.completed {
+                                "complete"
+                            } else {
+                                "background"
+                            }
+                        );
+                    }
+                    if progress.completed {
+                        return;
+                    }
+                }
+                Ok(Err(error)) => {
+                    eprintln!("flowscope: audit SQL type backfill paused; will retry: {error}");
+                }
+                Err(error) => {
+                    eprintln!("flowscope: audit SQL type backfill task failed: {error}");
+                    return;
+                }
+            }
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_millis(100)) => {},
+                changed = stop.changed() => {
+                    if changed.is_err() || *stop.borrow() { return; }
+                }
+            }
+        }
     }
 
     /// Queue an audit entry for writing. Fire-and-forget: errors are logged to
@@ -806,7 +939,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn startup_normalizes_legacy_sql_types_without_guessing_missing_metadata() {
+    async fn startup_defers_sql_type_backfill_and_preserves_missing_metadata() {
         let (_dir, path, conn) = fresh_db();
         let cases = [
             (
@@ -837,20 +970,25 @@ mod tests {
         }
         drop(conn);
 
-        for _ in 0..2 {
-            let writer = AuditWriter::new(path.clone()).unwrap();
-            drop(writer);
-            let conn = rusqlite::Connection::open(&path).unwrap();
+        let writer = AuditWriter::new(path.clone()).unwrap();
+        drop(writer);
+        let types = |path: &std::path::Path| {
+            let conn = rusqlite::Connection::open(path).unwrap();
             let mut stmt = conn
                 .prepare("SELECT sql_type FROM audit_log ORDER BY id")
                 .unwrap();
-            let types: Vec<String> = stmt
-                .query_map([], |row| row.get(0))
+            stmt.query_map([], |row| row.get::<_, String>(0))
                 .unwrap()
-                .collect::<Result<_, _>>()
-                .unwrap();
-            assert_eq!(types, cases.map(|(_, _, expected)| expected));
-        }
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        };
+        assert_eq!(types(&path), cases.map(|(old, _, _)| old));
+        let progress = normalize_sql_type_batch(&path).unwrap();
+        assert!(progress.completed);
+        assert_eq!(types(&path), cases.map(|(_, _, expected)| expected));
+        drop(AuditWriter::new(path.clone()).unwrap());
+        assert_eq!(normalize_sql_type_batch(&path).unwrap().updated, 0);
+        assert_eq!(types(&path), cases.map(|(_, _, expected)| expected));
 
         let page = AuditWriter::query(
             &path,
@@ -863,6 +1001,72 @@ mod tests {
         )
         .unwrap();
         assert_eq!(page.total, 2);
+    }
+
+    #[tokio::test]
+    async fn sql_type_backfill_is_bounded_resumable_and_cancellable() {
+        let (_dir, path, conn) = fresh_db();
+        let mut entry = make_entry(None, None);
+        entry.sql_type = Some("WITH".into());
+        entry.result_json = Some(r#"{"sqlType":"select","payload":"ignored"}"#.into());
+        let total = SQL_TYPE_BACKFILL_BATCH_SIZE * 2 + 3;
+        for _ in 0..total {
+            insert_direct(&conn, &entry);
+        }
+        let writer = AuditWriter::new(path.clone()).unwrap();
+        let (_, stopped) = watch::channel(true);
+        writer.backfill_sql_types(stopped).await;
+        let untouched: i64 = conn
+            .query_row("SELECT last_id FROM audit_sql_type_backfill", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(untouched, 0);
+        let first = normalize_sql_type_batch(&path).unwrap();
+        assert_eq!(first.last_id, SQL_TYPE_BACKFILL_BATCH_SIZE);
+        assert_eq!(first.updated, SQL_TYPE_BACKFILL_BATCH_SIZE as usize);
+        assert!(!first.completed);
+        drop(writer);
+        drop(AuditWriter::new(path.clone()).unwrap());
+        // New rows are outside the fixed legacy boundary.
+        insert_direct(&conn, &entry);
+        let second = normalize_sql_type_batch(&path).unwrap();
+        assert_eq!(second.last_id, SQL_TYPE_BACKFILL_BATCH_SIZE * 2);
+        assert_eq!(second.upper_id, total);
+        let last = normalize_sql_type_batch(&path).unwrap();
+        assert!(last.completed);
+        assert_eq!(last.updated, 3);
+        assert_eq!(last.last_id, total);
+        let new_row: String = conn
+            .query_row(
+                "SELECT sql_type FROM audit_log WHERE id=?1",
+                [total + 1],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(new_row, "WITH");
+    }
+
+    #[tokio::test]
+    async fn sql_type_backfill_retries_without_advancing_after_write_contention() {
+        let (_dir, path, conn) = fresh_db();
+        let mut entry = make_entry(None, None);
+        entry.sql_type = Some("WITH".into());
+        entry.result_json = Some(r#"{"sqlType":"insert","insertType":"into"}"#.into());
+        insert_direct(&conn, &entry);
+        drop(AuditWriter::new(path.clone()).unwrap());
+        conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+        assert!(normalize_sql_type_batch(&path).is_err());
+        let cursor: i64 = conn
+            .query_row("SELECT last_id FROM audit_sql_type_backfill", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(cursor, 0);
+        conn.execute_batch("ROLLBACK").unwrap();
+        let progress = normalize_sql_type_batch(&path).unwrap();
+        assert!(progress.completed);
+        assert_eq!(progress.updated, 1);
     }
 
     #[test]

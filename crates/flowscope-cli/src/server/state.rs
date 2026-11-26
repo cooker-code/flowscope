@@ -108,6 +108,10 @@ impl AppState {
         }
         // Initialise audit writer if a path was provided
         let audit = if let Some(ref audit_path) = config.audit_log_path {
+            eprintln!(
+                "flowscope: initializing audit schema at {}",
+                audit_path.display()
+            );
             match AuditWriter::new(audit_path.clone()) {
                 Ok(writer) => {
                     println!("flowscope: audit logging to {}", audit_path.display());

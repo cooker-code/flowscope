@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Audit startup no longer scans historical analysis JSON before listening.
+  Legacy SQL types are corrected in bounded, resumable background batches with
+  progress logs, preserving audit writes and health checks during maintenance.
 - Audit polling refreshes queued writes without covering the table or disabling
   pagination. Audit SQL types consistently show `ii`, `io`, and `select`, including
   CTE-prefixed writes and legacy rows with complete saved analyzer metadata.

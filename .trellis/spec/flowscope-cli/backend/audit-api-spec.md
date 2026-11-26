@@ -195,9 +195,23 @@ unsupported or unclassified types display `—` in the page.
 | Meaningful statements exist | Classify using `AnalyzeResult.sql_type` and `insert_type` |
 | Only SET/USE/RESET, or no analyzed statements | `sql_type=null` |
 | INSERT variant missing | Retain generic `INSERT`; display `—` rather than guess |
-| Legacy row with complete saved classification | Normalize its stored type at audit startup |
+| Legacy row with complete saved classification | Normalize its stored type in resumable background batches after binding the listener |
 | Missing, malformed, or truncated saved JSON | Leave the legacy type unchanged; unsupported page Type is `—` |
-| Audit database opened repeatedly | Normalization is idempotent and only updates changed labels |
+| Audit database opened repeatedly | Resume the persisted cursor; completed backfills do not scan JSON again |
+
+Startup only initializes the schema and captures the legacy upper ID through the
+primary-key index. Never run JSON extraction or a historical UPDATE before the
+listener is bound: production audit JSON can be hundreds of gigabytes, and even
+unchanged SELECT rows otherwise get parsed on every restart. A small fixture
+proves classification correctness, not acceptable production startup latency.
+
+The audit SQL-type worker reads at most 32 rows by primary key per batch on a
+separate connection. It releases the read statement before parsing only the
+saved classification fields, then commits changed labels and the resume cursor
+together. No audit-writer mutex is held. Lock contention retries without advancing
+the cursor; shutdown stops between batches. Rows beyond the initial upper ID use
+the current writer classification. Missing, invalid or truncated metadata keeps
+its old label. Progress is logged while the HTTP service remains available.
 
 #### 5. Good / Base / Bad Cases
 
@@ -211,9 +225,14 @@ unsupported or unclassified types display `—` in the page.
 - `audit_query_filter_by_sql_type`: actual analyze/write/list calls cover SELECT,
   INTO, and OVERWRITE, each with and without WITH; subtype filters return two
   records each, aggregate INSERT returns four, and WITH returns none.
-- `startup_normalizes_legacy_sql_types_without_guessing_missing_metadata`:
-  reopen twice, verify corrected labels, preserve incomplete/invalid metadata,
-  and verify subtype filtering after correction.
+- `startup_defers_sql_type_backfill_and_preserves_missing_metadata`: startup
+  leaves historical values untouched, explicit batches correct valid metadata,
+  and reopen/completion do not redo work; subtype filters use corrected labels.
+- `sql_type_backfill_is_bounded_resumable_and_cancellable` and
+  `sql_type_backfill_retries_without_advancing_after_write_contention`: verify
+  the 32-row bound, persisted cursor, fixed upper ID, cancellation and atomic
+  retry behavior. Native serve checks must use a substantial large-JSON fixture,
+  verify health and new audit writes during backfill, and verify restart resume.
 - `AuditPage SQL types`: render `ii`, `io`, and `select`; unsupported legacy
   values render `—`.
 

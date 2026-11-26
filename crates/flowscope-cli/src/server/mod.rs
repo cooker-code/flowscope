@@ -46,6 +46,11 @@ pub async fn run_server(config: ServerConfig) -> Result<()> {
     });
 
     let (lineage_stop, lineage_stopped) = tokio::sync::watch::channel(false);
+    let audit_backfill = state.audit.as_ref().map(|audit| {
+        let audit = Arc::clone(audit);
+        let stop = lineage_stopped.clone();
+        tokio::spawn(async move { audit.backfill_sql_types(stop).await })
+    });
     let lineage_worker = state
         .lineage
         .as_ref()
@@ -72,6 +77,9 @@ pub async fn run_server(config: ServerConfig) -> Result<()> {
 
     let _ = lineage_stop.send(true);
     if let Some(worker) = lineage_worker {
+        let _ = worker.await;
+    }
+    if let Some(worker) = audit_backfill {
         let _ = worker.await;
     }
     watcher_handle.abort();
