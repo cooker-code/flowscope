@@ -11,6 +11,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { GraphIngestionStatus, GraphIngestionStatusHelp } from '@/components/GraphIngestionStatus';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -59,8 +60,8 @@ interface AuditListRecord {
   table_count: number | null;
   principal_id?: string;
   event_id?: string;
-  lineage_status?: string;
-  usage_status?: string;
+  lineage_status?: string | null;
+  usage_status?: string | null;
   policy_reason?: string;
 }
 
@@ -454,16 +455,21 @@ export function AuditPage() {
                 <tr>
                   <th className="px-3 py-2 font-medium w-10">#</th>
                   <th className="px-3 py-2 font-medium">Time</th>
-                  <th className="px-3 py-2 font-medium">Endpoint</th>
-                  <th className="px-3 py-2 font-medium">Dialect</th>
                   <th className="px-3 py-2 font-medium">File</th>
                   <th className="px-3 py-2 font-medium">Name</th>
                   <th className="px-3 py-2 font-medium">Target table</th>
                   <th className="px-3 py-2 font-medium">Type</th>
                   <th className="px-3 py-2 font-medium">解析</th>
-                  <th className="px-3 py-2 font-medium">正式血缘</th>
+                  <th className="px-3 py-2 font-medium">
+                    <span className="inline-flex items-center gap-1 whitespace-nowrap text-foreground">
+                      入图状态
+                      <GraphIngestionStatusHelp />
+                    </span>
+                  </th>
                   <th className="px-3 py-2 font-medium">个人使用</th>
                   <th className="px-3 py-2 font-medium">调用方 / 原因</th>
+                  <th className="px-3 py-2 font-medium">Endpoint</th>
+                  <th className="px-3 py-2 font-medium">Dialect</th>
                   <th className="px-3 py-2 font-medium">ms</th>
                   <th className="px-3 py-2 font-medium">Tables</th>
                   <th className="px-3 py-2 font-medium text-right">Action</th>
@@ -480,8 +486,6 @@ export function AuditPage() {
                     <td className="px-3 py-2 whitespace-nowrap font-mono" title={r.ts}>
                       {formatLocalTs(r.ts)}
                     </td>
-                    <td className="px-3 py-2 max-w-[140px] truncate">{r.endpoint}</td>
-                    <td className="px-3 py-2">{r.dialect}</td>
                     <td className="px-3 py-2 max-w-[180px] truncate" title={r.file_name ?? ''}>
                       {r.file_name ?? '—'}
                     </td>
@@ -514,7 +518,9 @@ export function AuditPage() {
                         />
                       )}
                     </td>
-                    <td className="px-3 py-2 whitespace-nowrap">{graphStatus(r.lineage_status)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <GraphIngestionStatus status={r.lineage_status} />
+                    </td>
                     <td className="px-3 py-2 whitespace-nowrap">{graphStatus(r.usage_status)}</td>
                     <td className="px-3 py-2 max-w-64">
                       <span className="block">{r.principal_id ?? '历史未知身份'}</span>
@@ -525,6 +531,8 @@ export function AuditPage() {
                         {r.policy_reason}
                       </span>
                     </td>
+                    <td className="px-3 py-2 max-w-[140px] truncate">{r.endpoint}</td>
+                    <td className="px-3 py-2">{r.dialect}</td>
                     <td className="px-3 py-2 tabular-nums">{r.duration_ms}</td>
                     <td className="px-3 py-2 tabular-nums">{r.table_count ?? '—'}</td>
                     <td className="px-3 py-2 text-right">

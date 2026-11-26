@@ -107,12 +107,16 @@
 
   --color-success-light: #4cae4f;
   --color-success-dark: #75c277;
+  --color-status-success: var(--status-success);
+  --color-status-info: var(--status-info);
 
   --color-warning-light: #f4a462;
   --color-warning-dark: #f7b987;
+  --color-status-warning: var(--status-warning);
 
   --color-error-light: #ef486f;
   --color-error-dark: #f37391;
+  --color-status-error: var(--status-error);
 
   --color-card: hsl(var(--card));
   --color-card-foreground: hsl(var(--card-foreground));
@@ -201,6 +205,10 @@
     --muted-foreground: 218 9% 48%;
     --accent: 233 100% 65%;
     --accent-foreground: 0 0% 100%;
+    --status-success: color-mix(in oklch, var(--color-success-light) 60%, hsl(var(--foreground)));
+    --status-info: hsl(var(--primary));
+    --status-warning: color-mix(in oklch, var(--color-warning-light) 48%, hsl(var(--foreground)));
+    --status-error: color-mix(in oklch, var(--color-error-light) 65%, hsl(var(--foreground)));
     --destructive: 346 84% 61%;
     --destructive-foreground: 0 0% 100%;
     --highlight: 233 49% 93%;
@@ -226,6 +234,10 @@
     --muted-foreground: 216 19% 71%;
     --accent: 228 100% 76%;
     --accent-foreground: 226 45% 11%;
+    --status-success: var(--color-success-dark);
+    --status-info: var(--color-brand-blue-300);
+    --status-warning: var(--color-warning-dark);
+    --status-error: var(--color-error-dark);
     --destructive: 346 84% 70%;
     --destructive-foreground: 337 51% 8%;
     --highlight: 231 54% 37%;

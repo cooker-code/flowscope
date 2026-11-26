@@ -351,7 +351,9 @@ impl PolicyDb {
             let mut out=std::collections::BTreeMap::new();
             for id in ids {
                 let (principal,event):(Option<String>,Option<String>)=conn.query_row("SELECT principal_id,event_id FROM audit_log WHERE id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?))).map_err(db_error)?;
-                let mut extra=json!({"principal_id":principal,"event_id":event,"lineage_status":"not_requested","usage_status":"not_requested"});
+                // Unowned legacy rows contain no evidence of a graph-write decision.
+                let status = if principal.is_some() { "not_requested" } else { "unknown" };
+                let mut extra=json!({"principal_id":principal,"event_id":event,"lineage_status":status,"usage_status":status});
                 if let Some(event)=event {
                     let (action,status,outcome,reason):(String,String,Option<String>,Option<String>)=conn.query_row("SELECT action,status,outcome,last_error FROM lineage_events WHERE id=?1",[event],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).map_err(db_error)?;
                     extra["lineage_status"]=json!(if action=="publish"{status.as_str()}else{"not_requested"});extra["usage_status"]=json!(if action=="record_usage"{status.as_str()}else{"not_requested"});extra["policy_reason"]=json!(reason);

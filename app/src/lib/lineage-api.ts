@@ -84,7 +84,7 @@ export const ACTION_LABELS: Record<StorageAction, string> = {
   observe: '仅留存观察记录',
   parse_only: '仅解析',
 };
-export function graphStatus(value?: string): string {
+export function graphStatus(value?: string | null): string {
   const labels: Record<string, string> = {
     committed: '已提交',
     queued: '待写入',
@@ -92,6 +92,7 @@ export function graphStatus(value?: string): string {
     blocked_policy: '策略已阻止',
     failed: '写入失败',
     not_requested: '未请求',
+    unknown: '状态未知',
   };
-  return value ? (labels[value] ?? value) : '未请求';
+  return value ? (labels[value] ?? value) : '状态未知';
 }

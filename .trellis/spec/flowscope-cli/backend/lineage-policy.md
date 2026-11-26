@@ -114,6 +114,76 @@ empty server-files view, so their own audit details can still open.
 
 ## Required verification
 
+### Audit graph status contract
+
+#### Scope / trigger
+
+Apply this contract when decorating audit list/detail responses or presenting
+the audit table's graph-write outcome. Parser success and graph commit are
+independent; absence of historical evidence cannot establish a storage decision.
+
+#### Signatures
+
+`GET /api/audit` and `GET /api/audit/{id}` expose `lineage_status` and
+`usage_status`, decorated by `PolicyDb::decorate_audits`. These are response
+fields derived from the audit owner/event and event outcome; adding a UI column
+does not require another SQLite column.
+
+#### Contracts
+
+| `lineage_status` | Audit label | Meaning |
+| --- | --- | --- |
+| `committed` | 已入图 | Formal Neo4j write committed |
+| `queued` | 待入图 | Durably accepted; pending or retrying, not confirmed committed |
+| `blocked`, `blocked_policy` | 未入图 | Analysis, metadata or policy checks prevented writing; show `policy_reason` |
+| `failed` | 入图失败 | Graph write failed without a confirmed commit |
+| `not_requested` | 未请求入图 | Explicit request policy did not request formal graph updates |
+| `unknown` | 入图状态未知 | Historical graph-write evidence is unavailable |
+
+Unowned legacy rows without an event return `unknown` for both status fields.
+Owned parse-only rows without an event return `not_requested`. A linked event
+and its outcome take precedence over these defaults. An unavailable, null or
+unrecognized frontend value is displayed as unknown, never as not requested.
+The personal usage column remains independent of the formal graph column.
+
+#### Validation and error matrix
+
+| Input / condition | Required behavior |
+| --- | --- |
+| Legacy audit has no owner or event | List and detail both report `unknown` |
+| Authenticated parse-only audit has no event | Report `not_requested` |
+| Parser success with event `queued` | Display 待入图, not 已入图 |
+| Frontend receives missing/null/unrecognized status | Display 入图状态未知 |
+| Open click/touch help while a hover tooltip exists | Show one explanation panel |
+
+#### Good / base / bad cases
+
+- Good: a queued row becomes 已入图 only after a refreshed server response says
+  `committed`.
+- Base: an old ownerless audit is 入图状态未知; its SQL may have been ingested
+  through another path, so this audit cannot answer whether it was written.
+- Bad: defaulting every missing event or status to 未请求入图, or treating parser
+  success as confirmation of a graph commit.
+
+#### Tests required
+
+- `audit_unknown_history_is_distinct_from_explicit_parse_only` must assert
+  unknown historical list/detail values and explicit parse-only values.
+- Browser checks cover all six labels, `blocked_policy`, missing/null fallback,
+  hover/click/keyboard/touch help, light/dark readability and pending-to-committed
+  refresh. Explain unknown as missing evidence, not proof of no graph mutation.
+
+#### Wrong vs correct
+
+```typescript
+// Wrong: no evidence is treated as an explicit policy decision.
+const label = status ?? 'not_requested';
+// Correct: missing evidence stays unknown.
+const label = status ?? 'unknown';
+```
+
+### Broader lineage verification
+
 Use policy/router unit tests, audit migration tests and existing serve tests.
 Run ignored `lineage_http` tests with a task-owned loopback Neo4j to verify
 scheduler/personal routing, idempotency, committed receipts across crashes and

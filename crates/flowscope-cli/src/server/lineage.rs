@@ -679,6 +679,57 @@ mod tests {
         assert!(!recovered.recheck(&pending).await.unwrap());
     }
     #[tokio::test]
+    async fn audit_unknown_history_is_distinct_from_explicit_parse_only() {
+        let (_dir, state, app) = fixture().await;
+        let runtime = state.lineage.as_ref().unwrap();
+        let legacy_id = runtime
+            .db
+            .call(|conn| {
+                conn.execute(
+                    "INSERT INTO audit_log (ts,client_ip,endpoint,dialect,sql_text,sql_hash,sql_len,success,duration_ms) \
+                     VALUES ('2026-01-01T00:00:00.000Z','127.0.0.1','/api/analyze','Hive','SELECT 1','legacy',8,1,1)",
+                    [],
+                )
+                .unwrap();
+                Ok(conn.last_insert_rowid())
+            })
+            .await
+            .unwrap();
+        let parser = provision(&app, "audit_parser", "person", "parse_only").await;
+        let (status, _, _) = request(
+            &app,
+            "/api/analyze",
+            Some(&parser),
+            Some(json!({"sql":"SELECT 1"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (_, _, history) = request(&app, "/api/audit", Some(ADMIN), None).await;
+        let records = history["records"].as_array().unwrap();
+        assert_eq!(records.len(), 2);
+        let legacy = records.iter().find(|row| row["id"] == legacy_id).unwrap();
+        assert_eq!(legacy["lineage_status"], "unknown");
+        assert_eq!(legacy["usage_status"], "unknown");
+        let explicit = records
+            .iter()
+            .find(|row| row["principal_id"] == "audit_parser")
+            .unwrap();
+        assert_eq!(explicit["lineage_status"], "not_requested");
+        assert_eq!(explicit["usage_status"], "not_requested");
+
+        let (status, _, detail) = request(
+            &app,
+            &format!("/api/audit/{legacy_id}"),
+            Some(ADMIN),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(detail["lineage_status"], "unknown");
+    }
+
+    #[tokio::test]
     async fn revisions_preview_and_parse_only_cannot_upgrade() {
         let (_dir, _state, app) = fixture().await;
         let parse = provision(&app, "parser", "person", "parse_only").await;
