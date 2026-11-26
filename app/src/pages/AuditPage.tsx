@@ -63,7 +63,7 @@ interface AuditListRecord {
   event_id?: string;
   lineage_status?: string | null;
   usage_status?: string | null;
-  policy_reason?: string;
+  policy_reason?: string | null;
 }
 
 interface AuditQueryResponse {
@@ -552,7 +552,10 @@ export function AuditPage() {
                       )}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">
-                      <GraphIngestionStatus status={r.lineage_status} />
+                      <GraphIngestionStatus
+                        status={r.lineage_status}
+                        reason={r.policy_reason ?? null}
+                      />
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">{graphStatus(r.usage_status)}</td>
                     <td className="px-3 py-2 max-w-64">

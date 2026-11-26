@@ -210,7 +210,7 @@ does not require another SQLite column.
 | `lineage_status` | Audit label | Meaning |
 | --- | --- | --- |
 | `committed` | 已入图 | Formal Neo4j write committed |
-| `queued` | 待入图 | Durably accepted; pending or retrying, not confirmed committed |
+| `queued` | 待入图 | Durably accepted; pending, processing or retrying, not confirmed committed |
 | `blocked`, `blocked_policy` | 未入图 | Analysis, metadata or policy checks prevented writing; show `policy_reason` |
 | `failed` | 入图失败 | Graph write failed without a confirmed commit |
 | `not_requested` | 未请求入图 | Explicit request policy did not request formal graph updates |
@@ -222,6 +222,28 @@ and its outcome take precedence over these defaults. An unavailable, null or
 unrecognized frontend value is displayed as unknown, never as not requested.
 The personal usage column remains independent of the formal graph column.
 
+`queued` covers the active worker attempt as well as waiting/retry. A terminal
+`blocked` / `blocked_policy` result does not retry automatically. A quality
+rejection can occur even when parsing succeeded, and leaves the prior valid
+formal lineage unchanged.
+
+Each blocked/failed row exposes its actual nullable `policy_reason` through the
+status badge on hover, keyboard focus, click and touch. Known issue codes receive
+Chinese explanations; qualified table/column names and unrecognized codes remain
+complete. Compound `incomplete_analysis:` checks may be deduplicated for display,
+but the expandable original reason must preserve the full response string.
+Missing details say that the backend has not recorded a specific reason.
+`neo4j_temporarily_unavailable` is a coarse retry cause, not evidence of a specific
+connection, query or timeout failure. Do not infer that a token with publish
+permission guarantees a committed graph write.
+
+Use one scrollable, portaled explanation panel at a time so table overflow does
+not clip it. Click/touch pins the panel; Escape returns focus. Stop click
+propagation on both trigger and portaled contents, including the original-reason
+expander, to avoid opening the audit row. Header-legend badges remain static.
+Reasons that describe personal-only usage must not become formal-graph reasons
+for `not_requested` rows.
+
 #### Validation and error matrix
 
 | Input / condition | Required behavior |
@@ -231,6 +253,9 @@ The personal usage column remains independent of the formal graph column.
 | Parser success with event `queued` | Display 待入图, not 已入图 |
 | Frontend receives missing/null/unrecognized status | Display 入图状态未知 |
 | Open click/touch help while a hover tooltip exists | Show one explanation panel |
+| Click a row status or expand its original reason | Keep the audit list open |
+| Blocked/failed row has no reason | Explicitly show missing backend details |
+| Reason contains 120 checks | Keep all items and raw text accessible by scrolling |
 
 #### Good / base / bad cases
 
@@ -248,6 +273,10 @@ The personal usage column remains independent of the formal graph column.
 - Browser checks cover all six labels, `blocked_policy`, missing/null fallback,
   hover/click/keyboard/touch help, light/dark readability and pending-to-committed
   refresh. Explain unknown as missing evidence, not proof of no graph mutation.
+- Reason formatter tests cover compound checks, deduplication, complete targets,
+  unknown codes, missing details and long lists. Browser reason checks also cover
+  row-navigation isolation, original-reason expansion, a pinned panel surviving
+  queued-row polling, and viewport bounds at desktop and 390px touch sizes.
 
 #### Wrong vs correct
 
