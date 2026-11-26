@@ -584,3 +584,36 @@ Token 管理显示实际凭据，管理员可在刷新和重启后再次读取�
 ### Next Steps
 
 - None - task complete
+
+
+## Session 18: 修复历史审计类型校正阻塞启动
+
+**Date**: 2026-11-26
+**Task**: 修复历史审计类型校正阻塞启动
+**Branch**: `codex/fix-audit-startup-blocking`
+
+### Summary
+
+移除监听端口前的历史 JSON 全量校正，改为服务启动后每批 32 行、独立连接、原子游标和可恢复的后台任务，增加阶段与进度日志。补齐延后执行、断点续跑、取消、写锁冲突和历史边界测试；192 单测、92 接口测试、Clippy、18 SQL 回归通过。约 517 MiB 大 JSON 夹具验证健康检查在历史校正前就绪、审计新写入、重启续跑和带 lineage-config 认证访问；测试进程与端口已清理。线上 PID 长时间活跃与缺陷一致，但无 SSH 权限，尚未代替用户完成生产部署验收。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `577e0295` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
