@@ -58,6 +58,7 @@ pub struct AuditLogListFilters<'a> {
     pub sql_type: Option<&'a str>,
     pub success: Option<bool>,
     pub alias_warning: Option<bool>,
+    pub lineage_status: Option<LineageStatusFilter>,
     pub file_name_filter: Option<&'a str>,
     /// Case-sensitive `LIKE %?%` match on `source_name`.
     pub source_name_filter: Option<&'a str>,
@@ -65,6 +66,56 @@ pub struct AuditLogListFilters<'a> {
     pub target_table_filter: Option<&'a str>,
     pub keyword: Option<&'a str>,
 }
+
+/// The six statuses shown in the audit table; policy blocks share the blocked label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LineageStatusFilter {
+    Committed,
+    Queued,
+    #[serde(alias = "blocked_policy")]
+    Blocked,
+    Failed,
+    NotRequested,
+    Unknown,
+}
+
+impl LineageStatusFilter {
+    fn condition(self) -> (&'static str, &'static [&'static str]) {
+        match self {
+            Self::Committed => ("= ?", &["committed"]),
+            Self::Queued => ("= ?", &["queued"]),
+            Self::Blocked => ("IN (?, ?)", &["blocked", "blocked_policy"]),
+            Self::Failed => ("= ?", &["failed"]),
+            Self::NotRequested => ("= ?", &["not_requested"]),
+            Self::Unknown => (
+                "NOT IN (?, ?, ?, ?, ?, ?)",
+                &[
+                    "committed",
+                    "queued",
+                    "blocked",
+                    "blocked_policy",
+                    "failed",
+                    "not_requested",
+                ],
+            ),
+        }
+    }
+}
+
+// Keep this effective status consistent with lineage_policy::decorate_audit_rows.
+// A saved outcome takes precedence; missing/null/unrecognized values display as unknown.
+const LINEAGE_STATUS_SQL: &str = "COALESCE(CASE
+    WHEN audit_log.event_id IS NOT NULL THEN (
+        SELECT CASE
+            WHEN json_valid(outcome) THEN json_extract(outcome, '$.lineageStatus')
+            WHEN action='publish' THEN status
+            ELSE 'not_requested'
+        END FROM lineage_events WHERE id=audit_log.event_id
+    )
+    WHEN audit_log.principal_id IS NOT NULL THEN 'not_requested'
+    ELSE 'unknown'
+END, 'unknown')";
 
 #[derive(Default, serde::Serialize)]
 pub struct AuditQueryResponse {
@@ -421,7 +472,11 @@ impl AuditWriter {
         let read = conn.transaction()?;
 
         // Collect dynamic filter conditions and their parameter values
-        let mut cond_parts: Vec<&'static str> = Vec::new();
+        let lineage_condition = filters.lineage_status.map(|status| {
+            let (operator, values) = status.condition();
+            (format!("{LINEAGE_STATUS_SQL} {operator}"), values)
+        });
+        let mut cond_parts: Vec<&str> = Vec::new();
         let mut extra_params: Vec<String> = Vec::new();
         if let Some(id) = filters.principal_id {
             cond_parts.push("principal_id = ?");
@@ -475,6 +530,10 @@ impl AuditWriter {
         if let Some(kw) = filters.keyword {
             cond_parts.push("LOWER(sql_text) LIKE LOWER(?)");
             extra_params.push(format!("%{kw}%"));
+        }
+        if let Some((condition, values)) = &lineage_condition {
+            cond_parts.push(condition);
+            extra_params.extend(values.iter().map(|value| value.to_string()));
         }
 
         let where_clause = if cond_parts.is_empty() {
@@ -570,6 +629,11 @@ impl AuditWriter {
             }));
         }
 
+        if filters.lineage_status.is_some() {
+            // Preserve the same status snapshot used for filtering, count and pagination.
+            super::lineage_policy::decorate_audit_rows(&read, &mut records)
+                .map_err(|(_, message)| anyhow::anyhow!(message))?;
+        }
         Ok(AuditQueryResponse {
             total,
             distinct_sql,

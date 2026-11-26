@@ -1,8 +1,8 @@
-// Transport tests do not need the app's DOM/matcher setup. Keeping them in Node
+// Transport and reason-formatting tests do not need the app's DOM/matcher setup. Keeping them in Node
 // also avoids Vite's encoded worktree-path externalization issue for jest-dom.
 export default {
   test: {
     environment: 'node',
-    include: ['src/lib/lineage-api.test.ts'],
+    include: ['src/lib/lineage-api.test.ts', 'src/lib/graph-ingestion-reasons.test.ts'],
   },
 };

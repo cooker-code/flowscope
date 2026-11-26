@@ -3,7 +3,8 @@ use super::lineage_policy::{failure, ApiError, Caller, PolicyDb, Principal, Sett
 use super::{audit::AuditEntry, AppState};
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -381,10 +382,14 @@ async fn me(
 async fn list(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     let rt = runtime(&state)?;
     rt.db.admin(&headers).await?;
-    Ok(Json(rt.db.list().await?))
+    Ok((
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(rt.db.list().await?),
+    )
+        .into_response())
 }
 async fn save(
     State(state): State<Arc<AppState>>,
@@ -424,10 +429,14 @@ async fn issue(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Json(p): Json<IssueRequest>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     let rt = runtime(&state)?;
     rt.db.admin(&headers).await?;
-    Ok(Json(rt.db.issue(p.principal_id).await?))
+    Ok((
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(rt.db.issue(p.principal_id).await?),
+    )
+        .into_response())
 }
 async fn revoke(
     State(state): State<Arc<AppState>>,
@@ -586,6 +595,298 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK);
         issued["token"].as_str().unwrap().into()
+    }
+    #[tokio::test]
+    async fn audit_lineage_filter_matches_displayed_outcomes_before_pagination() {
+        let (dir, state, app) = fixture().await;
+        let owner = provision(&app, "filter_owner", "scheduler", "publish").await;
+        let other = provision(&app, "filter_other", "scheduler", "publish").await;
+        let cases = [
+            ("queued", None),
+            ("committed", None),
+            ("blocked", None),
+            ("blocked_policy", None),
+            ("failed", None),
+            (
+                "queued",
+                Some(json!({"lineageStatus":"committed","usageStatus":"not_requested"})),
+            ),
+            (
+                "committed",
+                Some(json!({"lineageStatus":null,"usageStatus":"not_requested"})),
+            ),
+            (
+                "queued",
+                Some(json!({"lineageStatus":"future_status","usageStatus":"not_requested"})),
+            ),
+            (
+                "queued",
+                Some(json!({"lineageStatus":"not_requested","usageStatus":"not_requested"})),
+            ),
+        ];
+        let db = &state.lineage.as_ref().unwrap().db;
+        for (index, (status, outcome)) in cases.into_iter().enumerate() {
+            let (http, headers, result) = request(&app, "/api/analyze", Some(&owner), Some(json!({
+                "sql":"SELECT 1", "sourceName":format!("status-filter-{index}"),
+                "lineage":{"sourceSystem":"change","sourceId":format!("job-{index}"),"sourceVersion":"1","environment":"test"}
+            }))).await;
+            assert_eq!(http, StatusCode::OK, "{result}");
+            db.finish(
+                headers["x-flowscope-event-id"].to_str().unwrap().into(),
+                status,
+                outcome,
+                None,
+            )
+            .await
+            .unwrap();
+        }
+        for (token, mode) in [
+            (&owner, "parse_only"),
+            (&other, "publish"),
+            (&other, "observe"),
+        ] {
+            let (status, _, result) = request(&app, "/api/analyze", Some(token), Some(json!({
+                "sql":"SELECT 1", "storageMode":mode,
+                "lineage":{"sourceSystem":"change","sourceId":"other","sourceVersion":"1","environment":"test"}
+            }))).await;
+            assert_eq!(status, StatusCode::OK, "{result}");
+        }
+        db.call(|conn| {
+            conn.execute("INSERT INTO audit_log (ts,client_ip,endpoint,dialect,sql_text,sql_hash,sql_len,success,duration_ms) VALUES ('2026-01-01T00:00:00Z','127.0.0.1','/api/analyze','Hive','SELECT 1','legacy',8,1,1)", []).unwrap();
+            conn.execute("UPDATE audit_log SET alias_warning=1 WHERE principal_id='filter_owner'", []).unwrap();
+            Ok(())
+        }).await.unwrap();
+
+        for (status, count) in [
+            ("committed", 2),
+            ("queued", 1),
+            ("blocked", 2),
+            ("blocked_policy", 2),
+            ("failed", 1),
+            ("not_requested", 2),
+            ("unknown", 2),
+        ] {
+            let (http, _, result) = request(
+                &app,
+                &format!("/api/audit?lineage_status={status}"),
+                Some(&owner),
+                None,
+            )
+            .await;
+            assert_eq!(http, StatusCode::OK, "{result}");
+            assert_eq!(result["total"], count, "status {status}");
+            assert_eq!(result["records"].as_array().unwrap().len(), count as usize);
+            for row in result["records"].as_array().unwrap() {
+                assert_eq!(row["principal_id"], "filter_owner");
+                if status == "blocked" || status == "blocked_policy" {
+                    assert!([json!("blocked"), json!("blocked_policy")]
+                        .contains(&row["lineage_status"]));
+                } else if status == "unknown" {
+                    assert!([Value::Null, json!("future_status")].contains(&row["lineage_status"]));
+                } else {
+                    assert_eq!(row["lineage_status"], status);
+                }
+            }
+        }
+        for (status, count) in [("queued", 2), ("not_requested", 3), ("unknown", 3)] {
+            let (http, _, result) = request(
+                &app,
+                &format!("/api/audit?lineage_status={status}"),
+                Some(ADMIN),
+                None,
+            )
+            .await;
+            assert_eq!(http, StatusCode::OK, "{result}");
+            assert_eq!(result["total"], count, "admin status {status}");
+        }
+        let mut pages = vec![];
+        for offset in [0, 1] {
+            let (status, _, result) = request(&app, &format!("/api/audit?lineage_status=committed&limit=1&offset={offset}&alias_warning=true"), Some(&owner), None).await;
+            assert_eq!(status, StatusCode::OK, "{result}");
+            assert_eq!(result["total"], 2);
+            assert_eq!(result["distinct_sql"], 1);
+            assert_eq!(result["records"].as_array().unwrap().len(), 1);
+            pages.push(result["records"][0]["id"].clone());
+        }
+        assert_ne!(pages[0], pages[1]);
+        let (_, _, combined) = request(
+            &app,
+            "/api/audit?lineage_status=committed&source_name=status-filter-5",
+            Some(&owner),
+            None,
+        )
+        .await;
+        assert_eq!(combined["total"], 1);
+        assert_eq!(combined["records"][0]["lineage_status"], "committed");
+        assert_eq!(
+            request(
+                &app,
+                "/api/audit?lineage_status=invalid",
+                Some(&owner),
+                None
+            )
+            .await
+            .0,
+            StatusCode::BAD_REQUEST
+        );
+
+        // A parse-only server has no exposed graph results, even if its database has old events.
+        let unconfigured = Arc::new(AppState::new(state.config.clone()).await.unwrap());
+        let plain = super::super::build_router(unconfigured).layer(MockConnectInfo(
+            "127.0.0.1:3000".parse::<std::net::SocketAddr>().unwrap(),
+        ));
+        let (status, _, unknown) =
+            request(&plain, "/api/audit?lineage_status=unknown", None, None).await;
+        assert_eq!(status, StatusCode::OK, "{unknown}");
+        assert_eq!(unknown["total"], 13);
+        let (_, _, committed) =
+            request(&plain, "/api/audit?lineage_status=committed", None, None).await;
+        assert_eq!(committed["total"], 0);
+        let mut config = state.config.clone();
+        config.audit_log_path = Some(dir.path().join("plain.db"));
+        let empty = super::super::build_router(Arc::new(AppState::new(config).await.unwrap()))
+            .layer(MockConnectInfo(
+                "127.0.0.1:3000".parse::<std::net::SocketAddr>().unwrap(),
+            ));
+        assert_eq!(
+            request(&empty, "/api/audit?lineage_status=unknown", None, None)
+                .await
+                .0,
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn admin_lists_real_tokens_after_restart_and_revoked_tokens_disappear() {
+        let (dir, state, app) = fixture().await;
+        provision(&app, "token_owner", "scheduler", "publish").await;
+        let (status, headers, issued) = request(
+            &app,
+            "/api/lineage/tokens",
+            Some(ADMIN),
+            Some(json!({"principalId":"token_owner"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+        let token = issued["token"].as_str().unwrap();
+        let id = issued["tokenId"].as_str().unwrap();
+        assert_ne!(token, id);
+
+        let (status, headers, listing) =
+            request(&app, "/api/lineage/policies", Some(ADMIN), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+        let row = listing["tokens"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == id)
+            .unwrap();
+        assert_eq!(row["token"], token);
+        let (status, _, denied) = request(&app, "/api/lineage/policies", Some(token), None).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(!denied.to_string().contains(token));
+
+        // Neither a restart nor bootstrap credential rotation loses issued values.
+        let reopened = PolicyDb::open(
+            &dir.path().join("state.db"),
+            "rotated-test-admin-credential-with-thirty-two-characters",
+        )
+        .unwrap();
+        let listing = reopened.list().await.unwrap();
+        assert!(listing["tokens"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["id"] == id && row["token"] == token));
+        reopened.revoke(id.into()).await.unwrap();
+        let listing = reopened.list().await.unwrap();
+        assert!(listing["tokens"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["id"] != id));
+        let (status, _, _) = request(&app, "/api/lineage/me", Some(token), None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let token_id = id.to_string();
+        let secret_cleared = state
+            .lineage
+            .as_ref()
+            .unwrap()
+            .db
+            .call(move |conn| {
+                Ok(conn.query_row(
+                    "SELECT enabled=0 AND secret_ciphertext IS NULL FROM lineage_tokens WHERE id=?1",
+                    [token_id],
+                    |row| row.get::<_, bool>(0),
+                ).unwrap())
+            })
+            .await
+            .unwrap();
+        assert!(secret_cleared);
+    }
+
+    #[tokio::test]
+    async fn legacy_hash_only_token_is_preserved_and_captured_after_authentication() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("legacy.db");
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE lineage_principals(id TEXT PRIMARY KEY,document TEXT NOT NULL,revision INTEGER NOT NULL); \
+             CREATE TABLE lineage_tokens(id TEXT PRIMARY KEY,principal_id TEXT NOT NULL,digest TEXT NOT NULL UNIQUE,enabled INTEGER NOT NULL,created_at TEXT NOT NULL);",
+        )
+        .unwrap();
+        let mut policy = principal("legacy", "scheduler", "publish");
+        policy["revision"] = json!(1);
+        conn.execute(
+            "INSERT INTO lineage_principals VALUES('legacy',?1,1)",
+            [policy.to_string()],
+        )
+        .unwrap();
+        let token = "fst_legacy_test_credential_that_was_originally_hash_only";
+        conn.execute(
+            "INSERT INTO lineage_tokens VALUES('legacy-id','legacy',?1,1,'2026-01-01T00:00:00Z')",
+            [flowscope_storage::digest(token)],
+        )
+        .unwrap();
+        drop(conn);
+        let db = PolicyDb::open(&path, ADMIN).unwrap();
+        assert!(db.list().await.unwrap()["tokens"][0]["token"].is_null());
+        let mut headers = HeaderMap::new();
+        headers.insert("Authorization", HeaderValue::from_static("Bearer invalid"));
+        assert!(db.authenticate(&headers, None, false).await.is_err());
+        assert!(db.list().await.unwrap()["tokens"][0]["token"].is_null());
+        headers.insert(
+            "Authorization",
+            HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
+        );
+        let caller = db
+            .authenticate(&headers, None, false)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(caller.token_id, "legacy-id");
+        let listing = db.list().await.unwrap();
+        assert_eq!(listing["tokens"][0]["token"], token);
+        let encrypted: Vec<u8> = db
+            .call(|conn| {
+                Ok(conn
+                    .query_row(
+                        "SELECT secret_ciphertext FROM lineage_tokens WHERE id='legacy-id'",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .unwrap())
+            })
+            .await
+            .unwrap();
+        assert!(!encrypted
+            .windows(token.len())
+            .any(|bytes| bytes == token.as_bytes()));
+        drop(db);
+        let reopened = PolicyDb::open(&path, ADMIN).unwrap();
+        assert_eq!(reopened.list().await.unwrap()["tokens"][0]["token"], token);
     }
     #[tokio::test]
     async fn strict_bearer_privilege_boundaries_and_durable_recovery() {

@@ -9,6 +9,7 @@ pub mod audit;
 pub mod lineage;
 pub mod lineage_policy;
 pub mod state;
+mod token_vault;
 mod watcher;
 
 use std::net::SocketAddr;

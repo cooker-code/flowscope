@@ -40,9 +40,27 @@ option; anonymous calls can only parse and cannot create any Neo4j event.
 Open `/access` and supply your own token. Browser credentials stay in the current
 tab's session storage; they are never embedded into the web assets or URLs.
 An administrator can open `/policies` to register stable caller identities,
-configure their enabled state and default action, and issue tokens. Raw issued tokens are shown once;
-SQLite keeps only their digests. Create normal administrator identities for daily
-operations. The `bootstrap` identity and secret are deployment-managed.
+configure their enabled state and default action, and issue tokens. The token
+list shows the full usable credential, including after reload or restart, and
+omits revoked tokens. Internal token IDs remain available to the API for revoke
+and historical references; the UI does not display them as credentials.
+
+Authentication still uses token digests. Full values are stored as authenticated
+ciphertext in SQLite and are returned only by the administrator-only policy
+list. A 32-byte encryption key is generated beside the state database, at
+`<stateDb>.tokens.key` (for example `data/audit.db.tokens.key`). On Unix, the
+database and key file both use mode `0600`. Keep that key file with the database
+during backup, restore and deployment. Do not include either in release packages.
+Startup fails with an actionable error if encrypted values exist but the key is
+missing, instead of silently replacing the key.
+
+Legacy tokens stored only as digests cannot be recovered from their IDs. Their
+first successful authenticated request captures the supplied value in encrypted
+form without changing the token or its ID. Until then, the UI explains that the
+full value will be available after the next successful call. Revoking a token
+clears its saved ciphertext while retaining the disabled record for history.
+Create normal administrator identities for daily operations. The `bootstrap`
+identity and secret remain deployment-managed and are not listed as issued tokens.
 
 ## Configure behavior
 

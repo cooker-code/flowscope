@@ -83,13 +83,53 @@ const processes = () =>
       assert.equal(await page.getByLabel(label, { exact: true }).count(), 0);
     checks.push('UI create and save returns active revision 1');
     await page.getByRole('button', { name: '发放 token', exact: true }).click();
-    const issued = page.getByLabel('新 token', { exact: true });
+    const issued = page.getByTestId('token-value');
     await issued.waitFor();
-    const aliceToken = await issued.inputValue();
+    const aliceToken = await issued.textContent();
     assert(aliceToken.startsWith('fst_'));
-    await page.getByRole('button', { name: '已保存，隐藏 token' }).click();
+    await page.reload();
+    await issued.waitFor();
+    assert.equal(await issued.textContent(), aliceToken);
+    checks.push('The real issued token remains visible after reloading the policy');
+    const tokenSection = page.getByRole('region', { name: 'Token 管理' });
+    const tokenList = await fetch(`${base}/api/lineage/policies`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    }).then((r) => r.json());
+    const tokenRecord = tokenList.tokens.find((token) => token.principalId === aliceId);
+    assert(!(await tokenSection.textContent().then((text) => text.includes(tokenRecord.id))));
+    for (const width of [1440, 768, 390]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await tokenSection.scrollIntoViewIfNeeded();
+      assert(await issued.evaluate((element) => element.scrollWidth <= element.clientWidth));
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+      await page.screenshot({ path: path.join(out, `token-${width}.png`), fullPage: true });
+    }
+    await page.evaluate(() => document.documentElement.classList.add('dark'));
+    await page.screenshot({ path: path.join(out, 'token-dark.png'), fullPage: true });
+    await page.evaluate(() => document.documentElement.classList.remove('dark'));
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    checks.push('Full credentials wrap without overflow at desktop, tablet and mobile widths');
+    await page.route('**/api/lineage/policies', async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      await route.fulfill({
+        json: {
+          ...tokenList,
+          tokens: tokenList.tokens.map((token) =>
+            token.id === tokenRecord.id ? { ...token, token: null } : token
+          ),
+        },
+      });
+    });
+    await page.reload();
+    await page.getByText('该历史 Token 下次成功调用后可显示完整值。', { exact: true }).waitFor();
     assert.equal(await issued.count(), 0);
-    checks.push('Token issued once and hidden without leaking into screenshots');
+    assert(!(await tokenSection.textContent().then((text) => text.includes(tokenRecord.id))));
+    await page.unroute('**/api/lineage/policies');
+    await page.reload();
+    await issued.waitFor();
+    checks.push(
+      'Unavailable legacy values have an explicit explanation and never fall back to UUIDs'
+    );
     await page.getByRole('button', { name: '预览，不写图' }).click();
     await page.getByText('调用方已启用 · 记录个人查询使用', { exact: true }).waitFor();
     checks.push('Preview shows the personal action and zero-write statement');
@@ -122,8 +162,9 @@ const processes = () =>
     );
     checks.push('Enable state is visible and disabling/re-enabling controls the same token');
     await page.getByRole('button', { name: '撤销', exact: true }).click();
-    await page.getByText('已撤销', { exact: true }).waitFor();
-    checks.push('Revocation is persisted and shown');
+    await page.getByTestId('caller-token').waitFor({ state: 'detached' });
+    assert.equal(await page.getByText('已撤销', { exact: true }).count(), 0);
+    checks.push('Revoked tokens disappear from the list');
     // A stale form must show 409 instead of claiming activation.
     const adminHeaders = {
       Authorization: `Bearer ${adminToken}`,
@@ -254,38 +295,41 @@ const processes = () =>
     await page.getByRole('alert').filter({ hasText: '403' }).waitFor();
     assert.equal(await page.getByRole('button', { name: '新增调用方' }).count(), 0);
     checks.push('Personal token cannot access policy controls');
-    const query = await fetch(`${base}/api/analyze`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${personal.token}` },
-      body: JSON.stringify({
-        sql: 'SELECT id FROM dw.audit_example WHERE id > 10',
-        sourceName: '个人使用验证',
-      }),
-    });
-    assert.equal(query.status, 200);
-    const eventId = query.headers.get('x-flowscope-event-id');
-    for (let i = 0; i < 100; i++) {
-      const event = await fetch(`${base}/api/lineage/events/${eventId}`, {
-        headers: adminHeaders,
-      }).then((r) => r.json());
-      if (event.status !== 'queued') break;
-      await new Promise((r) => setTimeout(r, 100));
+    // Token management can be verified without an isolated Neo4j fixture.
+    if (process.env.FLOWSCOPE_TEST_TOKEN_ONLY !== '1') {
+      const query = await fetch(`${base}/api/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${personal.token}` },
+        body: JSON.stringify({
+          sql: 'SELECT id FROM dw.audit_example WHERE id > 10',
+          sourceName: '个人使用验证',
+        }),
+      });
+      assert.equal(query.status, 200);
+      const eventId = query.headers.get('x-flowscope-event-id');
+      for (let i = 0; i < 100; i++) {
+        const event = await fetch(`${base}/api/lineage/events/${eventId}`, {
+          headers: adminHeaders,
+        }).then((r) => r.json());
+        if (event.status !== 'queued') break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      await page.goto(`${base}/audit`);
+      await page.getByRole('columnheader', { name: /入图状态/ }).waitFor();
+      await page.getByRole('columnheader', { name: '个人使用', exact: true }).waitFor();
+      await page.getByRole('cell', { name: '已提交', exact: true }).waitFor();
+      await page.getByRole('cell', { name: '未请求入图', exact: true }).waitFor();
+      await page.screenshot({ path: path.join(out, 'audit-personal.png') });
+      checks.push('Personal audit shows separate parse/formal/usage states');
+      await page.getByRole('button', { name: 'Open lineage', exact: true }).click();
+      await page.waitForURL(/auditId=/);
+      await page.getByTestId('app-header').waitFor();
+      await page
+        .getByText(/audit#/)
+        .first()
+        .waitFor();
+      checks.push('Personal audit details open without server file access');
     }
-    await page.goto(`${base}/audit`);
-    await page.getByRole('columnheader', { name: '正式血缘', exact: true }).waitFor();
-    await page.getByRole('columnheader', { name: '个人使用', exact: true }).waitFor();
-    await page.getByRole('cell', { name: '已提交', exact: true }).waitFor();
-    await page.getByRole('cell', { name: '未请求', exact: true }).waitFor();
-    await page.screenshot({ path: path.join(out, 'audit-personal.png') });
-    checks.push('Personal audit shows separate parse/formal/usage states');
-    await page.getByRole('button', { name: 'Open lineage', exact: true }).click();
-    await page.waitForURL(/auditId=/);
-    await page.getByTestId('app-header').waitFor();
-    await page
-      .getByText(/audit#/)
-      .first()
-      .waitFor();
-    checks.push('Personal audit details open without server file access');
 
     assert.deepEqual(errors, []);
     const removedPerson = await fetch(`${base}/api/lineage/policies/${personId}`, {
@@ -322,7 +366,15 @@ const processes = () =>
   }
   fs.writeFileSync(
     path.join(out, 'ui-checks.json'),
-    JSON.stringify({ checks, result: 'passed' }, null, 2)
+    JSON.stringify(
+      {
+        checks,
+        scope: process.env.FLOWSCOPE_TEST_TOKEN_ONLY === '1' ? 'token-management' : 'full-lineage',
+        result: 'passed',
+      },
+      null,
+      2
+    )
   );
   console.log(JSON.stringify({ checks, result: 'passed', cleanup: 'passed' }));
 })().catch((e) => {

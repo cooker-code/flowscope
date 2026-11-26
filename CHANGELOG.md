@@ -9,11 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Audit graph status badges expose each request's actual reason on hover or
+  click, with Chinese explanations, complete table/column names and raw details.
+- Token management shows full usable credentials instead of internal IDs, keeps
+  them available to administrators after reload, and hides revoked records.
+
 #### Core Engine (flowscope-core)
 
 - Hive analysis now recognizes `FROM VALUES (...), (...)` as an inline row source, including audit 443044, while preserving target table and column lineage.
 
 ### Added
+
+- Audit history supports formal graph status filtering with consistent server-side counts and pagination.
 
 - Optional Rust Neo4j storage in CLI serve mode with Bearer caller policies, durable SQLite events, versioned formal lineage, and personal query-usage records.
 - Policy/token management and audit status UI, with isolated Neo4j and HTTP recovery verification.

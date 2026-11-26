@@ -36,7 +36,8 @@ It returns `parseStatus`, `status`, `lineageStatus`, `usageStatus`, `reason`,
 - `GET /api/lineage/me`: trusted identity, current action, activeRevision, environment.
 - `GET/POST /api/lineage/policies`: admin-only list/save.
 - `DELETE /api/lineage/policies/{id} {revision}`: admin-only physical deletion.
-- `POST /api/lineage/tokens {principalId}`: admin-only issue, raw token returned once.
+- `POST /api/lineage/tokens {principalId}`: admin-only issue, full token also remains
+  available in the administrator-only policy list while not revoked.
 - `POST /api/lineage/tokens/{id}/revoke`: admin-only revocation.
 - `POST /api/lineage/policies/preview {policy,auditId?}`: admin-only,
   no persistence or Neo4j access. A historical event can show analysis quality issues.
@@ -75,6 +76,81 @@ existing audit base table → additive migrations → indexes sequence. Add
 principal_id/event_id to audit rows; keep anonymous legacy rows unowned.
 Token table stores SHA-256 of cryptographically random opaque tokens and a
 revocable token ID. Principals remain stable across token rotation.
+
+## Recoverable token display
+
+### Scope / trigger
+
+Apply when changing token storage, policy list responses or the Token management
+section in `PolicyPage`. A management ID is not a usable Bearer credential and
+must not be displayed in its place.
+
+### Signatures
+
+- `lineage_tokens.secret_ciphertext BLOB NULL` is an additive, idempotent migration.
+- `GET /api/lineage/policies` returns only enabled, non-bootstrap tokens, with
+  `id`, `principalId`, `enabled`, `createdAt`, and `token: string | null`.
+- Issuance and policy-list responses include `Cache-Control: no-store` and require
+  a server-verified administrator identity.
+
+### Contracts
+
+The display value is the exact issued `fst_...` credential. Authentication keeps
+using its SHA-256 digest. `TokenVault` encrypts recoverable values with AES-256-GCM,
+a fresh system-generated nonce, and the token ID as authenticated associated
+data. Do not persist raw token values in SQLite, logs or project files.
+
+Generate a 32-byte key at `<stateDb>.tokens.key`, independent of the bootstrap
+admin credential so bootstrap rotation preserves issued values. Create it with
+Unix mode `0600`, sync it before storing ciphertext, and preserve it across
+restart/backup/restore. Never regenerate a missing key when ciphertext exists.
+
+For a legacy hash-only token, capture the supplied value only after its hash,
+enabled state and requested action validate successfully. Keep the ID, digest,
+caller and permissions unchanged. A not-yet-recovered legacy value is `null`;
+show a clear explanation, never substitute the UUID. Revocation disables the
+record and clears its ciphertext. Retain its ID for event history but omit the
+record from both the API list and the UI.
+
+### Validation and error matrix
+
+| Condition | Result |
+| --- | --- |
+| Newly issued token / normal restart | Admin list returns the exact full value |
+| Scheduler or personal caller requests token list | 403, no credential disclosure |
+| Legacy token before successful use | `token: null`, explain next successful use |
+| Invalid or revoked credential | 401, no capture |
+| Disabled caller or disallowed action | 403, no capture |
+| Revocation | Remove from list, saved ciphertext cleared, subsequent auth 401 |
+| Key missing with encrypted records | Startup error instructing restoration |
+| Corrupt ciphertext or mismatched record ID | Generic `token_secret_unavailable`; no plaintext |
+
+### Good / base / bad cases
+
+- Good: reload the page and copy the same usable credential from an active row.
+- Base: an unchanged legacy token becomes visible after its next successful call.
+- Bad: display the UUID under Token, claim hash-only values can be recovered,
+  rotate old credentials automatically, or expose revoked values.
+
+### Required tests
+
+Verify admin-only access and no-store headers; exact value after restart and
+bootstrap rotation; hash-only migration/backfill and repeat startup; ciphertext
+confidentiality/integrity/record binding; key permissions and missing-key refusal;
+revoke hiding and auth rejection. Browser checks cover full-token wrapping,
+reload, no UUID substitution, old-token explanation, immediate revoke removal
+and empty state, including narrow viewports and browser resource cleanup.
+
+### Wrong vs correct
+
+```tsx
+// Wrong: presents a management record ID as the credential.
+<code>{token.id}</code>
+// Correct: render the full value or the explicit legacy state.
+token.token ? <code>{token.token}</code> : <span>下次成功调用后可显示完整值</span>
+```
+
+## Durable event processing
 
 Non-parse-only events store full SQL and full AnalyzeResult in lineage_events,
 without the legacy audit result_json truncation. Enqueue and per-file audit
@@ -134,7 +210,7 @@ does not require another SQLite column.
 | `lineage_status` | Audit label | Meaning |
 | --- | --- | --- |
 | `committed` | 已入图 | Formal Neo4j write committed |
-| `queued` | 待入图 | Durably accepted; pending or retrying, not confirmed committed |
+| `queued` | 待入图 | Durably accepted; pending, processing or retrying, not confirmed committed |
 | `blocked`, `blocked_policy` | 未入图 | Analysis, metadata or policy checks prevented writing; show `policy_reason` |
 | `failed` | 入图失败 | Graph write failed without a confirmed commit |
 | `not_requested` | 未请求入图 | Explicit request policy did not request formal graph updates |
@@ -146,6 +222,28 @@ and its outcome take precedence over these defaults. An unavailable, null or
 unrecognized frontend value is displayed as unknown, never as not requested.
 The personal usage column remains independent of the formal graph column.
 
+`queued` covers the active worker attempt as well as waiting/retry. A terminal
+`blocked` / `blocked_policy` result does not retry automatically. A quality
+rejection can occur even when parsing succeeded, and leaves the prior valid
+formal lineage unchanged.
+
+Each blocked/failed row exposes its actual nullable `policy_reason` through the
+status badge on hover, keyboard focus, click and touch. Known issue codes receive
+Chinese explanations; qualified table/column names and unrecognized codes remain
+complete. Compound `incomplete_analysis:` checks may be deduplicated for display,
+but the expandable original reason must preserve the full response string.
+Missing details say that the backend has not recorded a specific reason.
+`neo4j_temporarily_unavailable` is a coarse retry cause, not evidence of a specific
+connection, query or timeout failure. Do not infer that a token with publish
+permission guarantees a committed graph write.
+
+Use one scrollable, portaled explanation panel at a time so table overflow does
+not clip it. Click/touch pins the panel; Escape returns focus. Stop click
+propagation on both trigger and portaled contents, including the original-reason
+expander, to avoid opening the audit row. Header-legend badges remain static.
+Reasons that describe personal-only usage must not become formal-graph reasons
+for `not_requested` rows.
+
 #### Validation and error matrix
 
 | Input / condition | Required behavior |
@@ -155,6 +253,9 @@ The personal usage column remains independent of the formal graph column.
 | Parser success with event `queued` | Display 待入图, not 已入图 |
 | Frontend receives missing/null/unrecognized status | Display 入图状态未知 |
 | Open click/touch help while a hover tooltip exists | Show one explanation panel |
+| Click a row status or expand its original reason | Keep the audit list open |
+| Blocked/failed row has no reason | Explicitly show missing backend details |
+| Reason contains 120 checks | Keep all items and raw text accessible by scrolling |
 
 #### Good / base / bad cases
 
@@ -172,6 +273,10 @@ The personal usage column remains independent of the formal graph column.
 - Browser checks cover all six labels, `blocked_policy`, missing/null fallback,
   hover/click/keyboard/touch help, light/dark readability and pending-to-committed
   refresh. Explain unknown as missing evidence, not proof of no graph mutation.
+- Reason formatter tests cover compound checks, deduplication, complete targets,
+  unknown codes, missing details and long lists. Browser reason checks also cover
+  row-navigation isolation, original-reason expansion, a pinned panel surviving
+  queued-row polling, and viewport bounds at desktop and 390px touch sizes.
 
 #### Wrong vs correct
 

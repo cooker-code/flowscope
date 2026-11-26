@@ -1,4 +1,4 @@
-import { apiFetch, graphStatus } from '@/lib/lineage-api';
+import { apiFetch, graphStatus, INGESTION_STATUS_LABELS } from '@/lib/lineage-api';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -41,6 +41,7 @@ const URL_PARAM_KEYS = [
   'to',
   'sql_type',
   'success',
+  'lineage_status',
   'file_name',
   'source_name',
   'target_table',
@@ -66,7 +67,7 @@ interface AuditListRecord {
   event_id?: string;
   lineage_status?: string | null;
   usage_status?: string | null;
-  policy_reason?: string;
+  policy_reason?: string | null;
 }
 
 interface AuditQueryResponse {
@@ -86,6 +87,7 @@ export function AuditPage() {
   const to = searchParams.get('to') ?? '';
   const sqlType = searchParams.get('sql_type') ?? ANY;
   const success = searchParams.get('success') ?? ANY;
+  const lineageStatus = searchParams.get('lineage_status') ?? ANY;
   const fileName = searchParams.get('file_name') ?? '';
   const sourceName = searchParams.get('source_name') ?? '';
   const targetTable = searchParams.get('target_table') ?? '';
@@ -157,6 +159,7 @@ export function AuditPage() {
   const setTo = (v: string) => updateParams({ to: v }, { resetPage: true });
   const setSqlType = (v: string) => updateParams({ sql_type: v }, { resetPage: true });
   const setSuccess = (v: string) => updateParams({ success: v }, { resetPage: true });
+  const setLineageStatus = (v: string) => updateParams({ lineage_status: v }, { resetPage: true });
   const setPage = (next: number) => updateParams({ page: next === 1 ? null : String(next) });
 
   const [loading, setLoading] = useState(false);
@@ -177,6 +180,7 @@ export function AuditPage() {
       if (!Number.isNaN(d.getTime())) p.set('to', d.toISOString());
     }
     if (sqlType && sqlType !== ANY) p.set('sql_type', sqlType);
+    if (lineageStatus !== ANY) p.set('lineage_status', lineageStatus);
     if (success === 'warn' || success === 'true') {
       p.set('success', 'true');
       p.set('alias_warning', String(success === 'warn'));
@@ -188,7 +192,18 @@ export function AuditPage() {
     if (targetTable.trim()) p.set('target_table', targetTable.trim());
     if (urlKeyword.trim()) p.set('keyword', urlKeyword.trim());
     return p.toString();
-  }, [page, from, to, sqlType, success, fileName, sourceName, targetTable, urlKeyword]);
+  }, [
+    page,
+    from,
+    to,
+    sqlType,
+    success,
+    lineageStatus,
+    fileName,
+    sourceName,
+    targetTable,
+    urlKeyword,
+  ]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -364,6 +379,24 @@ export function AuditPage() {
             </Select>
           </div>
           <div className="space-y-1">
+            <label htmlFor="audit-lineage-status" className="text-xs text-muted-foreground">
+              入图状态
+            </label>
+            <Select value={lineageStatus} onValueChange={setLineageStatus}>
+              <SelectTrigger id="audit-lineage-status" className="h-9 w-[160px] text-xs">
+                <SelectValue placeholder="全部" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ANY}>全部</SelectItem>
+                {Object.entries(INGESTION_STATUS_LABELS).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
             <label className="text-xs text-muted-foreground">File name</label>
             <Input
               className="h-9 w-[200px] text-xs"
@@ -527,7 +560,10 @@ export function AuditPage() {
                       )}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">
-                      <GraphIngestionStatus status={r.lineage_status} />
+                      <GraphIngestionStatus
+                        status={r.lineage_status}
+                        reason={r.policy_reason ?? null}
+                      />
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">{graphStatus(r.usage_status)}</td>
                     <td className="px-3 py-2 max-w-64">

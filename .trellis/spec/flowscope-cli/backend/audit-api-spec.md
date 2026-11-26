@@ -319,6 +319,71 @@ Response:
 }
 ```
 
+### `lineage_status` — formal graph status filter
+
+#### Scope / trigger
+
+Applies to audit list status filtering, counts/pagination and the audit page's
+入图状态 select. Parser success and graph status remain separate filters.
+
+#### Signatures
+
+`GET /api/audit?lineage_status=<value>&limit=50&offset=0` accepts `committed`,
+`queued`, `blocked`, `failed`, `not_requested`, and `unknown`. Omit the parameter
+for all statuses. `blocked_policy` is accepted as an alias of `blocked`.
+
+#### Contracts
+
+- Match the same effective `lineage_status` rendered in the table: valid saved
+  event outcomes override action/status; otherwise publish events use their
+  status and other event actions are not requested for formal lineage.
+- An owned audit without an event is `not_requested`. Ownerless legacy history
+  is `unknown`. Null or unrecognized effective statuses also display as unknown.
+- `blocked` includes `blocked_policy` because both display as 未入图.
+- Apply ownership and every filter before counting and pagination. For filtered
+  responses, count, page and decorated metadata share one SQLite read snapshot;
+  do not re-decorate rows from a later event snapshot.
+- Without lineage configuration, exposed graph results are unknown. `unknown`
+  includes all otherwise matching audits, and other status filters return empty.
+- The UI uses `lineage_status` in URL/request/localStorage hand-off state. A
+  change resets page to 1; reset/all removes it; detail navigation retains it.
+  Labels share `INGESTION_STATUS_LABELS` with the table badges.
+
+#### Validation and error matrix
+
+| Condition | Result |
+| --- | --- |
+| Unsupported status value | HTTP 400 |
+| Queued raw event with committed saved outcome | Matches committed, not queued |
+| Personal/observe event is queued | Formal status matches not_requested |
+| User filters another caller's state | Ownership still limits records and total |
+| Worker commits while query runs | Return one consistent filtered snapshot |
+| SQLite has no policy tables / lineage config disabled | Unknown filter succeeds |
+
+#### Good / base / bad cases
+
+- Base: queued filters return the queued subset of the caller's history.
+- Good: 55 matching rows with limit 50 returns total 55 and a five-row second page.
+- Bad: filtering the 50 rows already loaded in the browser loses matching rows
+  from other pages and produces incorrect totals.
+
+#### Tests required
+
+`audit_lineage_filter_matches_displayed_outcomes_before_pagination` covers all
+six values, policy alias, outcome precedence, null/future states, ownership,
+combined warning/name filters, distinct counts, pagination, invalid values and
+configuration without graph results. Browser checks cover all choices, page
+reset, reload, detail return, reset and narrow-screen operation.
+
+#### Wrong vs correct
+
+```typescript
+// Wrong: only filters the currently loaded page.
+const rows = response.records.filter(row => row.lineage_status === selected);
+// Correct: let the API filter the complete history before paging.
+params.set('lineage_status', selected);
+```
+
 ### `GET /api/audit/:id` — detail (full fields)
 
 Returns the complete record including `sql_text` and `result_json`.

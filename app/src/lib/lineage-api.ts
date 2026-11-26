@@ -74,6 +74,7 @@ export interface CallerIdentity {
 }
 export interface CallerToken {
   id: string;
+  token?: string | null;
   principalId: string;
   enabled: boolean;
   createdAt: string;
@@ -84,6 +85,14 @@ export const ACTION_LABELS: Record<StorageAction, string> = {
   observe: '仅留存观察记录',
   parse_only: '仅解析',
 };
+export const INGESTION_STATUS_LABELS = {
+  committed: '已入图',
+  queued: '待入图',
+  blocked: '未入图',
+  failed: '入图失败',
+  not_requested: '未请求入图',
+  unknown: '入图状态未知',
+} as const;
 export function graphStatus(value?: string | null): string {
   const labels: Record<string, string> = {
     committed: '已提交',
