@@ -163,6 +163,7 @@ struct AuditQueryParams {
     /// Filter by success flag
     success: Option<bool>,
     alias_warning: Option<bool>,
+    lineage_status: Option<super::audit::LineageStatusFilter>,
     /// Substring match on `file_name`
     file_name: Option<String>,
     /// Substring match on `source_name` (caller-supplied identifier).
@@ -763,6 +764,14 @@ async fn audit_records(
     let source_name = params.source_name.clone().filter(|s| !s.trim().is_empty());
     let target_table = params.target_table.clone().filter(|s| !s.trim().is_empty());
     let keyword = params.keyword.clone().filter(|s| !s.trim().is_empty());
+    let lineage_status = if state.lineage.is_some() {
+        params.lineage_status
+    } else {
+        match params.lineage_status {
+            None | Some(super::audit::LineageStatusFilter::Unknown) => None,
+            Some(_) => return Ok(Json(AuditQueryResponse::default())),
+        }
+    };
 
     let result = tokio::task::spawn_blocking(move || {
         let filters = super::audit::AuditLogListFilters {
@@ -773,6 +782,7 @@ async fn audit_records(
             sql_type: sql_type.as_deref(),
             success,
             alias_warning: params.alias_warning,
+            lineage_status,
             file_name_filter: file_name.as_deref(),
             source_name_filter: source_name.as_deref(),
             target_table_filter: target_table.as_deref(),
@@ -795,8 +805,10 @@ async fn audit_records(
     })?;
 
     let mut result = result;
-    if let Some(runtime) = &state.lineage {
-        runtime.db.decorate_audits(&mut result.records).await?;
+    if params.lineage_status.is_none() {
+        if let Some(runtime) = &state.lineage {
+            runtime.db.decorate_audits(&mut result.records).await?;
+        }
     }
     Ok(Json(result))
 }

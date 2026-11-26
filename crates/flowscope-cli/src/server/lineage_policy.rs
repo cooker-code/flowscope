@@ -378,36 +378,16 @@ impl PolicyDb {
         .await
     }
     pub async fn decorate_audits(&self, records: &mut Vec<Value>) -> Result<(), ApiError> {
-        let ids = records
-            .iter()
-            .filter_map(|r| r["id"].as_i64())
-            .collect::<Vec<_>>();
-        let extras=self.call(move|conn|{
-            let mut out=std::collections::BTreeMap::new();
-            for id in ids {
-                let (principal,event):(Option<String>,Option<String>)=conn.query_row("SELECT principal_id,event_id FROM audit_log WHERE id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?))).map_err(db_error)?;
-                // Unowned legacy rows contain no evidence of a graph-write decision.
-                let status = if principal.is_some() { "not_requested" } else { "unknown" };
-                let mut extra=json!({"principal_id":principal,"event_id":event,"lineage_status":status,"usage_status":status});
-                if let Some(event)=event {
-                    let (action,status,outcome,reason):(String,String,Option<String>,Option<String>)=conn.query_row("SELECT action,status,outcome,last_error FROM lineage_events WHERE id=?1",[event],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).map_err(db_error)?;
-                    extra["lineage_status"]=json!(if action=="publish"{status.as_str()}else{"not_requested"});extra["usage_status"]=json!(if action=="record_usage"{status.as_str()}else{"not_requested"});extra["policy_reason"]=json!(reason);
-                    if let Some(o)=outcome {if let Ok(o)=serde_json::from_str::<Value>(&o){extra["lineage_status"]=o["lineageStatus"].clone();extra["usage_status"]=o["usageStatus"].clone();extra["policy_reason"]=o["reason"].clone();}}
-                }
-                out.insert(id,extra);
-            }Ok(out)
-        }).await?;
-        for record in records {
-            if let Some(extra) = record["id"].as_i64().and_then(|id| extras.get(&id)) {
-                if let Some(map) = extra.as_object() {
-                    for (k, v) in map {
-                        record[k] = v.clone();
-                    }
-                }
-            }
-        }
+        let mut pending = std::mem::take(records);
+        *records = self
+            .call(move |conn| {
+                decorate_audit_rows(conn, &mut pending)?;
+                Ok(pending)
+            })
+            .await?;
         Ok(())
     }
+
     pub async fn enqueue(
         &self,
         e: StorageEvent,
@@ -463,6 +443,74 @@ impl PolicyDb {
     }).await
     }
 }
+
+/// Decorate rows using the caller's SQLite read snapshot.
+/// Kept synchronous so filtered list counts, page rows and displayed states agree.
+pub(super) fn decorate_audit_rows(
+    conn: &Connection,
+    records: &mut [Value],
+) -> Result<(), ApiError> {
+    for record in records {
+        let Some(id) = record["id"].as_i64() else {
+            continue;
+        };
+        let (principal, event): (Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT principal_id,event_id FROM audit_log WHERE id=?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(db_error)?;
+        let status = if principal.is_some() {
+            "not_requested"
+        } else {
+            "unknown"
+        };
+        let mut extra = json!({"principal_id":principal,"event_id":event,"lineage_status":status,"usage_status":status});
+        if let Some(event) = event {
+            let (action, status, outcome, reason): (
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+            ) = conn
+                .query_row(
+                    "SELECT action,status,outcome,last_error FROM lineage_events WHERE id=?1",
+                    [event],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .map_err(db_error)?;
+            extra["lineage_status"] = json!(if action == "publish" {
+                status.as_str()
+            } else {
+                "not_requested"
+            });
+            extra["usage_status"] = json!(if action == "record_usage" {
+                status.as_str()
+            } else {
+                "not_requested"
+            });
+            extra["policy_reason"] = json!(reason);
+            if let Some(outcome) = outcome {
+                if let Ok(outcome) = serde_json::from_str::<Value>(&outcome) {
+                    for key in ["lineageStatus", "usageStatus", "reason"] {
+                        let field = match key {
+                            "lineageStatus" => "lineage_status",
+                            "usageStatus" => "usage_status",
+                            _ => "policy_reason",
+                        };
+                        extra[field] = outcome[key].clone();
+                    }
+                }
+            }
+        }
+        for (key, value) in extra.as_object().expect("audit metadata object") {
+            record[key] = value.clone();
+        }
+    }
+    Ok(())
+}
+
 fn db_error(_: rusqlite::Error) -> ApiError {
     failure(
         StatusCode::INTERNAL_SERVER_ERROR,

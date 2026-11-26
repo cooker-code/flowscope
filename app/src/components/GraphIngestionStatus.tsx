@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { INGESTION_STATUS_LABELS } from '@/lib/lineage-api';
 
 interface IngestionStatus {
   label: string;
@@ -23,42 +24,42 @@ interface IngestionStatus {
 
 const INGESTION_STATUSES = {
   committed: {
-    label: '已入图',
+    label: INGESTION_STATUS_LABELS.committed,
     description: '本次请求的正式血缘已成功写入 Neo4j。',
     icon: CheckCircle2,
     className: 'border-status-success/25 bg-status-success/10 text-status-success',
   },
   queued: {
-    label: '待入图',
+    label: INGESTION_STATUS_LABELS.queued,
     description: '请求已受理，正在排队或等待重试，尚未确认写入成功。',
     icon: Clock3,
     className: 'border-status-info/25 bg-status-info/10 text-status-info',
   },
   blocked: {
-    label: '未入图',
+    label: INGESTION_STATUS_LABELS.blocked,
     description: '解析、元数据、权限或策略检查未通过。具体原因见该行“调用方 / 原因”。',
     icon: Ban,
     className: 'border-status-warning/30 bg-status-warning/10 text-status-warning',
   },
   failed: {
-    label: '入图失败',
+    label: INGESTION_STATUS_LABELS.failed,
     description: '写入正式血缘时发生错误，未能确认提交成功。',
     icon: XCircle,
     className: 'border-status-error/25 bg-status-error/10 text-status-error',
   },
   not_requested: {
-    label: '未请求入图',
+    label: INGESTION_STATUS_LABELS.not_requested,
     description: '本次请求的策略没有要求更新正式血缘。解析或个人使用记录可能已完成。',
     icon: MinusCircle,
     className: 'text-foreground/75',
   },
   unknown: {
-    label: '入图状态未知',
+    label: INGESTION_STATUS_LABELS.unknown,
     description: '该审计未保存入图结果，无法确认是否入过图，常见于历史记录。',
     icon: CircleHelp,
     className: 'text-foreground/75',
   },
-} satisfies Record<string, IngestionStatus>;
+} satisfies Record<keyof typeof INGESTION_STATUS_LABELS, IngestionStatus>;
 
 type IngestionStatusKey = keyof typeof INGESTION_STATUSES;
 

@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Audit history supports formal graph status filtering with consistent server-side counts and pagination.
+
 - Optional Rust Neo4j storage in CLI serve mode with Bearer caller policies, durable SQLite events, versioned formal lineage, and personal query-usage records.
 - Policy/token management and audit status UI, with isolated Neo4j and HTTP recovery verification.
 - Caller enabled state and physical deletion of callers/tokens; token-based default actions replace caller environment/source/table scope rules.

@@ -597,6 +597,166 @@ mod tests {
         issued["token"].as_str().unwrap().into()
     }
     #[tokio::test]
+    async fn audit_lineage_filter_matches_displayed_outcomes_before_pagination() {
+        let (dir, state, app) = fixture().await;
+        let owner = provision(&app, "filter_owner", "scheduler", "publish").await;
+        let other = provision(&app, "filter_other", "scheduler", "publish").await;
+        let cases = [
+            ("queued", None),
+            ("committed", None),
+            ("blocked", None),
+            ("blocked_policy", None),
+            ("failed", None),
+            (
+                "queued",
+                Some(json!({"lineageStatus":"committed","usageStatus":"not_requested"})),
+            ),
+            (
+                "committed",
+                Some(json!({"lineageStatus":null,"usageStatus":"not_requested"})),
+            ),
+            (
+                "queued",
+                Some(json!({"lineageStatus":"future_status","usageStatus":"not_requested"})),
+            ),
+            (
+                "queued",
+                Some(json!({"lineageStatus":"not_requested","usageStatus":"not_requested"})),
+            ),
+        ];
+        let db = &state.lineage.as_ref().unwrap().db;
+        for (index, (status, outcome)) in cases.into_iter().enumerate() {
+            let (http, headers, result) = request(&app, "/api/analyze", Some(&owner), Some(json!({
+                "sql":"SELECT 1", "sourceName":format!("status-filter-{index}"),
+                "lineage":{"sourceSystem":"change","sourceId":format!("job-{index}"),"sourceVersion":"1","environment":"test"}
+            }))).await;
+            assert_eq!(http, StatusCode::OK, "{result}");
+            db.finish(
+                headers["x-flowscope-event-id"].to_str().unwrap().into(),
+                status,
+                outcome,
+                None,
+            )
+            .await
+            .unwrap();
+        }
+        for (token, mode) in [
+            (&owner, "parse_only"),
+            (&other, "publish"),
+            (&other, "observe"),
+        ] {
+            let (status, _, result) = request(&app, "/api/analyze", Some(token), Some(json!({
+                "sql":"SELECT 1", "storageMode":mode,
+                "lineage":{"sourceSystem":"change","sourceId":"other","sourceVersion":"1","environment":"test"}
+            }))).await;
+            assert_eq!(status, StatusCode::OK, "{result}");
+        }
+        db.call(|conn| {
+            conn.execute("INSERT INTO audit_log (ts,client_ip,endpoint,dialect,sql_text,sql_hash,sql_len,success,duration_ms) VALUES ('2026-01-01T00:00:00Z','127.0.0.1','/api/analyze','Hive','SELECT 1','legacy',8,1,1)", []).unwrap();
+            conn.execute("UPDATE audit_log SET alias_warning=1 WHERE principal_id='filter_owner'", []).unwrap();
+            Ok(())
+        }).await.unwrap();
+
+        for (status, count) in [
+            ("committed", 2),
+            ("queued", 1),
+            ("blocked", 2),
+            ("blocked_policy", 2),
+            ("failed", 1),
+            ("not_requested", 2),
+            ("unknown", 2),
+        ] {
+            let (http, _, result) = request(
+                &app,
+                &format!("/api/audit?lineage_status={status}"),
+                Some(&owner),
+                None,
+            )
+            .await;
+            assert_eq!(http, StatusCode::OK, "{result}");
+            assert_eq!(result["total"], count, "status {status}");
+            assert_eq!(result["records"].as_array().unwrap().len(), count as usize);
+            for row in result["records"].as_array().unwrap() {
+                assert_eq!(row["principal_id"], "filter_owner");
+                if status == "blocked" || status == "blocked_policy" {
+                    assert!([json!("blocked"), json!("blocked_policy")]
+                        .contains(&row["lineage_status"]));
+                } else if status == "unknown" {
+                    assert!([Value::Null, json!("future_status")].contains(&row["lineage_status"]));
+                } else {
+                    assert_eq!(row["lineage_status"], status);
+                }
+            }
+        }
+        for (status, count) in [("queued", 2), ("not_requested", 3), ("unknown", 3)] {
+            let (http, _, result) = request(
+                &app,
+                &format!("/api/audit?lineage_status={status}"),
+                Some(ADMIN),
+                None,
+            )
+            .await;
+            assert_eq!(http, StatusCode::OK, "{result}");
+            assert_eq!(result["total"], count, "admin status {status}");
+        }
+        let mut pages = vec![];
+        for offset in [0, 1] {
+            let (status, _, result) = request(&app, &format!("/api/audit?lineage_status=committed&limit=1&offset={offset}&alias_warning=true"), Some(&owner), None).await;
+            assert_eq!(status, StatusCode::OK, "{result}");
+            assert_eq!(result["total"], 2);
+            assert_eq!(result["distinct_sql"], 1);
+            assert_eq!(result["records"].as_array().unwrap().len(), 1);
+            pages.push(result["records"][0]["id"].clone());
+        }
+        assert_ne!(pages[0], pages[1]);
+        let (_, _, combined) = request(
+            &app,
+            "/api/audit?lineage_status=committed&source_name=status-filter-5",
+            Some(&owner),
+            None,
+        )
+        .await;
+        assert_eq!(combined["total"], 1);
+        assert_eq!(combined["records"][0]["lineage_status"], "committed");
+        assert_eq!(
+            request(
+                &app,
+                "/api/audit?lineage_status=invalid",
+                Some(&owner),
+                None
+            )
+            .await
+            .0,
+            StatusCode::BAD_REQUEST
+        );
+
+        // A parse-only server has no exposed graph results, even if its database has old events.
+        let unconfigured = Arc::new(AppState::new(state.config.clone()).await.unwrap());
+        let plain = super::super::build_router(unconfigured).layer(MockConnectInfo(
+            "127.0.0.1:3000".parse::<std::net::SocketAddr>().unwrap(),
+        ));
+        let (status, _, unknown) =
+            request(&plain, "/api/audit?lineage_status=unknown", None, None).await;
+        assert_eq!(status, StatusCode::OK, "{unknown}");
+        assert_eq!(unknown["total"], 13);
+        let (_, _, committed) =
+            request(&plain, "/api/audit?lineage_status=committed", None, None).await;
+        assert_eq!(committed["total"], 0);
+        let mut config = state.config.clone();
+        config.audit_log_path = Some(dir.path().join("plain.db"));
+        let empty = super::super::build_router(Arc::new(AppState::new(config).await.unwrap()))
+            .layer(MockConnectInfo(
+                "127.0.0.1:3000".parse::<std::net::SocketAddr>().unwrap(),
+            ));
+        assert_eq!(
+            request(&empty, "/api/audit?lineage_status=unknown", None, None)
+                .await
+                .0,
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
     async fn admin_lists_real_tokens_after_restart_and_revoked_tokens_disappear() {
         let (dir, state, app) = fixture().await;
         provision(&app, "token_owner", "scheduler", "publish").await;
