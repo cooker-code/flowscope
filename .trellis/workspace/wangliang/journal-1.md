@@ -517,3 +517,36 @@ Token 管理显示实际凭据，管理员可在刷新和重启后再次读取�
 ### Next Steps
 
 - None - task complete
+
+
+## Session 16: 审计入图状态展示具体原因
+
+**Date**: 2026-11-26
+**Task**: 审计入图状态展示具体原因
+**Branch**: `codex/audit-status-reasons`
+
+### Summary
+
+每条状态悬浮展示实际 policy_reason，翻译常见检查项并保留完整表字段和原文；补充未入图不自动重试说明。前端类型检查、Lint、6 项测试、1750 核心测试、18 SQL 回归及 8 项桌面和手机浏览器场景通过；验证进程、临时目录与服务已清理。按用户要求不创建 Trellis task。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `391384d4` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
