@@ -1,0 +1,65 @@
+{
+  "existingCallerIds": [
+    "bootstrap",
+    "demo_admin",
+    "demo_person",
+    "demo_scheduler"
+  ],
+  "onlySyntheticCallersDeleted": true,
+  "oldCredentialsRetained": true,
+  "graph": {
+    "formal": [
+      {
+        "upstream": "source_b",
+        "downstream": "target_t"
+      }
+    ],
+    "formalTables": [
+      {
+        "tableName": "source_a"
+      },
+      {
+        "tableName": "source_b"
+      },
+      {
+        "tableName": "target_t"
+      }
+    ],
+    "usage": [
+      {
+        "eventId": "f630fd6a822939fd31a2b0ffba18f06278f7087d99d9ec7a2cfc489112c98c51",
+        "executionStatus": "not_observed",
+        "role": "declared_write",
+        "targetLabels": [
+          "LINEAGE_ENTITY",
+          "M_TABLE"
+        ],
+        "tableName": "target_t"
+      },
+      {
+        "eventId": "f630fd6a822939fd31a2b0ffba18f06278f7087d99d9ec7a2cfc489112c98c51",
+        "executionStatus": "not_observed",
+        "role": "read",
+        "targetLabels": [
+          "TABLE_REFERENCE"
+        ],
+        "tableName": "flowscope_demo.personal_debug"
+      }
+    ],
+    "version": [
+      {
+        "version": 2,
+        "analysisRevision": 0
+      }
+    ]
+  },
+  "frontendIndexSha256": "a6fae376bfcb209237f01d9c687c0b518340f4525db5c39f812ff25e55d35392",
+  "finalEmbeddedPageServed": true,
+  "verificationScriptExited": true,
+  "browserProcessesAndProfilesRemoved": true,
+  "temporaryNeo4jRemoved": true,
+  "demoServerKeptRunning": true,
+  "demoNeo4jKeptRunning": true,
+  "postgresPreserved": true,
+  "productionTouched": false
+}

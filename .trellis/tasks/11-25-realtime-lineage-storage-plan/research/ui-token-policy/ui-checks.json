@@ -1,0 +1,17 @@
+{
+  "checks": [
+    "UI create and save returns active revision 1",
+    "Token issued once and hidden without leaking into screenshots",
+    "Preview shows the personal action and zero-write statement",
+    "Enable state is visible and disabling/re-enabling controls the same token",
+    "Revocation is persisted and shown",
+    "Concurrent policy update produces a visible revision conflict",
+    "Desktop/tablet/mobile no document overflow",
+    "Delete confirmation/cancel, row removal, and deleted token rejection",
+    "Personal token cannot access policy controls",
+    "Personal audit shows separate parse/formal/usage states",
+    "Personal audit details open without server file access",
+    "Synthetic personal caller removed after verification; audit history retained"
+  ],
+  "result": "passed"
+}

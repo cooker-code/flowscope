@@ -1,0 +1,60 @@
+{
+  "date": "2026-11-25",
+  "branch": "codex/realtime-lineage-storage-plan",
+  "base": "d4e89415",
+  "rust_runtime": "1.95.0",
+  "neo4j_driver": "neo4rs 0.8.0",
+  "isolated_neo4j": "5.26-community",
+  "production_touched": false,
+  "checks": {
+    "storage_unit": {
+      "passed": 3
+    },
+    "storage_real_neo4j": {
+      "passed": 1
+    },
+    "http_real_neo4j": {
+      "passed": 2
+    },
+    "server_unit_and_audit_migrations": {
+      "passed": 9
+    },
+    "serve_api": {
+      "passed": 92
+    },
+    "serve_integration": {
+      "passed": 11
+    },
+    "clippy_all_targets": "passed",
+    "ordinary_cli_no_default_features": "passed_with_existing_warnings",
+    "normal_dependency_isolation": "passed",
+    "frontend_transport": {
+      "passed": 2
+    },
+    "frontend_typecheck": "passed",
+    "frontend_lint": "passed",
+    "frontend_build": "passed_with_existing_bundle_warnings",
+    "baseline_lint_autofix": {
+      "status": "existing_failures_reproduced_on_unchanged_base",
+      "passed": 43,
+      "failed": [
+        "CP005",
+        "JJ001",
+        "LT013",
+        "RF006",
+        "ST012"
+      ]
+    },
+    "browser_ui": "passed_on_final_embedded_build",
+    "embedded_frontend": "matches final app build; served and browser-verified"
+  },
+  "cleanup": {
+    "browser": "passed: owned processes and temporary profiles removed",
+    "verification_script": "exited",
+    "temporary_server": "graceful SIGTERM, process exited",
+    "isolated_container": "removed with owned anonymous volumes",
+    "original_postgres": "preserved"
+  },
+  "deployment": false,
+  "frontend_index_sha256": "11980842d105e336c8e057bb1bee1fb811b8d4aca1a0a3b1f1bb8155878cb4b0"
+}

@@ -1,0 +1,59 @@
+{
+  "observed_date": "2026-11-25",
+  "timezone": "Asia/Taipei",
+  "operations": "read_only",
+  "flowscope_health": { "status": "ok", "version": "0.7.0" },
+  "flowscope_config": {
+    "dialect": "Hive",
+    "watch_dirs": ["/tmp/sql"],
+    "has_schema": false,
+    "audit_storage": { "type": "sqlite", "location": "data/audit.db", "enabled": true },
+    "template_mode": null
+  },
+  "neo4j_http_health": {
+    "status": "ok",
+    "service": "neo4j-service",
+    "neo4j_connected": true,
+    "embedding_model_loaded": true
+  },
+  "neo4j_http_graph_sink_present_in_openapi": false,
+  "neo4j": {
+    "database": "neo4j",
+    "version": "5.27.0",
+    "edition": "community",
+    "labels": ["CTE", "Derived", "M_COL", "M_TABLE", "Physical", "SYNC", "TEMPLATE"],
+    "relationship_types": ["DERIVES_COL", "JOINS_WITH", "READS_FROM", "REF_TABLE_COL", "REF_TEP"],
+    "uniqueness_constraints": {
+      "cte_uid_uk": ["CTE", "fs_uid"],
+      "derived_col_uid_uk": ["Derived", "fs_uid"],
+      "m_col_physical_uk": ["Physical", "catalog", "db_name", "table_name", "col_name"],
+      "m_table_uk": ["M_TABLE", "catalog", "db_name", "table_name"],
+      "sync_uk": ["SYNC", "scheduler", "task_id"],
+      "template_uk": ["TEMPLATE", "scheduler", "mario_template_id"]
+    },
+    "counts": {
+      "M_TABLE": 4324,
+      "Physical": 70766,
+      "TEMPLATE": 378,
+      "SYNC": 404,
+      "LINEAGE_SCOPE": 0
+    },
+    "m_table_max_utime": "2026-10-27T11:30:44.658Z"
+  },
+  "maintenance": {
+    "id": "neo4j",
+    "status": "ACTIVE",
+    "schedule": "工作日 10:00，按 Asia/Shanghai 昨日分区",
+    "latest_read_run_date": "2026-11-24",
+    "latest_read_target_partition": "2026-11-23",
+    "latest_read_result": "runtime_preflight_uv_locked failed before query or graph write",
+    "log_path": "/tmp/neo4j_daily_2026-11-23_preflight.log"
+  },
+  "limitations": [
+    "Hive registered function JAR was not inspected",
+    "Deployed Change SQL and live scheduler definitions were not inspected",
+    "No complete warehouse-to-graph reconciliation was performed",
+    "max_utime is not a source partition date",
+    "No production write, parse POST, migration or maintenance replay was performed"
+  ]
+}
