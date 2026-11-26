@@ -484,3 +484,36 @@ Token 管理显示实际凭据，管理员可在刷新和重启后再次读取�
 ### Next Steps
 
 - None - task complete
+
+
+## Session 15: 审计页增加入图状态筛选
+
+**Date**: 2026-11-26
+**Task**: 审计页增加入图状态筛选
+**Branch**: `codex/audit-ingestion-filter`
+
+### Summary
+
+增加六类入图状态与全部选项，筛选条件保存在URL并在切换条件时重置分页；后端在计数和分页前匹配有效入图结果，同一个读取快照内返回状态；涵盖策略阻止别名、历史未知和未请求的区别、调用方隔离及无入图配置场景。前端构建/lint/3项接口测试、17项服务端测试、Clippy、1750项核心测试、18个SQL回归通过；浏览器验证筛选/分页/刷新/详情返回/重置和390px窄屏，测试服务及浏览器资源已清理。本次不创建Trellis task。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fc5ab52e4bd3ae41152cc7c9233c7b65b74681c8` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
