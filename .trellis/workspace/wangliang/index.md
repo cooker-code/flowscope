@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 10
-- **Last Active**: 2026-11-03
+- **Total Sessions**: 11
+- **Last Active**: 2026-11-26
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~347 | Active |
+| `journal-1.md` | ~386 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 11 | 2026-11-26 | 审计表增加入图状态与问号说明 | `7b6e72ae` | `codex/audit-graph-status` |
 | 10 | 2026-11-03 | 提交并推送 Hive LATERAL VIEW 限定引用修复 | `be9d0dc4` | `master` |
 | 9 | 2026-07-06 | 修复自依赖 INSERT 缺失 sourceTables 收尾 | `82b3f7f9` | `master` |
 | 8 | 2026-06-23 | 完成审计目标表筛选 | `27e1a1b3`, `16fc359f` | `codex/audit-target-table-filter` |

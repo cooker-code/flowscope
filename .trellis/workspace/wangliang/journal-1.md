@@ -351,3 +351,36 @@ yarn dev 时浏览器报 Unexpected token '<', '<!DOCTYPE'... is not valid JSON 
 ### Next Steps
 
 - 将当前 master 普通推送到 origin/master，读取远端 SHA 与本地 HEAD 比较。
+
+
+## Session 11: 审计表增加入图状态与问号说明
+
+**Date**: 2026-11-26
+**Task**: 审计表增加入图状态与问号说明
+**Branch**: `codex/audit-graph-status`
+
+### Summary
+
+在解析列后展示六类入图状态，圆圈问号支持悬停、点击、键盘和触屏说明；区分历史未知与明确未请求。前端构建、类型和 lint、3 项传输测试、6 项 Rust 测试及桌面/手机浏览器检查通过，临时进程和浏览器目录已清理。本次按用户要求不创建 Trellis task，未部署线上。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7b6e72ae` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
