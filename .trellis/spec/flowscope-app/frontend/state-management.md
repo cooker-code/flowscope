@@ -89,6 +89,22 @@ const [page, setPage] = useState(1);
 
 ---
 
+## Background Audit Polling
+
+When a page contains queued lineage or usage writes, refresh it silently after
+the previous response completes. Background requests must preserve the table,
+pagination controls and open row explanations; do not show the initial-loading
+overlay on each poll. A transient background failure keeps the last page visible
+and retries while queued work remains. Authentication failures stop polling.
+
+Initial loads and filter/page changes retain the visible loading/error states.
+A query change or unmount must cancel its timer and abort its request; an old
+response must never replace the newly selected page. Polling tests cover both
+lineage and usage queues, overlapping-request prevention, transient failures,
+late responses, and timer/request cleanup.
+
+---
+
 ## Cross-Page Hand-off via localStorage
 
 **用户在 A 页面设了视角，跳到 B 详情页后点"返回 A"时，要还原 A 的视角。**

@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use flowscope_core::{AnalyzeResult, NodeType};
+use flowscope_core::{AnalyzeResult, InsertType, NodeType, SqlType};
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
 
@@ -40,7 +40,8 @@ pub struct AuditEntry {
     pub stmt_count: Option<usize>,
     /// Number of physical tables only (CTE nodes excluded).
     pub table_count: Option<usize>,
-    /// Primary statement type of the SQL: INSERT / SELECT / WITH / etc.
+    /// Workload type: SELECT / INSERT INTO / INSERT OVERWRITE; other statement
+    /// types are retained for non-query workloads.
     pub sql_type: Option<String>,
     pub result_json: Option<String>,
     pub result_truncated: bool,
@@ -90,7 +91,7 @@ const CONFIG_STMT_TYPES: &[&str] = &["SET", "USE", "RESET"];
 ///
 /// - `stmt_count`:  meaningful statements only — SET/USE/RESET are excluded.
 /// - `table_count`: physical tables and views only — CTE nodes are excluded.
-/// - `sql_type`: primary statement type of the first meaningful statement (INSERT / SELECT / WITH / CREATE / …).
+/// - `sql_type`: analyzed workload type, distinguishing INSERT INTO / OVERWRITE.
 /// - `has_union`:   detected via edge operation labels AND SQL text scan.
 pub fn extract_audit_flags(
     result: &AnalyzeResult,
@@ -123,8 +124,16 @@ pub fn extract_audit_flags(
 
     let stmt_count = meaningful.len();
 
-    // Primary sql_type = first meaningful statement type
-    let sql_type = meaningful.first().map(|s| s.statement_type.clone());
+    // WITH describes a CTE, not whether the workload reads or writes data.
+    let sql_type = meaningful.first().map(|statement| match result.sql_type {
+        SqlType::Select => "SELECT".to_string(),
+        SqlType::Insert => match result.insert_type {
+            Some(InsertType::Into) => "INSERT INTO".to_string(),
+            Some(InsertType::Overwrite) => "INSERT OVERWRITE".to_string(),
+            None => "INSERT".to_string(),
+        },
+        SqlType::Ddl => statement.statement_type.clone(),
+    });
 
     // Physical tables and views only — CTE nodes are excluded
     let table_count = result
@@ -242,6 +251,31 @@ const ADDITIVE_MIGRATIONS: &[&str] = &[
     "ALTER TABLE audit_log ADD COLUMN target_table TEXT",
 ];
 
+/// Correct legacy statement labels using saved analyzer metadata. Never guess
+/// an INSERT variant from a WITH prefix or inspect truncated JSON as valid JSON.
+const NORMALIZE_SQL_TYPES_SQL: &str = r#"
+WITH classified AS (
+    SELECT id, sql_type,
+        CASE WHEN json_valid(result_json) THEN
+            CASE json_extract(result_json, '$.sqlType')
+                WHEN 'select' THEN 'SELECT'
+                WHEN 'insert' THEN
+                    CASE json_extract(result_json, '$.insertType')
+                        WHEN 'into' THEN 'INSERT INTO'
+                        WHEN 'overwrite' THEN 'INSERT OVERWRITE'
+                        ELSE sql_type
+                    END
+                ELSE sql_type
+            END
+        ELSE sql_type END AS normalized_type
+    FROM audit_log
+    WHERE sql_type IN ('WITH', 'INSERT', 'SELECT', 'CREATE_TABLE_AS')
+)
+UPDATE audit_log
+SET sql_type = (SELECT normalized_type FROM classified WHERE classified.id = audit_log.id)
+WHERE id IN (SELECT id FROM classified WHERE sql_type IS NOT normalized_type);
+"#;
+
 const INSERT_SQL: &str = r#"
 INSERT INTO audit_log (
     ts, client_ip, endpoint, dialect, file_name, source_name, target_table,
@@ -333,6 +367,8 @@ impl AuditWriter {
             }
             conn.execute_batch(CREATE_INDEXES_SQL)
                 .map_err(|e| anyhow::anyhow!("Failed to create audit indexes: {}", e))?;
+            conn.execute_batch(NORMALIZE_SQL_TYPES_SQL)
+                .map_err(|e| anyhow::anyhow!("Failed to normalize audit SQL types: {}", e))?;
             conn
         };
 
@@ -405,8 +441,13 @@ impl AuditWriter {
             extra_params.push(ep.to_string());
         }
         if let Some(st) = filters.sql_type {
-            cond_parts.push("sql_type = ?");
-            extra_params.push(st.to_string());
+            if st.eq_ignore_ascii_case("INSERT") {
+                // Existing API callers can still request both INSERT variants.
+                cond_parts.push("sql_type IN ('INSERT', 'INSERT INTO', 'INSERT OVERWRITE')");
+            } else {
+                cond_parts.push("sql_type = ?");
+                extra_params.push(st.to_string());
+            }
         }
         if let Some(s) = filters.success {
             cond_parts.push("success = ?");
@@ -698,6 +739,66 @@ mod tests {
         }
         conn.execute_batch(CREATE_INDEXES_SQL).unwrap();
         (dir, path, conn)
+    }
+
+    #[tokio::test]
+    async fn startup_normalizes_legacy_sql_types_without_guessing_missing_metadata() {
+        let (_dir, path, conn) = fresh_db();
+        let cases = [
+            (
+                "WITH",
+                r#"{"sqlType":"insert","insertType":"overwrite"}"#,
+                "INSERT OVERWRITE",
+            ),
+            (
+                "INSERT",
+                r#"{"sqlType":"insert","insertType":"into"}"#,
+                "INSERT INTO",
+            ),
+            ("WITH", r#"{"sqlType":"select"}"#, "SELECT"),
+            (
+                "SELECT",
+                r#"{"sqlType":"insert","insertType":"into"}"#,
+                "INSERT INTO",
+            ),
+            ("WITH", "{}", "WITH"),
+            ("WITH", r#"{"sqlType":"insert","insertType":"over"#, "WITH"),
+            ("INSERT", r#"{"sqlType":"insert"}"#, "INSERT"),
+        ];
+        for (old_type, saved_result, _) in cases {
+            let mut entry = make_entry(None, None);
+            entry.sql_type = Some(old_type.to_string());
+            entry.result_json = Some(saved_result.to_string());
+            insert_direct(&conn, &entry);
+        }
+        drop(conn);
+
+        for _ in 0..2 {
+            let writer = AuditWriter::new(path.clone()).unwrap();
+            drop(writer);
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            let mut stmt = conn
+                .prepare("SELECT sql_type FROM audit_log ORDER BY id")
+                .unwrap();
+            let types: Vec<String> = stmt
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap();
+            assert_eq!(types, cases.map(|(_, _, expected)| expected));
+        }
+
+        let page = AuditWriter::query(
+            &path,
+            50,
+            0,
+            AuditLogListFilters {
+                sql_type: Some("INSERT INTO"),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(page.total, 2);
     }
 
     #[test]

@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
     duration_ms      INTEGER NOT NULL,               -- end-to-end handler latency in ms
     stmt_count       INTEGER,                        -- meaningful statements only (SET/USE/RESET excluded)
     table_count      INTEGER,                        -- physical tables and views only (CTE nodes excluded)
-    sql_type         TEXT,                           -- primary statement type: INSERT | SELECT | WITH | CREATE ...
+    sql_type         TEXT,                           -- analyzed workload: SELECT | INSERT INTO | INSERT OVERWRITE; other types retained
     result_json      TEXT,                           -- full AnalyzeResult JSON; truncated to 1 MiB if oversized
     result_truncated INTEGER NOT NULL DEFAULT 0,     -- 1 = result_json was truncated
     error_msg        TEXT                            -- error summary on failure; NULL on success
@@ -160,16 +160,80 @@ let table_count = result.nodes.iter()
 
 **Why**: `AnalyzeResult.summary.table_count` includes CTEs. A query with 8 physical tables and 9 CTEs would show `17` — not useful for understanding data dependencies. The audit field should answer "how many real tables does this touch?"
 
-### `sql_type` — primary statement type
+### `sql_type` — analyzed workload type
 
-The type of the **first meaningful** statement (after filtering SET/USE/RESET):
+#### 1. Scope / Trigger
+
+Audit Type describes whether SQL reads, appends, or overwrites data. A `WITH`
+clause defines CTEs and must not become a separate Type in the audit page.
+Use the analyzer's workload classification, including for multi-statement SQL.
+
+#### 2. Signatures
+
+`extract_audit_flags(&AnalyzeResult, &str)` returns the materialized `sql_type`
+stored in `audit_log.sql_type TEXT`. List, file summaries, and detail APIs expose
+this same string. No additional schema column is required.
+
+#### 3. Contracts
+
+| Analyzer fields | Stored/API `sql_type` | Audit page Type |
+| --- | --- | --- |
+| `sqlType=select` | `SELECT` | `select` |
+| `sqlType=insert`, `insertType=into` | `INSERT INTO` | `ii` |
+| `sqlType=insert`, `insertType=overwrite` | `INSERT OVERWRITE` | `io` |
+
+The page offers these three filter choices plus Any. Filter values are the full
+stored strings, for example `GET /api/audit?sql_type=INSERT%20OVERWRITE`.
+The existing `sql_type=INSERT` filter matches both variants and legacy generic
+INSERT rows. `sqlType=ddl` retains the original statement type in audit APIs;
+unsupported or unclassified types display `—` in the page.
+
+#### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+| --- | --- |
+| Meaningful statements exist | Classify using `AnalyzeResult.sql_type` and `insert_type` |
+| Only SET/USE/RESET, or no analyzed statements | `sql_type=null` |
+| INSERT variant missing | Retain generic `INSERT`; display `—` rather than guess |
+| Legacy row with complete saved classification | Normalize its stored type at audit startup |
+| Missing, malformed, or truncated saved JSON | Leave the legacy type unchanged; unsupported page Type is `—` |
+| Audit database opened repeatedly | Normalization is idempotent and only updates changed labels |
+
+#### 5. Good / Base / Bad Cases
+
+- Base: `SELECT 1` maps to `select`.
+- Good: `WITH src AS (...) INSERT OVERWRITE TABLE dst ...` maps to `io`.
+- Good: `WITH src AS (...) INSERT INTO dst ...` maps to `ii`.
+- Bad: Treating every `WITH` prefix as SELECT loses CTE-prefixed writes.
+
+#### 6. Tests Required
+
+- `audit_query_filter_by_sql_type`: actual analyze/write/list calls cover SELECT,
+  INTO, and OVERWRITE, each with and without WITH; subtype filters return two
+  records each, aggregate INSERT returns four, and WITH returns none.
+- `startup_normalizes_legacy_sql_types_without_guessing_missing_metadata`:
+  reopen twice, verify corrected labels, preserve incomplete/invalid metadata,
+  and verify subtype filtering after correction.
+- `AuditPage SQL types`: render `ii`, `io`, and `select`; unsupported legacy
+  values render `—`.
+
+#### 7. Wrong vs Correct
 
 ```rust
+// Wrong: a statement wrapper is not the workload's read/write classification.
 let sql_type = meaningful.first().map(|s| s.statement_type.clone());
-// Examples: "INSERT", "SELECT", "WITH", "CREATE"
-```
 
-**Note**: `WITH` (not `INSERT`) is returned when a CTE-prefixed query appears before `INSERT OVERWRITE`. This is correct — the outer statement IS a WITH block.
+// Correct: WITH remains represented independently by has_cte.
+let sql_type = meaningful.first().map(|statement| match result.sql_type {
+    SqlType::Select => "SELECT".to_string(),
+    SqlType::Insert => match result.insert_type {
+        Some(InsertType::Into) => "INSERT INTO".to_string(),
+        Some(InsertType::Overwrite) => "INSERT OVERWRITE".to_string(),
+        None => "INSERT".to_string(),
+    },
+    SqlType::Ddl => statement.statement_type.clone(),
+});
+```
 
 ### `has_cte` — WITH clause detection
 
@@ -229,7 +293,7 @@ GET /api/audit?limit=50&offset=0&from=2026-05-01T00:00:00.000Z&to=2026-05-31T23:
 | `from` | ISO 8601 | — | — | filters `ts >= from` |
 | `to` | ISO 8601 | — | — | filters `ts <= to` |
 | `endpoint` | string | — | — | exact match on endpoint field |
-| `sql_type` | string | — | — | exact match on `sql_type` column |
+| `sql_type` | string | — | — | exact match on `sql_type`; `INSERT` matches both write variants and legacy INSERT rows |
 | `success` | bool | — | — | `true` / `false` query param |
 | `file_name` | string | — | — | substring match: `file_name LIKE %value%` |
 | `source_name` (alias `sourceName`) | string | — | — | substring match: `source_name LIKE %value%` |
@@ -249,7 +313,7 @@ Response:
       "sql_hash": "...", "sql_len": 4885,
       "has_cte": true, "has_union": false, "success": true,
       "duration_ms": 5, "stmt_count": 1, "table_count": 3,
-      "sql_type": "INSERT", "result_truncated": false, "error_msg": null
+      "sql_type": "INSERT OVERWRITE", "result_truncated": false, "error_msg": null
     }
   ]
 }

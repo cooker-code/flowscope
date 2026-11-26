@@ -158,7 +158,7 @@ struct AuditQueryParams {
     from: Option<String>,
     to: Option<String>,
     endpoint: Option<String>,
-    /// Exact match on `audit_log.sql_type`
+    /// Exact match on `audit_log.sql_type`; INSERT matches both write variants.
     sql_type: Option<String>,
     /// Filter by success flag
     success: Option<bool>,

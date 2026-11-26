@@ -27,7 +27,11 @@ import { cn, formatLocalTs } from '@/lib/utils';
 const PAGE_SIZE = 50;
 
 const ANY = '__any__';
-const SQL_TYPE_OPTIONS = ['SELECT', 'INSERT', 'WITH', 'CREATE', 'UPDATE', 'DELETE', 'MERGE'];
+const SQL_TYPE_OPTIONS = [
+  { value: 'INSERT INTO', label: 'ii' },
+  { value: 'INSERT OVERWRITE', label: 'io' },
+  { value: 'SELECT', label: 'select' },
+];
 
 // Filter / pagination state lives in the URL so it survives navigating to a
 // lineage detail and back. See `LAST_AUDIT_QUERY_KEY` for the cross-detail
@@ -186,18 +190,26 @@ export function AuditPage() {
     return p.toString();
   }, [page, from, to, sqlType, success, fileName, sourceName, targetTable, urlKeyword]);
 
-  const fetchList = useCallback(
-    async (signal: AbortSignal) => {
-      setLoading(true);
-      setError(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    const { signal } = controller;
+    let timer: number | undefined;
+    let shouldPoll = false;
+
+    const fetchList = async (background = false) => {
+      // Poll queued writes silently so the table stays readable and interactive.
+      if (!background) {
+        setLoading(true);
+        setError(null);
+      }
       try {
         const res = await apiFetch(`/api/audit?${queryString}`, { signal });
+        if (signal.aborted) return;
         if (!res.ok) {
-          setError(
+          if (res.status === 401 || res.status === 403) shouldPoll = false;
+          throw new Error(
             res.status === 401 ? '请先配置有效的访问凭据。' : `Request failed (${res.status})`
           );
-          setData(null);
-          return;
         }
         // Guard against the Vite-dev-without-proxy footgun: when `/api/*` is
         // not proxied to the CLI server (default port 3099), the request
@@ -207,43 +219,37 @@ export function AuditPage() {
         const contentType = res.headers.get('content-type') ?? '';
         if (!contentType.includes('application/json')) {
           const preview = (await res.text()).slice(0, 60).replace(/\s+/g, ' ');
-          setError(
+          throw new Error(
             `Audit API did not return JSON (got: "${preview}…"). ` +
               'In dev mode make sure the CLI is running on http://localhost:3099 ' +
               'and that Vite has `/api` proxied to it (see app/vite.config.ts).'
           );
-          setData(null);
-          return;
         }
         const json = (await res.json()) as AuditQueryResponse;
-        if (!signal.aborted) setData(json);
+        if (signal.aborted) return;
+        shouldPoll = json.records.some(
+          (r) => r.lineage_status === 'queued' || r.usage_status === 'queued'
+        );
+        setData(json);
+        setError(null);
       } catch (e) {
         if (signal.aborted) return;
         setError(e instanceof Error ? e.message : String(e));
-        setData(null);
+        if (!background) setData(null);
       } finally {
-        if (!signal.aborted) setLoading(false);
+        if (!signal.aborted) {
+          if (!background) setLoading(false);
+          if (shouldPoll) timer = window.setTimeout(() => void fetchList(true), 2000);
+        }
       }
-    },
-    [queryString]
-  );
+    };
 
-  useEffect(() => {
-    const controller = new AbortController();
-    void fetchList(controller.signal);
-    return () => controller.abort();
-  }, [fetchList]);
-
-  useEffect(() => {
-    if (!data?.records.some((r) => r.lineage_status === 'queued' || r.usage_status === 'queued'))
-      return;
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => void fetchList(controller.signal), 2000);
+    void fetchList();
     return () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [data, fetchList]);
+  }, [queryString]);
 
   // Persist the current list URL so "Back to audit list" on the lineage detail
   // can restore the exact same filtered/paginated view even after a hard refresh.
@@ -333,9 +339,9 @@ export function AuditPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={ANY}>Any</SelectItem>
-                {SQL_TYPE_OPTIONS.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {t}
+                {SQL_TYPE_OPTIONS.map(({ value, label }) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -495,7 +501,9 @@ export function AuditPage() {
                     <td className="px-3 py-2 max-w-[220px] truncate" title={r.target_table ?? ''}>
                       {r.target_table ?? '—'}
                     </td>
-                    <td className="px-3 py-2">{r.sql_type ?? '—'}</td>
+                    <td className="px-3 py-2" title={r.sql_type ?? undefined}>
+                      {SQL_TYPE_OPTIONS.find((option) => option.value === r.sql_type)?.label ?? '—'}
+                    </td>
                     <td className="px-3 py-2">
                       {!r.success ? (
                         <XCircle

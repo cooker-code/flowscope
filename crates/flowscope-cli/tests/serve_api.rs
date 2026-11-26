@@ -2576,44 +2576,59 @@ async fn audit_warn_counts_records_and_distinct_sql_by_file() {
 async fn audit_query_filter_by_sql_type() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("audit.db");
-    let state = test_state_with_audit(&db_path);
-    let app = build_router(Arc::clone(&state))
-        .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))));
+    let mut state = test_state_with_audit(&db_path);
+    Arc::get_mut(&mut state).unwrap().config.dialect = Dialect::Hive;
+    let app = test_router(state);
 
-    insert_audit_row(
-        &db_path,
-        "2026-01-02T00:00:00.000Z",
-        None,
-        "WITH a AS (SELECT 1) SELECT * FROM a",
-        "WITH",
-        1,
-    );
-    insert_audit_row(
-        &db_path,
-        "2026-01-01T00:00:00.000Z",
-        None,
-        "SELECT 1",
-        "SELECT",
-        1,
-    );
+    for sql in [
+        "SELECT 1 AS id",
+        "WITH src AS (SELECT 1 AS id) SELECT id FROM src",
+        "INSERT INTO dst SELECT 1 AS id",
+        "WITH src AS (SELECT 1 AS id) INSERT INTO dst SELECT id FROM src",
+        "INSERT OVERWRITE TABLE dst SELECT 1 AS id",
+        "WITH src AS (SELECT 1 AS id) INSERT OVERWRITE TABLE dst SELECT id FROM src",
+    ] {
+        let (status, result) = post_json(&app, "/api/analyze", json!({ "sql": sql })).await;
+        assert_eq!(status, StatusCode::OK, "{sql}: {result}");
+    }
+    wait_for_audit_rows(&db_path, 6).await;
 
-    let response = app
-        .oneshot(
-            Request::get("/api/audit?limit=50&offset=0&sql_type=WITH")
+    for (sql_type, expected_count) in [
+        ("SELECT", 2),
+        ("INSERT INTO", 2),
+        ("INSERT OVERWRITE", 2),
+        ("INSERT", 4),
+        ("WITH", 0),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(format!(
+                    "/api/audit?sql_type={}",
+                    sql_type.replace(' ', "%20")
+                ))
                 .body(Body::empty())
                 .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["total"], 1);
-    let rec = &json["records"][0];
-    assert_eq!(rec["sql_type"], "WITH");
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let page: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(page["total"], expected_count, "filter: {sql_type}");
+        for record in page["records"].as_array().unwrap() {
+            if sql_type == "INSERT" {
+                assert!(matches!(
+                    record["sql_type"].as_str(),
+                    Some("INSERT INTO" | "INSERT OVERWRITE")
+                ));
+            } else {
+                assert_eq!(record["sql_type"], sql_type);
+            }
+        }
+    }
 }
 
 #[tokio::test]

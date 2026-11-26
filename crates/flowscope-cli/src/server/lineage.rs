@@ -718,13 +718,8 @@ mod tests {
         assert_eq!(explicit["lineage_status"], "not_requested");
         assert_eq!(explicit["usage_status"], "not_requested");
 
-        let (status, _, detail) = request(
-            &app,
-            &format!("/api/audit/{legacy_id}"),
-            Some(ADMIN),
-            None,
-        )
-        .await;
+        let (status, _, detail) =
+            request(&app, &format!("/api/audit/{legacy_id}"), Some(ADMIN), None).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(detail["lineage_status"], "unknown");
     }
