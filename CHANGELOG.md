@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+#### Core Engine (flowscope-core)
+
+- Hive analysis now recognizes `FROM VALUES (...), (...)` as an inline row source, including audit 443044, while preserving target table and column lineage.
+
 ### Added
 
 - Optional Rust Neo4j storage in CLI serve mode with Bearer caller policies, durable SQLite events, versioned formal lineage, and personal query-usage records.

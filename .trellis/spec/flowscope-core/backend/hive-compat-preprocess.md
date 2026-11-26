@@ -259,6 +259,15 @@ literal value 不再等于原文。但血缘 / table / column / JOIN 关系正�
 
 ---
 
+## 方言特性与预处理边界
+
+`FROM VALUES (...), (...)` 的 Hive 兼容问题由
+`dialect_ext/flowscope_hive.rs` 的 `supports_values_as_table_factor()`
+处理，不改写 SQL 文本。`sqlparser` 开启该特性后将行值表表示为
+`TableFactor::Derived` / `SetExpr::Values`，现有 analyzer visitor 可遍历。
+审计 443044 的原始 SQL 回测应通过 `analyze()` 的 Hive 入口，并同时核对
+目标表、物理来源表与边类型；只消除 `PARSE_ERROR` 不等于血缘正确。
+
 ## 接入位置
 
 ```rust

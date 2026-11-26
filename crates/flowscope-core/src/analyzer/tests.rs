@@ -98,6 +98,35 @@ fn test_dml_insert() {
 }
 
 #[test]
+fn test_hive_insert_from_values_keeps_target_and_no_physical_sources() {
+    let sql = "INSERT OVERWRITE TABLE temp.model_params PARTITION (dt='2026-09-22') \
+               SELECT model_version, raw_coefficient \
+               FROM VALUES ('v1', 0.1), ('v2', 0.2) \
+               AS params (model_version, raw_coefficient)";
+    let mut request = make_request(sql);
+    request.dialect = Dialect::Hive;
+
+    let result = analyze(&request);
+
+    assert!(
+        !result.summary.has_errors,
+        "unexpected issues: {:?}",
+        result.issues
+    );
+    assert_eq!(result.statements.len(), 1);
+    assert_eq!(result.statements[0].statement_type, "INSERT");
+    assert_eq!(
+        result
+            .target_table
+            .as_ref()
+            .and_then(|table| table.qualified_name.as_deref()),
+        Some("temp.model_params")
+    );
+    assert!(result.source_tables.is_empty());
+    assert!(!result.edges.is_empty(), "expected output lineage edges");
+}
+
+#[test]
 fn test_insert_type_overwrite_vs_into() {
     let overwrite_sql = "insert overwrite table dst_tbl select * from src_tbl";
     let into_sql = "insert into dst_tbl select * from src_tbl";

@@ -1,0 +1,32 @@
+{
+  "id": "support-hive-from-values-audit-443044",
+  "name": "support-hive-from-values-audit-443044",
+  "title": "Support Hive FROM VALUES for audit 443044",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "wangliang",
+  "assignee": "wangliang",
+  "createdAt": "2026-09-28",
+  "completedAt": "2026-09-28",
+  "branch": "codex/fix-hive-from-values-443044",
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": "3f6f653826abed5d47a7ce2b544356c478c54f9e",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "crates/flowscope-core/src/dialect_ext/flowscope_hive.rs",
+    "crates/flowscope-core/src/analyzer/tests.rs"
+  ],
+  "notes": "Local fix and Linux package verified; production deployment and later audit readback remain pending on GitLab issue 1.",
+  "meta": {
+    "issue_url": "https://gitlab-ee.zhenguanyu.com/yuanli/flowscope/-/issues/1",
+    "audit_id": 443044
+  }
+}

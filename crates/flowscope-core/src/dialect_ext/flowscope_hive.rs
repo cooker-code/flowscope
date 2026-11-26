@@ -547,6 +547,23 @@ mod tests {
     }
 
     #[test]
+    fn values_as_table_factor_parses() {
+        // Audit 443044 uses this bare FROM VALUES shape with many rows.
+        assert!(parse_ok(
+            "SELECT id, amount FROM VALUES (1, 0.1), (2, 0.2) AS rows (id, amount)"
+        ));
+    }
+
+    #[test]
+    fn upstream_hive_still_fails_values_as_table_factor() {
+        assert!(Parser::parse_sql(
+            &HiveDialect {},
+            "SELECT id FROM VALUES (1), (2) AS rows (id)"
+        )
+        .is_err());
+    }
+
+    #[test]
     fn nested_struct_with_function_parses() {
         // From id=2479 / 2482:
         // TRANSFORM(ARRAY_SORT(COLLECT_LIST(STRUCT(week AS w, label AS l))), x -> x.l)
