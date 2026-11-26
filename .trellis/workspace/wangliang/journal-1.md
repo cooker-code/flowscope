@@ -550,3 +550,37 @@ Token 管理显示实际凭据，管理员可在刷新和重启后再次读取�
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: 汇总全部本地分支并验证审计功能
+
+**Date**: 2026-11-26
+**Task**: 汇总全部本地分支并验证审计功能
+**Branch**: `codex/fix-audit-table-flicker`
+
+### Summary
+
+提交原工作区的审计轮询修复和 SQL 类型分类，合并已有 Token 显示、入图状态筛选及具体原因浮层。合并后通过前端类型检查、Lint、17 项相关测试、CLI 190 项单测、92 项接口测试、18 个 SQL 回归及 10 项实际接口与桌面/手机交互场景。浏览器、临时目录、本地服务和端口已清理；按用户要求不创建 Trellis task。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fde842be` | (see git log) |
+| `41af81ee` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Audit polling refreshes queued writes without covering the table or disabling
+  pagination. Audit SQL types consistently show `ii`, `io`, and `select`, including
+  CTE-prefixed writes and legacy rows with complete saved analyzer metadata.
 - Audit graph status badges expose each request's actual reason on hover or
   click, with Chinese explanations, complete table/column names and raw details.
 - Token management shows full usable credentials instead of internal IDs, keeps
