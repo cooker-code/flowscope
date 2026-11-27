@@ -355,7 +355,8 @@ Applies to audit list status filtering, counts/pagination and the audit page's
 
 `GET /api/audit?lineage_status=<value>&limit=50&offset=0` accepts `committed`,
 `queued`, `blocked`, `failed`, `not_requested`, and `unknown`. Omit the parameter
-for all statuses. `blocked_policy` is accepted as an alias of `blocked`.
+for all statuses. `blocked` is a legacy alias for `failed`; `blocked_policy`
+is a legacy alias for `not_requested`.
 
 #### Contracts
 
@@ -363,8 +364,14 @@ for all statuses. `blocked_policy` is accepted as an alias of `blocked`.
   event outcomes override action/status; otherwise publish events use their
   status and other event actions are not requested for formal lineage.
 - An owned audit without an event is `not_requested`. Ownerless legacy history
-  is `unknown`. Null or unrecognized effective statuses also display as unknown.
-- `blocked` includes `blocked_policy` because both display as 未入图.
+  is `unknown`. Null or unrecognized effective statuses remain unknown internally and display blank.
+- Display choices are queued → committed → failed → not_requested. Apply the
+  shared `GRAPH_STATUS_CASE` classifier to stored outcomes/reasons and parse
+  evidence; a missing historical status stays unknown and its badge is blank.
+- New explicit parse-only rows save `lineage_decision=not_requested`, including
+  anonymous requests; no historical backfill fabricates this evidence.
+- `lineage_reason` explains the formal decision independently of personal
+  `policy_reason`; committed rows may also expose optional `graph_changes`.
 - Apply ownership and every filter before counting and pagination. For all
   responses, count, page and decorated metadata share one SQLite read snapshot;
   do not re-decorate rows from a later event snapshot. Fetch page metadata with
@@ -396,7 +403,7 @@ for all statuses. `blocked_policy` is accepted as an alias of `blocked`.
 #### Tests required
 
 `audit_lineage_filter_matches_displayed_outcomes_before_pagination` covers all
-six values, policy alias, outcome precedence, null/future states, ownership,
+canonical values and legacy aliases, outcome precedence, null/future states, ownership,
 combined warning/name filters, distinct counts, pagination, invalid values and
 configuration without graph results. Browser checks cover all choices, page
 reset, reload, detail return, reset and narrow-screen operation.

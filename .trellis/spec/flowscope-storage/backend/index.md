@@ -84,14 +84,94 @@ sentinels using `toString(...)` and parse i64 in Rust, with an error on malforme
 values. Never silently default a failed version decode. The real integration
 test must exercise first publication from the `-1` sentinel.
 
-Required tests: position mapping, CTE/UNION, JOIN source endpoints, window
+Select checks under [the minimum necessary validation policy](../../../../AGENTS.md#按改动范围做最小必要验证).
+The regression inventory includes position mapping, CTE/UNION, JOIN source endpoints, window
 controls, schema gaps, first publish, A→T to B→T, stale/equal versions,
 idempotency, personal INSERT, unknown personal tables, shared producers,
 withdrawal, concurrent versions, and a constraint failure after old contribution
-deactivation proving full rollback. Use a task-owned loopback Neo4j container;
-normal unit test runs leave database tests ignored until explicitly configured.
+deactivation proving full rollback. Run the affected cases, not the entire
+inventory for every edit. Pure normalization, status classification, filtering
+and pagination use targeted unit tests or temporary SQLite without Neo4j.
+
+Changes to actual Neo4j writes, transactions, counts or receipts need one focused
+real-database run for the affected behavior. Prefer an already authorized,
+isolated test instance; use a task-owned loopback container only when needed to
+provide that isolation. Docker is not a default validation dependency. Normal
+unit runs leave database tests ignored until explicitly configured. HTTP, browser,
+restart and full-chain checks require an affected boundary or explicit acceptance
+criterion; reuse still-valid results and clean up only resources actually started.
+
+
+## Committed business change statistics
+
+### Scope / trigger
+
+Use this contract when changing formal publication, projection, receipts or the
+ApplyOutcome JSON consumed by audit UI.
+
+### Signatures
+
+`ApplyOutcome.graph_changes: Option<GraphChanges>` serializes as `graphChanges`.
+GraphChanges has `nodes`, `relationships`, `nodeTotals`, `relationshipTotals`;
+each group/total has unsigned `created`, `updated`, `deleted` counts. Old JSON
+without statistics decodes as None, not a measured zero.
+
+### Contracts
+
+Compare before/after images only for this event's business entities, old/new
+targets and affected managed projection keys. Exclude ctime/utime/lock_tick and
+canonicalize unordered scope/hash lists. Group multi-label physical columns once
+as M_COL:Physical, derived columns as M_COL:Derived. Internal events, facts,
+revisions and locks are excluded. Do not delete shared nodes to produce counts.
+
+Take sorted edge locks and then sorted LINEAGE_ENTITY_LOCK locks before reading
+business before-images. Natural identity lookups must find legacy nodes without
+LINEAGE_ENTITY markers. LINEAGE_FACT.edge_key is indexed for scoped relation
+lookups. Preserve existing source-version locking and all-or-nothing writes.
+
+Store statistics in the event's outcome_json in the same transaction as business
+changes. Only a confirmed commit/receipt may expose success statistics. Replaying
+the same event returns its original counts; a new already_current event returns
+measured zero. A failed/blocked outcome carries no success statistics.
+
+### Validation and error matrix
+
+| Condition | Counts |
+| --- | --- |
+| First publication | Created counts match actual business graph |
+| Existing physical objects only have timestamps refreshed | No physical update count |
+| Target producer properties change | Target node update |
+| Shared sources create the same objects concurrently | Sum of creations counts each object once |
+| Source withdraws | Count actual projected relation removals, preserve shared nodes |
+| Transaction fails after deactivating old facts | Roll back business changes and statistics/receipt |
+| Commit ack lost | Receipt recovers identical counts |
+
+### Good / base / bad cases
+
+- Good: recover an original graphChanges receipt after a local acknowledgement crash.
+- Base: a historical receipt has graph_changes=None.
+- Bad: use snapshot.entities.len() as created count or count internal lock nodes.
+
+### Tests required
+
+For changes to actual business writes/counts, select affected cases from the
+isolated Neo4j suite: creations against database counts, deletion,
+idempotency, same-version no-op, timestamp-only changes, concurrent shared
+creations and rollback. Use real HTTP/restart cases only when the changed
+contract or recovery path needs them. Pure net-change classification and
+old-result decoding use unit tests; UI formatting uses component tests. These
+edits do not by themselves require Docker or the database suite. Unit/mocked
+results cannot establish correctness of changed real writes or transactions.
+
+### Wrong vs correct
+
+```rust
+// Wrong: analyzed entities do not prove database creations.
+let created = snapshot.entities.len();
+// Correct: classify locked business before/after images, then commit the receipt.
+let changes = GraphChanges::between(&before_nodes, &after_nodes, &before_edges, &after_edges);
+```
 
 ## Ingestion performance and diagnostics
 
-See [Indexed, bounded ingestion](./ingestion-performance.md) for required indexes,
-batch/lock contracts, phase-specific retry reasons and real Neo4j benchmarks.
+See [Indexed, bounded ingestion](./ingestion-performance.md) for index, batch/lock and retry contracts. Select validation under the minimum necessary policy above.

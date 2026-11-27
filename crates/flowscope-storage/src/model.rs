@@ -139,6 +139,8 @@ pub struct ApplyOutcome {
     pub lineage_status: String,
     pub usage_status: String,
     pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph_changes: Option<crate::GraphChanges>,
 }
 impl ApplyOutcome {
     pub fn recorded() -> Self {
@@ -146,6 +148,7 @@ impl ApplyOutcome {
             lineage_status: "not_requested".into(),
             usage_status: "not_requested".into(),
             reason: None,
+            graph_changes: None,
         }
     }
     pub fn blocked(reason: impl Into<String>) -> Self {
@@ -153,6 +156,13 @@ impl ApplyOutcome {
             lineage_status: "blocked".into(),
             usage_status: "not_requested".into(),
             reason: Some(reason.into()),
+            graph_changes: None,
+        }
+    }
+    pub fn not_requested(reason: impl Into<String>) -> Self {
+        Self {
+            reason: Some(reason.into()),
+            ..Self::recorded()
         }
     }
 }

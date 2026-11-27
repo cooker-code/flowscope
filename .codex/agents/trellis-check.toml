@@ -34,7 +34,7 @@ Before checking, read:
 2. **Review task artifacts** - Check changes against prd.md, design.md if present, and implement.md if present
 3. **Check against specs** - Verify code follows guidelines
 4. **Self-fix** - Fix issues yourself, not just report them
-5. **Run verification** - typecheck and lint
+5. **Run verification** - select checks for the changed behavior under AGENTS.md
 
 ## Important
 
@@ -75,9 +75,9 @@ After finding issues:
 
 ### Step 4: Run Verification
 
-Run project's lint and typecheck commands to verify changes.
+Follow AGENTS.md's minimum necessary validation policy. Select checks for the actual changed behavior; documentation-only edits need content, link and diff checks. Do not start Docker, browsers, rebuild/embed/restart services or run a full chain by default. Escalate only for a concrete evidence gap or explicit acceptance criterion; reuse still-valid results.
 
-If failed, fix issues and re-run.
+If failed, fix issues and rerun the affected checks. Report only checks actually run, their coverage and any material unverified behavior.
 
 ---
 

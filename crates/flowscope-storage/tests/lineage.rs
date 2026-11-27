@@ -1,6 +1,7 @@
 use flowscope_core::{analyze, AnalyzeRequest};
 use flowscope_storage::{
-    normalize, Action, LineageStore, Neo4jConfig, Neo4jStore, SourceContext, StorageEvent,
+    normalize, Action, ChangeCounts, GraphChanges, LineageStore, Neo4jConfig, Neo4jStore,
+    SourceContext, StorageEvent,
 };
 use neo4rs::query;
 use serde_json::json;
@@ -10,7 +11,9 @@ fn event(sql: &str, version: &str) -> StorageEvent {
         serde_json::from_value(json!({"sql":sql,"dialect":"hive","schema":{"tables":[
             {"schema":"dw","name":"a","columns":[{"name":"id","dataType":"BIGINT"}]},
             {"schema":"dw","name":"b","columns":[{"name":"id","dataType":"BIGINT"}]},
-            {"schema":"dw","name":"t","columns":[{"name":"target_id","dataType":"BIGINT"}]}
+            {"schema":"dw","name":"t","columns":[{"name":"target_id","dataType":"BIGINT"}]},
+            {"schema":"dw","name":"common","columns":[{"name":"id","dataType":"BIGINT"}]},
+            {"schema":"dw","name":"u","columns":[{"name":"target_id","dataType":"BIGINT"}]}
         ]}}))
         .unwrap();
     StorageEvent {
@@ -175,7 +178,38 @@ async fn isolated_neo4j_versions_usage_shared_sources_and_replay() {
         normalize(&a).issues,
         serde_json::to_string_pretty(&a.analysis).unwrap()
     );
-    assert_eq!(store.apply(&a).await.unwrap().lineage_status, "committed");
+    let initial = store.apply(&a).await.unwrap();
+    assert_eq!(initial.lineage_status, "committed");
+    let changes = initial.graph_changes.clone().unwrap();
+    assert_eq!(
+        changes.node_totals.created as i64,
+        count(&store, "MATCH (n:LINEAGE_ENTITY) RETURN count(n) AS n").await
+    );
+    assert_eq!(changes.nodes["M_TABLE"].created, 2);
+    assert_eq!(changes.nodes["M_COL:Physical"].created, 2);
+    assert_eq!(
+        changes.relationship_totals.created as i64,
+        count(
+            &store,
+            "MATCH ()-[r]->() WHERE r.projection_key IS NOT NULL RETURN count(r) AS n"
+        )
+        .await
+    );
+    assert_eq!(changes.node_totals.updated, 0);
+    assert_eq!(
+        store.apply(&a).await.unwrap().graph_changes,
+        initial.graph_changes
+    );
+    assert_eq!(
+        store.receipt(&a).await.unwrap().unwrap().graph_changes,
+        initial.graph_changes
+    );
+    let mut same = a.clone();
+    same.event_id = "same-version-new-event".into();
+    assert_eq!(
+        store.apply(&same).await.unwrap().graph_changes,
+        Some(GraphChanges::default())
+    );
     let nodes = count(&store, "MATCH (n:M_TABLE) RETURN count(n) AS n").await;
     let facts = count(
         &store,
@@ -236,7 +270,9 @@ async fn isolated_neo4j_versions_usage_shared_sources_and_replay() {
     withdraw.event_id = "withdraw".into();
     withdraw.source.as_mut().unwrap().source_version = "3".into();
     withdraw.source.as_mut().unwrap().event_kind = "withdraw".into();
-    store.apply(&withdraw).await.unwrap();
+    let withdrawn = store.apply(&withdraw).await.unwrap().graph_changes.unwrap();
+    assert!(withdrawn.relationships["READS_FROM"].deleted > 0);
+    assert_eq!(withdrawn.node_totals.deleted, 0);
     assert_eq!(count(&store,"MATCH (:M_TABLE {table_name:'a'})-[:READS_FROM]->(:M_TABLE {table_name:'t'}) RETURN count(*) AS n").await,0);
     assert_eq!(count(&store,"MATCH (:M_TABLE {table_name:'b'})-[:READS_FROM]->(:M_TABLE {table_name:'t'}) RETURN count(*) AS n").await,1);
     let before = count(&store, "MATCH (f:LINEAGE_FACT) RETURN count(f) AS n").await;
@@ -255,7 +291,7 @@ async fn isolated_neo4j_versions_usage_shared_sources_and_replay() {
     broken.analysis.resolved_schema = None;
     assert_eq!(
         store.apply(&broken).await.unwrap().lineage_status,
-        "blocked"
+        "not_requested"
     );
     assert_eq!(count(&store,"MATCH (:M_TABLE {table_name:'b'})-[:READS_FROM]->(:M_TABLE {table_name:'t'}) RETURN count(*) AS n").await,1,"invalid candidate leaves current graph intact");
     let mut conflict = b.clone();
@@ -330,4 +366,66 @@ async fn isolated_neo4j_versions_usage_shared_sources_and_replay() {
     }
     assert_eq!(count(&store,"MATCH (:M_TABLE {table_name:'b'})-[:READS_FROM]->(:M_TABLE {table_name:'t'}) RETURN count(*) AS n").await,1,"concurrent old/new commits leave newest source current");
     assert_eq!(count(&store,"MATCH (:M_TABLE {table_name:'a'})-[:READS_FROM]->(:M_TABLE {table_name:'t'}) RETURN count(*) AS n").await,0);
+    // Different sources concurrently create the same physical objects.
+    let mut left = event("INSERT OVERWRITE TABLE dw.u SELECT id FROM dw.common", "1");
+    left.event_id = "shared-create-left".into();
+    left.source.as_mut().unwrap().source_id = "201".into();
+    let mut right = left.clone();
+    right.event_id = "shared-create-right".into();
+    right.source.as_mut().unwrap().source_id = "202".into();
+    let (left_result, right_result) = tokio::join!(store.apply(&left), store.apply(&right));
+    let mut created_tables = 0;
+    let mut created_columns = 0;
+    for (event, result) in [(&left, left_result), (&right, right_result)] {
+        let outcome = match result {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                assert!(error.retryable(), "{error}");
+                store.apply(event).await.unwrap()
+            }
+        };
+        let changes = outcome.graph_changes.unwrap();
+        created_tables += changes
+            .nodes
+            .get("M_TABLE")
+            .cloned()
+            .unwrap_or_default()
+            .created;
+        created_columns += changes
+            .nodes
+            .get("M_COL:Physical")
+            .cloned()
+            .unwrap_or_default()
+            .created;
+    }
+    assert_eq!(created_tables, 2);
+    assert_eq!(created_columns, 2);
+    // An identical publication by a new source touches existing physical nodes,
+    // but only the target's producer properties change; no timestamp-only updates.
+    let mut third = left.clone();
+    third.event_id = "shared-third".into();
+    third.source.as_mut().unwrap().source_id = "203".into();
+    let delta = store.apply(&third).await.unwrap().graph_changes.unwrap();
+    assert_eq!(
+        delta
+            .nodes
+            .get("M_COL:Physical")
+            .cloned()
+            .unwrap_or_default(),
+        ChangeCounts::default()
+    );
+    assert_eq!(
+        delta.nodes["M_TABLE"],
+        ChangeCounts {
+            created: 0,
+            updated: 1,
+            deleted: 0
+        }
+    );
+    // Backward-compatible receipts distinguish unavailable statistics from zero.
+    let old: flowscope_storage::ApplyOutcome = serde_json::from_value(
+        json!({"lineageStatus":"committed","usageStatus":"not_requested","reason":null}),
+    )
+    .unwrap();
+    assert!(old.graph_changes.is_none());
 }

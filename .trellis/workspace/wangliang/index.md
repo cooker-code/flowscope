@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 19
+- **Total Sessions**: 20
 - **Last Active**: 2026-11-27
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~653 | Active |
+| `journal-1.md` | ~686 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 20 | 2026-11-27 | 统一审计入图状态并补充实际变更统计 | `d01351e6` | `codex/fix-ingestion-status-semantics` |
 | 19 | 2026-11-27 | 入图优化、审计页精简及 Linux CLI 打包上传 | `ec001c6f`, `2fdb5395` | `codex/fix-lineage-retry-throughput` |
 | 18 | 2026-11-26 | 修复历史审计类型校正阻塞启动 | `577e0295` | `codex/fix-audit-startup-blocking` |
 | 17 | 2026-11-26 | 汇总全部本地分支并验证审计功能 | `fde842be`, `41af81ee` | `codex/fix-audit-table-flicker` |

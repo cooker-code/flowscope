@@ -85,14 +85,24 @@ export const ACTION_LABELS: Record<StorageAction, string> = {
   observe: '仅留存观察记录',
   parse_only: '仅解析',
 };
+/** Shared display order for the filter and status legend. */
 export const INGESTION_STATUS_LABELS = {
-  committed: '已入图',
   queued: '待入图',
-  blocked: '未入图',
-  failed: '入图失败',
+  committed: '已入图',
+  failed: '未入图',
   not_requested: '未请求入图',
-  unknown: '入图状态未知',
 } as const;
+export interface ChangeCounts {
+  created: number;
+  updated: number;
+  deleted: number;
+}
+export interface GraphChanges {
+  nodes: Record<string, ChangeCounts>;
+  relationships: Record<string, ChangeCounts>;
+  nodeTotals: ChangeCounts;
+  relationshipTotals: ChangeCounts;
+}
 export function graphStatus(value?: string | null): string {
   const labels: Record<string, string> = {
     committed: '已提交',

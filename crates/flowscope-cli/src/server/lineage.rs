@@ -10,7 +10,8 @@ use axum::{
 };
 use flowscope_core::AnalyzeResult;
 use flowscope_storage::{
-    Action, LineageStore, Neo4jStore, SourceContext, StorageError, StorageEvent,
+    normalize, publication_rejection, Action, ApplyOutcome, LineageStore, Neo4jStore,
+    SourceContext, StorageError, StorageEvent,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -171,16 +172,10 @@ impl LineageRuntime {
             source,
             analysis: result,
         };
-        let inserted = self.db.enqueue(event, entries).await?;
-        let storage_status = if inserted {
-            "queued".to_string()
-        } else {
-            self.db.event(event_id.clone(), caller.clone()).await?["status"]
-                .as_str()
-                .unwrap_or("queued")
-                .to_string()
-        };
-        self.notify.notify_one();
+        let storage_status = self.db.enqueue(event, entries).await?;
+        if storage_status == "queued" {
+            self.notify.notify_one();
+        }
         for (name, value) in [
             ("x-flowscope-request-id", request_id),
             ("x-flowscope-event-id", event_id),
@@ -241,6 +236,21 @@ impl LineageRuntime {
                     continue;
                 }
             };
+            if event.action == Action::Publish {
+                if let Some(reason) = publication_rejection(&event, &normalize(&event)) {
+                    let outcome = ApplyOutcome::not_requested(reason.clone());
+                    let _ = self
+                        .db
+                        .finish(
+                            event.event_id,
+                            "not_requested",
+                            serde_json::to_value(outcome).ok(),
+                            Some(reason),
+                        )
+                        .await;
+                    continue;
+                }
+            }
             if store.is_none() {
                 let password = match std::env::var(&self.settings.neo4j.password_env) {
                     Ok(p) => p,
@@ -875,6 +885,123 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn withdrawal_keeps_its_queue_semantics_even_when_sql_cannot_parse() {
+        let (_dir, _state, app) = fixture().await;
+        let token = provision(&app, "withdraw_owner", "scheduler", "publish").await;
+        let (_,headers,parsed) = request(&app,"/api/analyze",Some(&token),Some(json!({"sql":"SELECT (","lineage":{"sourceSystem":"change","sourceId":"withdrawal","sourceVersion":"2","environment":"test","eventKind":"withdraw"}}))).await;
+        assert_eq!(parsed["summary"]["hasErrors"], true);
+        assert_eq!(headers["x-flowscope-storage-status"], "queued");
+        let (_, _, list) =
+            request(&app, "/api/audit?lineage_status=queued", Some(&token), None).await;
+        assert_eq!(list["total"], 1);
+        let (_, _, event) = request(
+            &app,
+            &format!(
+                "/api/lineage/events/{}",
+                headers["x-flowscope-event-id"].to_str().unwrap()
+            ),
+            Some(&token),
+            None,
+        )
+        .await;
+        assert_eq!(event["lineageStatus"], list["records"][0]["lineage_status"]);
+    }
+
+    #[tokio::test]
+    async fn personal_write_failure_does_not_become_a_formal_graph_failure_reason() {
+        let (_dir, state, app) = fixture().await;
+        let token = provision(&app, "usage_reason", "person", "record_usage").await;
+        let (_, headers, _) = request(
+            &app,
+            "/api/analyze",
+            Some(&token),
+            Some(json!({"sql":"SELECT 1"})),
+        )
+        .await;
+        state
+            .lineage
+            .as_ref()
+            .unwrap()
+            .db
+            .finish(
+                headers["x-flowscope-event-id"].to_str().unwrap().into(),
+                "failed",
+                None,
+                Some("neo4j_rejected_event".into()),
+            )
+            .await
+            .unwrap();
+        let (_, _, list) = request(&app, "/api/audit", Some(&token), None).await;
+        let row = &list["records"][0];
+        assert_eq!(row["lineage_status"], "not_requested");
+        assert_eq!(row["lineage_reason"], "policy_does_not_request_lineage");
+        assert_eq!(row["policy_reason"], "neo4j_rejected_event");
+        assert_eq!(row["usage_status"], "failed");
+    }
+
+    #[tokio::test]
+    async fn rejected_publication_is_terminal_without_queue_and_filters_match_detail() {
+        let (_dir, state, app) = fixture().await;
+        let token = provision(&app, "rejected_owner", "scheduler", "publish").await;
+        for (sql, reason) in [
+            ("SELECT (", "parse_failed"),
+            ("SELECT * FROM dw.missing", "incomplete_analysis:"),
+        ] {
+            let (http, headers, analysis) = request(&app,"/api/analyze",Some(&token),Some(json!({
+                "sql":sql,"lineage":{"sourceSystem":"change","sourceId":"rejected","sourceVersion":"1","environment":"test"}
+            }))).await;
+            assert_eq!(http, StatusCode::OK, "{analysis}");
+            assert_eq!(headers["x-flowscope-storage-status"], "not_requested");
+            let id = headers["x-flowscope-event-id"].to_str().unwrap();
+            let (_, _, event) = request(
+                &app,
+                &format!("/api/lineage/events/{id}"),
+                Some(&token),
+                None,
+            )
+            .await;
+            assert_eq!(event["lineageStatus"], "not_requested");
+            assert!(event["reason"].as_str().unwrap().starts_with(reason));
+        }
+        assert!(state
+            .lineage
+            .as_ref()
+            .unwrap()
+            .db
+            .next()
+            .await
+            .unwrap()
+            .is_none());
+        let (_, _, metrics) = request(&app, "/api/lineage/metrics", Some(&token), None).await;
+        assert_eq!(metrics["blocked"], 2);
+        assert_eq!(metrics["queued"], 0);
+        assert_eq!(metrics["rate"]["confirmedEvents"], 0);
+        let (_, _, list) = request(
+            &app,
+            "/api/audit?lineage_status=not_requested",
+            Some(&token),
+            None,
+        )
+        .await;
+        assert_eq!(list["total"], 2);
+        for row in list["records"].as_array().unwrap() {
+            let (_, _, detail) = request(
+                &app,
+                &format!("/api/audit/{}", row["id"]),
+                Some(&token),
+                None,
+            )
+            .await;
+            assert_eq!(detail["lineage_status"], row["lineage_status"]);
+            assert_eq!(detail["policy_reason"], row["policy_reason"]);
+            assert!(row["graph_changes"].is_null());
+        }
+        let (_, _, queued) =
+            request(&app, "/api/audit?lineage_status=queued", Some(&token), None).await;
+        assert_eq!(queued["total"], 0);
+    }
+
+    #[tokio::test]
     async fn audit_lineage_filter_matches_displayed_outcomes_before_pagination() {
         let (dir, state, app) = fixture().await;
         let owner = provision(&app, "filter_owner", "scheduler", "publish").await;
@@ -939,9 +1066,9 @@ mod tests {
             ("committed", 2),
             ("queued", 1),
             ("blocked", 2),
-            ("blocked_policy", 2),
-            ("failed", 1),
-            ("not_requested", 2),
+            ("blocked_policy", 3),
+            ("failed", 2),
+            ("not_requested", 3),
             ("unknown", 2),
         ] {
             let (http, _, result) = request(
@@ -956,17 +1083,16 @@ mod tests {
             assert_eq!(result["records"].as_array().unwrap().len(), count as usize);
             for row in result["records"].as_array().unwrap() {
                 assert_eq!(row["principal_id"], "filter_owner");
-                if status == "blocked" || status == "blocked_policy" {
-                    assert!([json!("blocked"), json!("blocked_policy")]
-                        .contains(&row["lineage_status"]));
-                } else if status == "unknown" {
-                    assert!([Value::Null, json!("future_status")].contains(&row["lineage_status"]));
+                if status == "blocked" {
+                    assert_eq!(row["lineage_status"], "failed");
+                } else if status == "blocked_policy" {
+                    assert_eq!(row["lineage_status"], "not_requested");
                 } else {
                     assert_eq!(row["lineage_status"], status);
                 }
             }
         }
-        for (status, count) in [("queued", 2), ("not_requested", 3), ("unknown", 3)] {
+        for (status, count) in [("queued", 2), ("not_requested", 4), ("unknown", 3)] {
             let (http, _, result) = request(
                 &app,
                 &format!("/api/audit?lineage_status={status}"),

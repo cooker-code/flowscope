@@ -1,4 +1,9 @@
-import { apiFetch, graphStatus, INGESTION_STATUS_LABELS } from '@/lib/lineage-api';
+import {
+  apiFetch,
+  graphStatus,
+  INGESTION_STATUS_LABELS,
+  type GraphChanges,
+} from '@/lib/lineage-api';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -69,6 +74,8 @@ interface AuditListRecord {
   lineage_status?: string | null;
   usage_status?: string | null;
   policy_reason?: string | null;
+  lineage_reason?: string | null;
+  graph_changes?: GraphChanges | null;
 }
 
 interface AuditQueryResponse {
@@ -88,7 +95,13 @@ export function AuditPage() {
   const to = searchParams.get('to') ?? '';
   const sqlType = searchParams.get('sql_type') ?? ANY;
   const success = searchParams.get('success') ?? ANY;
-  const lineageStatus = searchParams.get('lineage_status') ?? ANY;
+  const rawLineageStatus = searchParams.get('lineage_status') ?? ANY;
+  const lineageStatus =
+    rawLineageStatus === 'blocked'
+      ? 'failed'
+      : rawLineageStatus === 'blocked_policy'
+        ? 'not_requested'
+        : rawLineageStatus;
   const fileName = searchParams.get('file_name') ?? '';
   const sourceName = searchParams.get('source_name') ?? '';
   const targetTable = searchParams.get('target_table') ?? '';
@@ -390,7 +403,9 @@ export function AuditPage() {
             </label>
             <Select value={lineageStatus} onValueChange={setLineageStatus}>
               <SelectTrigger id="audit-lineage-status" className="h-9 w-[160px] text-xs">
-                <SelectValue placeholder="全部" />
+                <SelectValue placeholder="全部">
+                  {lineageStatus === 'unknown' ? '历史空白记录' : undefined}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={ANY}>全部</SelectItem>
@@ -569,7 +584,8 @@ export function AuditPage() {
                     <td className="px-3 py-2 whitespace-nowrap">
                       <GraphIngestionStatus
                         status={r.lineage_status}
-                        reason={r.policy_reason ?? null}
+                        reason={r.lineage_reason ?? r.policy_reason ?? null}
+                        changes={r.graph_changes ?? null}
                       />
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">{graphStatus(r.usage_status)}</td>

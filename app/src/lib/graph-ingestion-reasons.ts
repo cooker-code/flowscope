@@ -4,6 +4,8 @@ export interface GraphIngestionReason {
 }
 
 const REASON_LABELS: Record<string, string> = {
+  parse_failed: 'SQL 解析失败，未请求更新正式血缘',
+  policy_does_not_request_lineage: '本次策略只解析、留存观察或记录个人使用，未要求更新正式血缘',
   ambiguous_column_owner: '字段无法唯一归属到一个表',
   ambiguous_join_scope: '无法确定 JOIN 两侧对应的唯一物理表',
   pending_metadata: '缺少或尚未匹配到表结构信息',

@@ -563,12 +563,13 @@ Goal: ensure code quality, capture lessons, record the work.
 
 #### 3.1 Quality verification `[required · repeatable]`
 
-Load the `trellis-check` skill and do a final verification:
-- Spec compliance
-- lint / type-check / tests
-- Cross-layer consistency (when changes span layers)
+Load the `trellis-check` skill and select final checks under [AGENTS.md's minimum necessary validation policy](../AGENTS.md#按改动范围做最小必要验证):
 
-If issues are found → fix → re-check, until green.
+- Spec compliance
+- Affected lint / type-check / tests; documentation-only edits use content, link and diff checks
+- Cross-layer consistency for changed boundaries, without defaulting to Docker or a full chain
+
+Reuse still-valid results. If issues are found → fix → re-check the affected behavior, until the selected checks pass. Escalate only for a concrete evidence gap or explicit acceptance requirement.
 
 #### 3.2 Debug retrospective `[on demand]`
 

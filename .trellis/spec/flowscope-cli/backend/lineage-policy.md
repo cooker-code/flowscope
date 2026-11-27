@@ -281,97 +281,102 @@ empty server-files view, so their own audit details can still open.
 
 #### Scope / trigger
 
-Apply this contract when decorating audit list/detail responses or presenting
-the audit table's graph-write outcome. Parser success and graph commit are
-independent; absence of historical evidence cannot establish a storage decision.
+Applies to request admission, formal graph outcomes, audit list/detail/filtering
+and the status badge. A parse request is not a formal graph-write request.
 
 #### Signatures
 
-`GET /api/audit` and `GET /api/audit/{id}` expose `lineage_status` and
-`usage_status`, decorated by `PolicyDb::decorate_audits`. These are response
-fields derived from the audit owner/event and event outcome; adding a UI column
-does not require another SQLite column.
+- `publication_rejection(&StorageEvent, &Snapshot) -> Option<String>` is shared
+  by admission, recovery and the store's defensive publication check.
+- `GET /api/audit` and `/api/audit/{id}` expose `lineage_status`, `usage_status`,
+  `policy_reason`, `lineage_reason` and optional `graph_changes`.
+- `GET /api/lineage/events/{id}` exposes `lineageStatus`, `lineageReason` and
+  optional `graphChanges`, alongside the original event lifecycle `status`.
+- Nullable SQLite `audit_log.lineage_decision` records an explicit parse-only
+  decision for new owned or anonymous rows. Historical NULL is not backfilled.
 
 #### Contracts
 
-| `lineage_status` | Audit label | Meaning |
+Show exactly four states, in this order in both the legend and select:
+
+| Business status | Label | Meaning |
 | --- | --- | --- |
-| `committed` | 已入图 | Formal Neo4j write committed |
-| `queued` | 待入图 | Durably accepted; pending, processing or retrying, not confirmed committed |
-| `blocked`, `blocked_policy` | 未入图 | Analysis, metadata or policy checks prevented writing; show `policy_reason` |
-| `failed` | 入图失败 | Graph write failed without a confirmed commit |
-| `not_requested` | 未请求入图 | Explicit request policy did not request formal graph updates |
-| `unknown` | 入图状态未知 | Historical graph-write evidence is unavailable |
+| `queued` | 待入图 | Eligible publication waiting, processing or retrying |
+| `committed` | 已入图 | Confirmed formal transaction or recovered receipt |
+| `failed` | 未入图 | Terminal write failure or storage refusal, such as stale version |
+| `not_requested` | 未请求入图 | Parse/quality rejection, non-publish policy or permission lost before writing |
 
-Unowned legacy rows without an event return `unknown` for both status fields.
-Owned parse-only rows without an event return `not_requested`. A linked event
-and its outcome take precedence over these defaults. An unavailable, null or
-unrecognized frontend value is displayed as unknown, never as not requested.
-The personal usage column remains independent of the formal graph column.
+Historical missing/null/unrecognized evidence stays `unknown` internally; render
+an empty cell, omit its badge and legend entry. Do not infer a policy decision
+from absence. Old unknown URL filters show 历史空白记录 and can be cleared without
+adding a normal fifth status choice.
 
-`queued` covers the active worker attempt as well as waiting/retry. A terminal
-`blocked` / `blocked_policy` result does not retry automatically. A quality
-rejection can occur even when parsing succeeded, and leaves the prior valid
-formal lineage unchanged.
+Ordinary parse/quality rejections are retained as terminal SQLite events and
+audits with content/idempotency checks, never selected by the worker. Recovery
+also checks old queued candidates. Withdrawals retain their existing contract.
+Raw `blocked_policy` maps to not_requested; blocked quality results map to
+not_requested and other blocked refusals map to failed. A measured ordinary
+parse failure is not requested; absent historical evidence remains unknown.
+Already committed evidence is not relabeled merely because permission changed.
 
-Each blocked/failed row exposes its actual nullable `policy_reason` through the
-status badge on hover, keyboard focus, click and touch. Known issue codes receive
-Chinese explanations; qualified table/column names and unrecognized codes remain
-complete. Compound `incomplete_analysis:` checks may be deduplicated for display,
-but the expandable original reason must preserve the full response string.
-Missing details say that the backend has not recorded a specific reason.
-`neo4j_temporarily_unavailable` is a coarse retry cause, not evidence of a specific
-connection, query or timeout failure. Do not infer that a token with publish
-permission guarantees a committed graph write.
+The shared SQL classifier in `audit.rs` drives list, detail, filter and event
+business statuses. Count, page and decoration use the same SQLite read snapshot.
+Never filter only the browser's current page. Personal usage retains its separate
+lifecycle: a personal storage error must not become the formal graph's reason.
+`lineage_reason` supplies the formal reason while `policy_reason` retains the
+original event/usage diagnostic.
 
-Use one scrollable, portaled explanation panel at a time so table overflow does
-not clip it. Click/touch pins the panel; Escape returns focus. Stop click
-propagation on both trigger and portaled contents, including the original-reason
-expander, to avoid opening the audit row. Header-legend badges remain static.
-Reasons that describe personal-only usage must not become formal-graph reasons
-for `not_requested` rows.
+Committed badges expose actual `graph_changes` grouped by business node label
+and relationship type, with created/updated/deleted counts and totals. Missing
+statistics say 该次入图未记录变更统计, never zero. A measured zero says 本次无变更.
+Statistics describe one event, not independent per-file mutations.
+
+Known reason codes receive Chinese explanations; unrecognized codes and targets
+remain complete. Raw reasons are expandable. No guessed network failure stage.
+Use one scrollable portaled panel at a time, support hover/focus/click/touch,
+return focus on Escape, and stop trigger/panel clicks from opening audit rows.
+A pinned explanation survives background polling. Legend badges remain static.
 
 #### Validation and error matrix
 
-| Input / condition | Required behavior |
+| Input | Required result |
 | --- | --- |
-| Legacy audit has no owner or event | List and detail both report `unknown` |
-| Authenticated parse-only audit has no event | Report `not_requested` |
-| Parser success with event `queued` | Display 待入图, not 已入图 |
-| Frontend receives missing/null/unrecognized status | Display 入图状态未知 |
-| Open click/touch help while a hover tooltip exists | Show one explanation panel |
-| Click a row status or expand its original reason | Keep the audit list open |
-| Blocked/failed row has no reason | Explicitly show missing backend details |
-| Reason contains 120 checks | Keep all items and raw text accessible by scrolling |
+| New parse-only request | not_requested with explicit evidence |
+| Old ownerless audit without event | unknown, blank cell |
+| Invalid SQL or missing physical metadata | terminal not_requested, no queued formal mutation |
+| Eligible request with retryable storage error | queued until a terminal outcome |
+| Stale source / terminal storage error | failed with actual reason |
+| Personal write fails | formal not_requested; personal usage failed, reasons independent |
+| Commit recovered after token revocation | committed with original statistics |
+| Older successful result lacks statistics | visible missing-statistics message |
+| Click raw-reason expander | list stays open, one panel |
 
 #### Good / base / bad cases
 
-- Good: a queued row becomes 已入图 only after a refreshed server response says
-  `committed`.
-- Base: an old ownerless audit is 入图状态未知; its SQL may have been ingested
-  through another path, so this audit cannot answer whether it was written.
-- Bad: defaulting every missing event or status to 未请求入图, or treating parser
-  success as confirmation of a graph commit.
+- Good: invalid SQL immediately returns not_requested and cannot be consumed.
+- Base: an old audit has no outcome, so its cell is empty.
+- Bad: missing statistics are shown as zero or parser node counts are presented
+  as committed database changes.
 
 #### Tests required
 
-- `audit_unknown_history_is_distinct_from_explicit_parse_only` must assert
-  unknown historical list/detail values and explicit parse-only values.
-- Browser checks cover all six labels, `blocked_policy`, missing/null fallback,
-  hover/click/keyboard/touch help, light/dark readability and pending-to-committed
-  refresh. Explain unknown as missing evidence, not proof of no graph mutation.
-- Reason formatter tests cover compound checks, deduplication, complete targets,
-  unknown codes, missing details and long lists. Browser reason checks also cover
-  row-navigation isolation, original-reason expansion, a pinned panel surviving
-  queued-row polling, and viewport bounds at desktop and 390px touch sizes.
+- `rejected_publication_is_terminal_without_queue_and_filters_match_detail`:
+  parse/quality rejection, no worker candidate, list/detail/filter parity.
+- `personal_write_failure_does_not_become_a_formal_graph_failure_reason`:
+  retain usage diagnostics while explaining the non-publish formal decision.
+- Existing unknown-history and status-filter tests cover additive migration,
+  saved outcomes, legacy aliases, ownership, counts, paging and invalid filters.
+- `lineage_http` exercises actual commits, audit statistics and receipt recovery.
+- Component/browser checks cover ordered labels, blank history, missing vs zero,
+  grouped counts, hover/click/keyboard/touch, polling and row-navigation isolation.
 
 #### Wrong vs correct
 
 ```typescript
-// Wrong: no evidence is treated as an explicit policy decision.
+// Wrong: no historical evidence is converted to a policy decision.
 const label = status ?? 'not_requested';
-// Correct: missing evidence stays unknown.
-const label = status ?? 'unknown';
+// Correct: missing evidence renders an empty cell.
+if (!status || status === 'unknown') return null;
 ```
 
 ### Broader lineage verification

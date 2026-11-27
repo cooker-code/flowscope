@@ -1,7 +1,8 @@
 //! Explicit, destructive benchmark for a task-owned loopback database only.
 use flowscope_core::{analyze, AnalyzeRequest};
 use flowscope_storage::{
-    normalize, Action, LineageStore, Neo4jConfig, Neo4jStore, SourceContext, StorageEvent,
+    normalize, Action, ChangeCounts, LineageStore, Neo4jConfig, Neo4jStore, SourceContext,
+    StorageEvent,
 };
 use neo4rs::query;
 use serde_json::{json, Value};
@@ -154,7 +155,41 @@ async fn isolated_wide_batches_preserve_endpoints_and_withdraw() {
     for version in ["1", "2"] {
         e.event_id = format!("wide-batch-{version}");
         e.source.as_mut().unwrap().source_version = version.into();
-        assert_eq!(store.apply(&e).await.unwrap().lineage_status, "committed");
+        let outcome = store.apply(&e).await.unwrap();
+        assert_eq!(outcome.lineage_status, "committed");
+        let changes = outcome.graph_changes.unwrap();
+        if version == "1" {
+            assert_eq!(
+                changes.node_totals.created as usize,
+                snapshot.entities.len()
+            );
+            assert_eq!(
+                changes.relationship_totals.created as usize,
+                snapshot.facts.len()
+            );
+            assert_eq!(changes.node_totals.updated, 0);
+            assert_eq!(changes.relationship_totals.updated, 0);
+        } else {
+            // Derived identities include the source revision, so a new version
+            // creates new derived columns and replaces their projected edges.
+            assert_eq!(
+                changes.node_totals,
+                ChangeCounts {
+                    created: 130,
+                    updated: 0,
+                    deleted: 0
+                }
+            );
+            assert_eq!(changes.nodes["M_COL:Derived"].created, 130);
+            assert_eq!(
+                changes.relationship_totals,
+                ChangeCounts {
+                    created: 390,
+                    updated: 0,
+                    deleted: 390
+                }
+            );
+        }
         let mut rows=store.graph().execute(query("MATCH (f:LINEAGE_FACT {scope_key:$scope,active:true}) OPTIONAL MATCH (a:LINEAGE_ENTITY {lineage_key:f.from_key}) OPTIONAL MATCH (b:LINEAGE_ENTITY {lineage_key:f.to_key}) RETURN count(f) AS n,count(a) AS src,count(b) AS dst").param("scope",e.source.as_ref().unwrap().scope_key())).await.unwrap();
         let row = rows.next().await.unwrap().unwrap();
         for field in ["n", "src", "dst"] {
@@ -164,17 +199,24 @@ async fn isolated_wide_batches_preserve_endpoints_and_withdraw() {
             );
         }
         let before = e.content_hash();
-        assert!(store.receipt(&e).await.unwrap().is_some());
-        assert_eq!(store.apply(&e).await.unwrap().lineage_status, "committed");
+        assert_eq!(
+            store.receipt(&e).await.unwrap().unwrap().graph_changes,
+            Some(changes.clone())
+        );
+        assert_eq!(store.apply(&e).await.unwrap().graph_changes, Some(changes));
         assert_eq!(before, e.content_hash());
     }
     e.event_id = "wide-batch-withdraw".into();
     e.source.as_mut().unwrap().source_version = "3".into();
     e.source.as_mut().unwrap().event_kind = "withdraw".into();
+    let withdrawn = store.apply(&e).await.unwrap();
+    assert_eq!(withdrawn.reason.as_deref(), Some("withdrawn"));
+    let changes = withdrawn.graph_changes.unwrap();
     assert_eq!(
-        store.apply(&e).await.unwrap().reason.as_deref(),
-        Some("withdrawn")
+        changes.relationship_totals.deleted as usize,
+        snapshot.facts.len()
     );
+    assert_eq!(changes.node_totals.deleted, 0);
     let mut rows = store
         .graph()
         .execute(
