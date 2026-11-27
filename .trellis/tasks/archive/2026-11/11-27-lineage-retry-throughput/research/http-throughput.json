@@ -1,0 +1,233 @@
+{
+  "original": {
+    "first": {
+      "version": 1,
+      "eventId": "338f07bb-a8ea-4458-8a6d-b84831fb19d7",
+      "acceptedMs": 86.39150000090012,
+      "committedMs": 19377.91237499914
+    },
+    "update": {
+      "version": 2,
+      "eventId": "5e5e0f05-fc17-4180-a6df-d3b25c3d3c3b",
+      "acceptedMs": 58.32008399738697,
+      "observedMs": 30093.221791998076,
+      "state": {
+        "eventId": "5e5e0f05-fc17-4180-a6df-d3b25c3d3c3b",
+        "principalId": "bench",
+        "action": "publish",
+        "status": "queued",
+        "attempts": 1,
+        "reason": "neo4j_temporarily_unavailable",
+        "parseStatus": "succeeded",
+        "policyRevision": 1,
+        "lineageStatus": "queued",
+        "usageStatus": "not_requested"
+      }
+    }
+  },
+  "indexed": [
+    {
+      "trial": 0,
+      "events": [
+        {
+          "version": 1,
+          "eventId": "9be3a217-8dd9-4efa-9999-c441a8678df2",
+          "acceptedMs": 82.29037500132108,
+          "committedMs": 3187.9502500014496
+        },
+        {
+          "version": 2,
+          "eventId": "21f2b6bc-fe45-4b81-8428-a73426e7f6cf",
+          "acceptedMs": 56.010750005953014,
+          "committedMs": 6851.9875000056345
+        },
+        {
+          "version": 3,
+          "eventId": "dd732e07-b0e9-431d-ad83-b1bc15766c79",
+          "acceptedMs": 63.290334001067095,
+          "committedMs": 11327.442459005397
+        }
+      ],
+      "queueWallMs": 11486.169083997083,
+      "eventsPerMinute": 15.671021267724681
+    },
+    {
+      "trial": 1,
+      "events": [
+        {
+          "version": 1,
+          "eventId": "22788f93-35ff-4d62-b009-e9ff1c66608f",
+          "acceptedMs": 84.90345799509669,
+          "committedMs": 3827.952332998393
+        },
+        {
+          "version": 2,
+          "eventId": "462bfaca-2ccb-45ae-b5fe-ca7076a80700",
+          "acceptedMs": 59.128790999238845,
+          "committedMs": 8038.294291000057
+        },
+        {
+          "version": 3,
+          "eventId": "884791cb-1b64-4dd0-b2af-9536043ef76b",
+          "acceptedMs": 60.51212500460679,
+          "committedMs": 11637.912791004055
+        }
+      ],
+      "queueWallMs": 11807.167375001882,
+      "eventsPerMinute": 15.244977417792496
+    },
+    {
+      "trial": 2,
+      "events": [
+        {
+          "version": 1,
+          "eventId": "b0632489-37f9-4a36-89e4-bf0483354132",
+          "acceptedMs": 87.8467919974355,
+          "committedMs": 2934.1218749977998
+        },
+        {
+          "version": 2,
+          "eventId": "6d3fe1c7-faa2-4b26-a6a4-bcb9ce78e95c",
+          "acceptedMs": 58.13308300275821,
+          "committedMs": 6536.481667004409
+        },
+        {
+          "version": 3,
+          "eventId": "122aa0a2-6892-4320-97c2-470b3334d416",
+          "acceptedMs": 55.612374999327585,
+          "committedMs": 10192.407875001663
+        }
+      ],
+      "queueWallMs": 10363.577457996143,
+      "eventsPerMinute": 17.368519773171457
+    }
+  ],
+  "batched": [
+    {
+      "trial": 0,
+      "events": [
+        {
+          "version": 1,
+          "eventId": "075d5014-2043-44cf-89f9-dcaecb04f72c",
+          "acceptedMs": 91.99466699647019,
+          "committedMs": 806.6556670019054
+        },
+        {
+          "version": 2,
+          "eventId": "b0a12fc6-fcc0-451a-b99c-dbcf90ca22ed",
+          "acceptedMs": 59.61750000278698,
+          "committedMs": 1141.1898329970427
+        },
+        {
+          "version": 3,
+          "eventId": "bf2d1fd5-20d3-40f2-927d-3f1934d32531",
+          "acceptedMs": 52.74674999964191,
+          "committedMs": 1498.0330000034883
+        }
+      ],
+      "queueWallMs": 1671.427749999566,
+      "eventsPerMinute": 107.69236061806845
+    },
+    {
+      "trial": 1,
+      "events": [
+        {
+          "version": 1,
+          "eventId": "ed377485-01d6-4621-a4b3-251dc2c58f42",
+          "acceptedMs": 86.47645799646853,
+          "committedMs": 424.84241600323
+        },
+        {
+          "version": 2,
+          "eventId": "dc253b95-4b69-44fc-8aa2-1555eea230c9",
+          "acceptedMs": 59.526250006456394,
+          "committedMs": 709.4688750003115
+        },
+        {
+          "version": 3,
+          "eventId": "79d2e1d8-9b8a-4685-be9a-c846648af063",
+          "acceptedMs": 55.751333995431196,
+          "committedMs": 1036.8522089993348
+        }
+      ],
+      "queueWallMs": 1208.0278749999707,
+      "eventsPerMinute": 149.00318421874528
+    },
+    {
+      "trial": 2,
+      "events": [
+        {
+          "version": 1,
+          "eventId": "17896471-08f9-4d7e-ab09-3efb7c064bf1",
+          "acceptedMs": 83.36812500056112,
+          "committedMs": 400.1402499998221
+        },
+        {
+          "version": 2,
+          "eventId": "34b1784a-8531-4f7f-acbe-110d7d9906d6",
+          "acceptedMs": 59.262290997139644,
+          "committedMs": 705.0235830029123
+        },
+        {
+          "version": 3,
+          "eventId": "c5e4cd82-ed24-4d20-aa87-c3ce7a2e81f4",
+          "acceptedMs": 57.08662499819184,
+          "committedMs": 1021.4535839986638
+        }
+      ],
+      "queueWallMs": 1189.26608300535,
+      "eventsPerMinute": 151.3538497163971
+    }
+  ],
+  "processCleanup": [
+    {
+      "mode": "original",
+      "trial": 0,
+      "pid": 34526,
+      "exitCode": 0,
+      "reaped": true
+    },
+    {
+      "mode": "indexed",
+      "trial": 0,
+      "pid": 35531,
+      "exitCode": 0,
+      "reaped": true
+    },
+    {
+      "mode": "indexed",
+      "trial": 1,
+      "pid": 35964,
+      "exitCode": 0,
+      "reaped": true
+    },
+    {
+      "mode": "indexed",
+      "trial": 2,
+      "pid": 36104,
+      "exitCode": 0,
+      "reaped": true
+    },
+    {
+      "mode": "batched",
+      "trial": 0,
+      "pid": 36224,
+      "exitCode": 0,
+      "reaped": true
+    },
+    {
+      "mode": "batched",
+      "trial": 1,
+      "pid": 36239,
+      "exitCode": 0,
+      "reaped": true
+    },
+    {
+      "mode": "batched",
+      "trial": 2,
+      "pid": 36253,
+      "exitCode": 0,
+      "reaped": true
+    }
+  ]
+}

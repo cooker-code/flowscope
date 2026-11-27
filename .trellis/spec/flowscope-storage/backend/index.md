@@ -90,3 +90,8 @@ idempotency, personal INSERT, unknown personal tables, shared producers,
 withdrawal, concurrent versions, and a constraint failure after old contribution
 deactivation proving full rollback. Use a task-owned loopback Neo4j container;
 normal unit test runs leave database tests ignored until explicitly configured.
+
+## Ingestion performance and diagnostics
+
+See [Indexed, bounded ingestion](./ingestion-performance.md) for required indexes,
+batch/lock contracts, phase-specific retry reasons and real Neo4j benchmarks.

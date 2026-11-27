@@ -205,6 +205,12 @@ listener is bound: production audit JSON can be hundreds of gigabytes, and even
 unchanged SELECT rows otherwise get parsed on every restart. A small fixture
 proves classification correctness, not acceptable production startup latency.
 
+The unified maintenance worker first deletes expired audits in bounded batches
+according to the default seven-day retention or saved setting, builds the
+type/time composite index after listening, then normalizes surviving history.
+See [audit-retention.md](./audit-retention.md) for settings, event protection,
+lock contention and shutdown contracts.
+
 The audit SQL-type worker reads at most 32 rows by primary key per batch on a
 separate connection. It releases the read statement before parsing only the
 saved classification fields, then commits changed labels and the resume cursor
@@ -359,9 +365,10 @@ for all statuses. `blocked_policy` is accepted as an alias of `blocked`.
 - An owned audit without an event is `not_requested`. Ownerless legacy history
   is `unknown`. Null or unrecognized effective statuses also display as unknown.
 - `blocked` includes `blocked_policy` because both display as 未入图.
-- Apply ownership and every filter before counting and pagination. For filtered
+- Apply ownership and every filter before counting and pagination. For all
   responses, count, page and decorated metadata share one SQLite read snapshot;
-  do not re-decorate rows from a later event snapshot.
+  do not re-decorate rows from a later event snapshot. Fetch page metadata with
+  one audit/event join rather than two queries per record.
 - Without lineage configuration, exposed graph results are unknown. `unknown`
   includes all otherwise matching audits, and other status filters return empty.
 - The UI uses `lineage_status` in URL/request/localStorage hand-off state. A

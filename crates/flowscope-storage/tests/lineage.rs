@@ -210,6 +210,21 @@ async fn isolated_neo4j_versions_usage_shared_sources_and_replay() {
     );
     assert_eq!(count(&store,"MATCH (:QUERY_ACTOR {principal_id:'person-1'})-[:SUBMITTED_QUERY]->(q:QUERY_EVENT) RETURN count(q) AS n").await,1);
     assert_eq!(count(&store,"MATCH (:QUERY_EVENT)-[:USES_TABLE {usage_role:'declared_write'}]->(:TABLE_REFERENCE) RETURN count(*) AS n").await,1);
+    let mut unqualified = event("SELECT id FROM unknown_personal_table", "1");
+    unqualified.event_id = "personal-unqualified".into();
+    unqualified.principal_id = "person-1".into();
+    unqualified.principal_type = "person".into();
+    unqualified.action = Action::RecordUsage;
+    unqualified.source = None;
+    assert_eq!(
+        store.apply(&unqualified).await.unwrap().usage_status,
+        "committed"
+    );
+    assert_eq!(count(&store,"MATCH (:QUERY_EVENT {event_id:'personal-unqualified'})-[:USES_TABLE {usage_role:'read'}]->(:TABLE_REFERENCE) RETURN count(*) AS n").await,1);
+    assert_eq!(
+        count(&store, "MATCH (n:M_TABLE) RETURN count(n) AS n").await,
+        nodes
+    );
     let mut shared = a.clone();
     shared.event_id = "shared".into();
     shared.source.as_mut().unwrap().source_id = "101".into();
@@ -274,9 +289,14 @@ async fn isolated_neo4j_versions_usage_shared_sources_and_replay() {
         )
         .await
         .unwrap();
+    let error = store.apply(&late).await.unwrap_err();
+    assert_eq!(
+        error.database_code(),
+        Some("Neo.ClientError.Schema.ConstraintValidationFailed")
+    );
     assert!(
-        store.apply(&late).await.is_err(),
-        "force a unique constraint failure after old facts were deactivated"
+        !error.retryable(),
+        "a constraint failure must not retry forever"
     );
     assert_eq!(count(&store,"MATCH (:M_TABLE {table_name:'b'})-[:READS_FROM]->(:M_TABLE {table_name:'t'}) RETURN count(*) AS n").await,1,"late failure rolls back previous contribution deactivation");
     assert_eq!(

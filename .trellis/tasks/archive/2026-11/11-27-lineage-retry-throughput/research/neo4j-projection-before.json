@@ -1,0 +1,125 @@
+{
+  "factCount": 94555,
+  "storageTransactions": [
+    {
+      "transactionId": "neo4j-transaction-5324863",
+      "elapsedTime": [
+        0,
+        0,
+        18,
+        254000000
+      ],
+      "currentQueryElapsedTime": [
+        0,
+        0,
+        0,
+        28000000
+      ],
+      "status": "Running",
+      "currentQuery": "MATCH (f:LINEAGE_FACT {edge_key:$edge}) RETURN f.kind AS kind,f.from_key AS src,f.to_key AS dst,f.props_json AS props,f.active AS active,f.sql_md5 AS md5,f.scope_key AS scope ORDER BY f.fact_key",
+      "parameters": {
+        "edge": "4d07123503da86f807ebc91f67e90045b1baf12a0bc35190c5d3c3f94439d5d0"
+      },
+      "currentQueryWaitTime": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "projectionProbe": {
+    "edge": "4d07123503da86f807ebc91f67e90045b1baf12a0bc35190c5d3c3f94439d5d0",
+    "rows": 0,
+    "wallMs": 209.40062499721535,
+    "plan": {
+      "operator": "ProduceResults@neo4j",
+      "dbHits": 0,
+      "rows": 0,
+      "identifiers": [
+        "dst",
+        "scope",
+        "f",
+        "md5",
+        "`f.fact_key`",
+        "src",
+        "active",
+        "kind",
+        "props"
+      ],
+      "children": [
+        {
+          "operator": "Projection@neo4j",
+          "dbHits": 0,
+          "rows": 0,
+          "identifiers": [
+            "dst",
+            "scope",
+            "f",
+            "md5",
+            "`f.fact_key`",
+            "src",
+            "active",
+            "kind",
+            "props"
+          ],
+          "children": [
+            {
+              "operator": "CacheProperties@neo4j",
+              "dbHits": 0,
+              "rows": 0,
+              "identifiers": [
+                "f",
+                "`f.fact_key`"
+              ],
+              "children": [
+                {
+                  "operator": "Sort@neo4j",
+                  "dbHits": 0,
+                  "rows": 0,
+                  "identifiers": [
+                    "f",
+                    "`f.fact_key`"
+                  ],
+                  "children": [
+                    {
+                      "operator": "Projection@neo4j",
+                      "dbHits": 0,
+                      "rows": 0,
+                      "identifiers": [
+                        "f",
+                        "`f.fact_key`"
+                      ],
+                      "children": [
+                        {
+                          "operator": "Filter@neo4j",
+                          "dbHits": 94555,
+                          "rows": 0,
+                          "identifiers": [
+                            "f"
+                          ],
+                          "children": [
+                            {
+                              "operator": "NodeByLabelScan@neo4j",
+                              "dbHits": 94556,
+                              "rows": 94555,
+                              "identifiers": [
+                                "f"
+                              ],
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "eventReceiptCount": 0
+}

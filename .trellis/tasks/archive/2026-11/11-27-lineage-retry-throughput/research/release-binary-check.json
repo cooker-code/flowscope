@@ -1,0 +1,10 @@
+{
+  "sha256": "58e5ab761b114d76f9d7265aafafd7b29362f51ce21dcd467372e52692fcf8a0",
+  "sizeBytes": 54776616,
+  "glibcMax": "2.17",
+  "indexMigrationIncluded": true,
+  "stagedRetryDiagnosticIncluded": true,
+  "latestUiAssetIncluded": true,
+  "removedCallerReasonHeaderAbsent": true,
+  "glibcxxAbsent": true
+}

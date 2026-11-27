@@ -1,11 +1,12 @@
 use crate::{
-    digest, normalize, Action, ApplyOutcome, Entity, Fact, LineageStore, Snapshot, StorageError,
-    StorageEvent,
+    digest, normalize, Action, ApplyOutcome, LineageStore, Snapshot, StorageError, StorageEvent,
 };
 use neo4rs::{query, BoltType, Graph, Txn};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+
+const BATCH_SIZE: usize = 256;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -102,6 +103,32 @@ impl Neo4jStore {
         ] {
             store.graph.run(query(&format!("CREATE CONSTRAINT {name} IF NOT EXISTS FOR (n:{label}) REQUIRE {keys} IS UNIQUE"))).await?;
         }
+        // Fact identity alone cannot serve edge projection or scope replacement.
+        // Prepare and await these indexes before accepting any transactions.
+        for (name, label, keys) in [
+            ("flowscope_fact_edge", "LINEAGE_FACT", "n.edge_key"),
+            (
+                "flowscope_fact_scope_active",
+                "LINEAGE_FACT",
+                "n.scope_key,n.active",
+            ),
+            (
+                "flowscope_scope_target",
+                "LINEAGE_SCOPE",
+                "n.target_key,n.withdrawn",
+            ),
+        ] {
+            store
+                .graph
+                .run(query(&format!(
+                    "CREATE RANGE INDEX {name} IF NOT EXISTS FOR (n:{label}) ON ({keys})"
+                )))
+                .await?;
+            store
+                .graph
+                .run(query("CALL db.awaitIndex($name, 60)").param("name", name))
+                .await?;
+        }
         let mut tx = store.graph.start_txn().await?;
         let r=one(&mut tx,query("MERGE (s:LINEAGE_STORE {store_id:'flowscope'}) ON CREATE SET s.environment=$env SET s.lock_tick=coalesce(s.lock_tick,0)+1 RETURN s.environment AS env").param("env",config.environment.clone())).await?;
         let env: String = r
@@ -184,26 +211,14 @@ impl Neo4jStore {
                 .iter()
                 .map(|(name, role, t)| (name.clone(), role.clone(), t.clone()))
                 .collect();
-            for (name, role, t) in references {
-                let table_match = if let Some(t) = t {
-                    let row=one(tx,query("OPTIONAL MATCH (t:M_TABLE {catalog:$cat,db_name:$db,table_name:$table}) RETURN count(t) AS n")
-                        .param("cat",t.catalog.clone()).param("db",t.db_name.clone()).param("table",t.table_name.clone())).await?;
-                    let n: i64 = row.get("n").unwrap_or(0);
-                    if n == 1 {
-                        Some(t)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-                if let Some(t) = table_match {
-                    tx.run(query("MATCH (q:QUERY_EVENT {event_id:$event}),(t:M_TABLE {catalog:$cat,db_name:$db,table_name:$table}) MERGE (q)-[:USES_TABLE {usage_role:$role}]->(t)")
-                        .param("event",e.event_id.clone()).param("cat",t.catalog).param("db",t.db_name).param("table",t.table_name).param("role",role)).await?;
-                } else {
-                    tx.run(query("MATCH (q:QUERY_EVENT {event_id:$event}) MERGE (t:TABLE_REFERENCE {reference_key:$key}) ON CREATE SET t.qualified_name=$name,t.resolution_status='unresolved_or_unregistered' MERGE (q)-[:USES_TABLE {usage_role:$role}]->(t)")
-                        .param("event",e.event_id.clone()).param("key",digest(format!("{}:{name}",self.environment))).param("name",name).param("role",role)).await?;
-                }
+            let rows = references.into_iter().map(|(name,role,t)|json!({
+                "key":digest(format!("{}:{name}",self.environment)), "name":name,"role":role,
+                "cat":t.as_ref().map(|t|t.catalog.as_str()), "db":t.as_ref().map(|t|t.db_name.as_str()),
+                "table":t.as_ref().map(|t|t.table_name.as_str())
+            })).collect::<Vec<_>>();
+            for rows in rows.chunks(BATCH_SIZE) {
+                tx.run(query("UNWIND $rows AS row MATCH (q:QUERY_EVENT {event_id:$event}) OPTIONAL MATCH (t:M_TABLE {catalog:row.cat,db_name:row.db,table_name:row.table}) WITH q,row,collect(t) AS tables FOREACH (t IN CASE WHEN size(tables)=1 THEN tables ELSE [] END | MERGE (q)-[:USES_TABLE {usage_role:row.role}]->(t)) FOREACH (unused IN CASE WHEN size(tables)=1 THEN [] ELSE [1] END | MERGE (ref:TABLE_REFERENCE {reference_key:row.key}) ON CREATE SET ref.qualified_name=row.name,ref.resolution_status='unresolved_or_unregistered' MERGE (q)-[:USES_TABLE {usage_role:row.role}]->(ref))")
+                    .param("rows",bolt(json!(rows))).param("event",e.event_id.clone())).await?;
             }
         }
         Ok(ApplyOutcome {
@@ -279,8 +294,10 @@ impl Neo4jStore {
             affected.extend(s.facts.keys().cloned());
         }
         // Shared edge locks are acquired in deterministic order across sources.
-        for key in &affected {
-            tx.run(query("MERGE (l:LINEAGE_EDGE {edge_key:$key}) SET l.lock_tick=coalesce(l.lock_tick,0)+1").param("key",key.clone())).await?;
+        let affected: Vec<_> = affected.into_iter().collect();
+        for keys in affected.chunks(BATCH_SIZE) {
+            tx.run(query("UNWIND $keys AS key WITH key ORDER BY key MERGE (l:LINEAGE_EDGE {edge_key:key}) SET l.lock_tick=coalesce(l.lock_tick,0)+1")
+                .param("keys", keys.to_vec())).await?;
         }
         tx.run(
             query("MATCH (f:LINEAGE_FACT {scope_key:$scope,active:true}) SET f.active=false")
@@ -290,16 +307,10 @@ impl Neo4jStore {
         tx.run(query("MERGE (r:LINEAGE_REVISION {revision_id:$revision}) SET r.scope_key=$scope,r.artifact_id=$artifact,r.sql_md5=$md5,r.source_version=$version,r.withdrawn=$withdraw WITH r MATCH (s:LINEAGE_SCOPE {scope_key:$scope}) OPTIONAL MATCH (s)-[old:CURRENT]->() DELETE old MERGE (s)-[:HAS_REVISION]->(r) MERGE (s)-[:CURRENT]->(r)")
             .param("revision",revision.clone()).param("scope",scope.clone()).param("artifact",s.artifact_id.clone()).param("md5",s.sql_md5.clone()).param("version",version).param("withdraw",withdraw)).await?;
         if !withdraw {
-            for n in s.entities.values() {
-                self.entity(tx, n, e, s, &scope).await?;
-            }
-            for f in s.facts.values() {
-                self.fact(tx, f, &scope, &revision, &s.sql_md5).await?;
-            }
+            self.entities(tx, e, s, &scope).await?;
+            self.facts(tx, s, &scope, &revision).await?;
         }
-        for key in affected {
-            self.project(tx, &key).await?;
-        }
+        self.project(tx, &affected).await?;
         tx.run(query("MATCH (s:LINEAGE_SCOPE {scope_key:$scope}) SET s.current_version=$version,s.analysis_revision=$analysis,s.artifact_id=$artifact,s.sql_md5=$md5,s.withdrawn=$withdraw,s.target_key=$target,s.task_name=$name,s.utime=datetime()")
             .param("scope",scope.clone()).param("version",version).param("analysis",i64::from(c.analysis_revision)).param("artifact",s.artifact_id.clone()).param("md5",s.sql_md5.clone()).param("withdraw",withdraw)
             .param("target",s.target.as_ref().map(|t|t.key()).unwrap_or_default()).param("name",c.task_name.clone())).await?;
@@ -312,7 +323,7 @@ impl Neo4jStore {
         .filter(|t| !t.is_empty())
         .collect();
         for target in targets {
-            tx.run(query("MATCH (t:M_TABLE) WHERE t.lineage_key=$target OPTIONAL MATCH (s:LINEAGE_SCOPE {target_key:$target,withdrawn:false}) WITH t,collect(s) AS scopes SET t.producer_scopes=[s IN scopes | s.scope_key],t.task_sql_md5=CASE WHEN size(scopes)=1 THEN scopes[0].sql_md5 ELSE '' END")
+            tx.run(query("MATCH (t:LINEAGE_ENTITY:M_TABLE {lineage_key:$target}) OPTIONAL MATCH (s:LINEAGE_SCOPE {target_key:$target,withdrawn:false}) WITH t,collect(s) AS scopes SET t.producer_scopes=[s IN scopes | s.scope_key],t.task_sql_md5=CASE WHEN size(scopes)=1 THEN scopes[0].sql_md5 ELSE '' END")
             .param("target",target)).await?;
         }
         Ok(ApplyOutcome {
@@ -322,125 +333,150 @@ impl Neo4jStore {
         })
     }
 
-    async fn entity(
+    async fn entities(
         &self,
         tx: &mut Txn,
-        n: &Entity,
         e: &StorageEvent,
         s: &Snapshot,
         scope: &str,
     ) -> Result<(), StorageError> {
-        let q=match n.kind.as_str() {
-            "table"=>"MERGE (n:M_TABLE {catalog:$cat,db_name:$db,table_name:$table}) ON CREATE SET n.ctime=datetime() SET n:LINEAGE_ENTITY,n.lineage_key=$key,n.fs_kind='table',n.fs_fqn=$fqn,n.utime=datetime()",
-            "physical"=>"MERGE (n:M_COL:Physical {catalog:$cat,db_name:$db,table_name:$table,col_name:$column}) ON CREATE SET n.ctime=datetime() SET n:LINEAGE_ENTITY,n.lineage_key=$key,n.fs_kind='physical_column',n += $props,n.utime=datetime()",
-            "cte"=>"MERGE (n:CTE {fs_uid:$key}) ON CREATE SET n.ctime=datetime() SET n:LINEAGE_ENTITY,n.lineage_key=$key,n += $props,n.artifact_id=$artifact,n.utime=datetime()",
-            "derived"=>"MERGE (n:M_COL:Derived {fs_uid:$key}) ON CREATE SET n.ctime=datetime() SET n:LINEAGE_ENTITY,n.lineage_key=$key,n += $props,n.artifact_id=$artifact,n.utime=datetime()",
-            "template"=>"MERGE (n:TEMPLATE {scheduler:'mario',mario_template_id:$source}) ON CREATE SET n.ctime=datetime() SET n:LINEAGE_ENTITY,n.lineage_key=$key,n += $props,n.task_sql_md5=$md5,n.utime=datetime()",
-            "sync"=>"MERGE (n:SYNC {scheduler:'change',task_id:$source}) ON CREATE SET n.ctime=datetime() SET n:LINEAGE_ENTITY,n.lineage_key=$key,n += $props,n.task_sql_md5=$md5,n.utime=datetime()",
-            "output"=>"MERGE (n:LINEAGE_OUTPUT {fs_uid:$key}) SET n:LINEAGE_ENTITY,n.lineage_key=$key,n += $props,n.utime=datetime()",
-            _=>return Err(StorageError::Invalid("unknown entity kind".into())),
-        };
-        let t = n.table.as_ref();
-        tx.run(
-            query(q)
-                .param("key", n.key.clone())
-                .param("cat", t.map(|t| t.catalog.clone()).unwrap_or_default())
-                .param("db", t.map(|t| t.db_name.clone()).unwrap_or_default())
-                .param("table", t.map(|t| t.table_name.clone()).unwrap_or_default())
-                .param("column", n.column.clone().unwrap_or_default())
-                .param("fqn", t.map(|t| t.fqn()).unwrap_or_default())
-                .param("props", bolt(json!(n.props)))
-                .param("artifact", s.artifact_id.clone())
-                .param("md5", s.sql_md5.clone())
-                .param(
-                    "source",
-                    e.source
-                        .as_ref()
-                        .and_then(|c| c.source_id.parse::<i64>().ok())
-                        .unwrap_or(0),
-                ),
-        )
-        .await?;
-        if matches!(n.kind.as_str(), "cte" | "derived") {
-            tx.run(query("MATCH (s:LINEAGE_SCOPE {scope_key:$scope}),(n:LINEAGE_ENTITY {lineage_key:$key}) MERGE (s)-[o:OWNS_LINEAGE {artifact_id:$artifact}]->(n) SET o.sql_md5=$md5,o.utime=datetime()")
-                .param("scope",scope.to_string()).param("key",n.key.clone()).param("artifact",s.artifact_id.clone()).param("md5",s.sql_md5.clone())).await?;
+        let mut groups = BTreeMap::<&str, Vec<Value>>::new();
+        for n in s.entities.values() {
+            let t = n.table.as_ref();
+            groups.entry(&n.kind).or_default().push(json!({
+                "key":n.key, "cat":t.map(|t|t.catalog.as_str()).unwrap_or_default(),
+                "db":t.map(|t|t.db_name.as_str()).unwrap_or_default(),
+                "table":t.map(|t|t.table_name.as_str()).unwrap_or_default(),
+                "column":n.column.as_deref().unwrap_or_default(),
+                "fqn":t.map(|t|t.fqn()).unwrap_or_default(), "props":n.props
+            }));
         }
-        Ok(())
-    }
-    async fn fact(
-        &self,
-        tx: &mut Txn,
-        f: &Fact,
-        scope: &str,
-        revision: &str,
-        md5: &str,
-    ) -> Result<(), StorageError> {
-        let row=one(tx,query("MATCH (a:LINEAGE_ENTITY {lineage_key:$from}),(b:LINEAGE_ENTITY {lineage_key:$to}),(r:LINEAGE_REVISION {revision_id:$revision}) MERGE (f:LINEAGE_FACT {fact_key:$id}) SET f.scope_key=$scope,f.edge_key=$edge,f.kind=$kind,f.from_key=$from,f.to_key=$to,f.props_json=$props,f.sql_md5=$md5,f.active=true MERGE (r)-[:HAS_FACT]->(f) RETURN count(f) AS n")
-            .param("from",f.from.clone()).param("to",f.to.clone()).param("revision",revision.to_string()).param("id",digest(format!("{revision}:{}",f.key)))
-            .param("scope",scope.to_string()).param("edge",f.key.clone()).param("kind",f.kind.clone()).param("props",serde_json::to_string(&f.props)?).param("md5",md5.to_string())).await?;
-        if row.get::<i64>("n").unwrap_or(0) != 1 {
-            return Err(StorageError::Invalid("fact endpoint missing".into()));
-        }
-        Ok(())
-    }
-    async fn project(&self, tx: &mut Txn, key: &str) -> Result<(), StorageError> {
-        let mut rows=tx.execute(query("MATCH (f:LINEAGE_FACT {edge_key:$edge}) RETURN f.kind AS kind,f.from_key AS src,f.to_key AS dst,f.props_json AS props,f.active AS active,f.sql_md5 AS md5,f.scope_key AS scope ORDER BY f.fact_key").param("edge",key.to_string())).await?;
-        let mut meta = None;
-        let mut hashes = BTreeSet::new();
-        let mut scopes = BTreeSet::new();
-        while let Some(r) = rows.next(tx.handle()).await? {
-            let kind: String = r
-                .get("kind")
-                .map_err(|_| StorageError::Invalid("fact kind".into()))?;
-            let src: String = r.get("src").unwrap_or_default();
-            let dst: String = r.get("dst").unwrap_or_default();
-            let p: String = r.get("props").unwrap_or_else(|_| "{}".into());
-            meta = Some((kind, src, dst, p));
-            if r.get::<bool>("active").unwrap_or(false) {
-                hashes.insert(r.get::<String>("md5").unwrap_or_default());
-                scopes.insert(r.get::<String>("scope").unwrap_or_default());
+        for (kind, nodes) in groups {
+            let body = match kind {
+                "table"=>"MERGE (n:M_TABLE {catalog:row.cat,db_name:row.db,table_name:row.table}) ON CREATE SET n.ctime=datetime() SET n:LINEAGE_ENTITY,n.lineage_key=row.key,n.fs_kind='table',n.fs_fqn=row.fqn,n.utime=datetime()",
+                "physical"=>"MERGE (n:M_COL:Physical {catalog:row.cat,db_name:row.db,table_name:row.table,col_name:row.column}) ON CREATE SET n.ctime=datetime() SET n:LINEAGE_ENTITY,n.lineage_key=row.key,n.fs_kind='physical_column',n += row.props,n.utime=datetime()",
+                "cte"=>"MERGE (n:CTE {fs_uid:row.key}) ON CREATE SET n.ctime=datetime() SET n:LINEAGE_ENTITY,n.lineage_key=row.key,n += row.props,n.artifact_id=$artifact,n.utime=datetime()",
+                "derived"=>"MERGE (n:M_COL:Derived {fs_uid:row.key}) ON CREATE SET n.ctime=datetime() SET n:LINEAGE_ENTITY,n.lineage_key=row.key,n += row.props,n.artifact_id=$artifact,n.utime=datetime()",
+                "template"=>"MERGE (n:TEMPLATE {scheduler:'mario',mario_template_id:$source}) ON CREATE SET n.ctime=datetime() SET n:LINEAGE_ENTITY,n.lineage_key=row.key,n += row.props,n.task_sql_md5=$md5,n.utime=datetime()",
+                "sync"=>"MERGE (n:SYNC {scheduler:'change',task_id:$source}) ON CREATE SET n.ctime=datetime() SET n:LINEAGE_ENTITY,n.lineage_key=row.key,n += row.props,n.task_sql_md5=$md5,n.utime=datetime()",
+                "output"=>"MERGE (n:LINEAGE_OUTPUT {fs_uid:row.key}) SET n:LINEAGE_ENTITY,n.lineage_key=row.key,n += row.props,n.utime=datetime()",
+                _=>return Err(StorageError::Invalid("unknown entity kind".into())),
+            };
+            for rows in nodes.chunks(BATCH_SIZE) {
+                tx.run(
+                    query(&format!("UNWIND $rows AS row {body}"))
+                        .param("rows", bolt(json!(rows)))
+                        .param("artifact", s.artifact_id.clone())
+                        .param("md5", s.sql_md5.clone())
+                        .param(
+                            "source",
+                            e.source
+                                .as_ref()
+                                .and_then(|c| c.source_id.parse::<i64>().ok())
+                                .unwrap_or(0),
+                        ),
+                )
+                .await?;
+                if matches!(kind, "cte" | "derived") {
+                    tx.run(query("UNWIND $rows AS row MATCH (s:LINEAGE_SCOPE {scope_key:$scope}),(n:LINEAGE_ENTITY {lineage_key:row.key}) MERGE (s)-[o:OWNS_LINEAGE {artifact_id:$artifact}]->(n) SET o.sql_md5=$md5,o.utime=datetime()")
+                        .param("rows",bolt(json!(rows))).param("scope",scope.to_string())
+                        .param("artifact",s.artifact_id.clone()).param("md5",s.sql_md5.clone())).await?;
+                }
             }
         }
-        let Some((kind, src, dst, p)) = meta else {
-            return Ok(());
-        };
-        if ![
-            "READS_FROM",
-            "REF_TABLE_COL",
-            "REF_TEP",
-            "DERIVES_COL",
-            "JOINS_WITH",
-            "CONTROLS_COL",
-        ]
-        .contains(&kind.as_str())
-        {
-            return Err(StorageError::Invalid(
-                "invalid projected relation kind".into(),
-            ));
+        Ok(())
+    }
+    async fn facts(
+        &self,
+        tx: &mut Txn,
+        s: &Snapshot,
+        scope: &str,
+        revision: &str,
+    ) -> Result<(), StorageError> {
+        let rows = s
+            .facts
+            .values()
+            .map(|f| {
+                Ok(json!({
+                    "from":f.from,"to":f.to,"id":digest(format!("{revision}:{}",f.key)),
+                    "edge":f.key,"kind":f.kind,"props":serde_json::to_string(&f.props)?
+                }))
+            })
+            .collect::<Result<Vec<_>, StorageError>>()?;
+        for rows in rows.chunks(BATCH_SIZE) {
+            let row=one(tx,query("UNWIND $rows AS row MATCH (a:LINEAGE_ENTITY {lineage_key:row.from}),(b:LINEAGE_ENTITY {lineage_key:row.to}),(r:LINEAGE_REVISION {revision_id:$revision}) MERGE (f:LINEAGE_FACT {fact_key:row.id}) SET f.scope_key=$scope,f.edge_key=row.edge,f.kind=row.kind,f.from_key=row.from,f.to_key=row.to,f.props_json=row.props,f.sql_md5=$md5,f.active=true MERGE (r)-[:HAS_FACT]->(f) RETURN count(f) AS n")
+                .param("rows",bolt(json!(rows))).param("revision",revision.to_string())
+                .param("scope",scope.to_string()).param("md5",s.sql_md5.clone())).await?;
+            if row.get::<i64>("n").unwrap_or(0) != rows.len() as i64 {
+                return Err(StorageError::Invalid("fact endpoint missing".into()));
+            }
         }
-        if scopes.is_empty() {
-            tx.run(
-                query(&format!(
-                    "MATCH ()-[r:{kind} {{projection_key:$edge}}]->() DELETE r"
-                ))
-                .param("edge", key.to_string()),
-            )
-            .await?;
-        } else {
-            let q=format!("MATCH (a:LINEAGE_ENTITY {{lineage_key:$src}}),(b:LINEAGE_ENTITY {{lineage_key:$dst}}) MERGE (a)-[r:{kind} {{projection_key:$edge}}]->(b) ON CREATE SET r.ctime=datetime() SET r += $props,r.sql_md5_list=$hashes,r.frequency=size($hashes),r.source_scopes=$scopes,r.utime=datetime() RETURN count(r) AS n");
-            let row = one(
-                tx,
-                query(&q)
-                    .param("src", src)
-                    .param("dst", dst)
-                    .param("edge", key.to_string())
-                    .param("props", bolt(serde_json::from_str(&p)?))
-                    .param("hashes", hashes.into_iter().collect::<Vec<_>>())
-                    .param("scopes", scopes.into_iter().collect::<Vec<_>>()),
-            )
-            .await?;
-            if row.get::<i64>("n").unwrap_or(0) != 1 {
-                return Err(StorageError::Invalid("projection endpoint missing".into()));
+        Ok(())
+    }
+    async fn project(&self, tx: &mut Txn, keys: &[String]) -> Result<(), StorageError> {
+        #[derive(Default)]
+        struct Projection {
+            kind: String,
+            src: String,
+            dst: String,
+            props: String,
+            hashes: BTreeSet<String>,
+            scopes: BTreeSet<String>,
+        }
+        for keys in keys.chunks(BATCH_SIZE) {
+            let mut rows=tx.execute(query("UNWIND $keys AS key MATCH (f:LINEAGE_FACT {edge_key:key}) RETURN f.edge_key AS edge,f.kind AS kind,f.from_key AS src,f.to_key AS dst,f.props_json AS props,f.active AS active,f.sql_md5 AS md5,f.scope_key AS scope ORDER BY f.fact_key")
+                .param("keys",keys.to_vec())).await?;
+            let mut projections = BTreeMap::<String, Projection>::new();
+            while let Some(r) = rows.next(tx.handle()).await? {
+                let key = r
+                    .get::<String>("edge")
+                    .map_err(|_| StorageError::Invalid("fact identity missing".into()))?;
+                let p = projections.entry(key).or_default();
+                p.kind = r
+                    .get("kind")
+                    .map_err(|_| StorageError::Invalid("fact kind".into()))?;
+                p.src = r.get("src").unwrap_or_default();
+                p.dst = r.get("dst").unwrap_or_default();
+                p.props = r.get("props").unwrap_or_else(|_| "{}".into());
+                if r.get::<bool>("active").unwrap_or(false) {
+                    p.hashes.insert(r.get::<String>("md5").unwrap_or_default());
+                    p.scopes
+                        .insert(r.get::<String>("scope").unwrap_or_default());
+                }
+            }
+            let mut groups = BTreeMap::<(String, bool), Vec<Value>>::new();
+            for (key, p) in projections {
+                if ![
+                    "READS_FROM",
+                    "REF_TABLE_COL",
+                    "REF_TEP",
+                    "DERIVES_COL",
+                    "JOINS_WITH",
+                    "CONTROLS_COL",
+                ]
+                .contains(&p.kind.as_str())
+                {
+                    return Err(StorageError::Invalid(
+                        "invalid projected relation kind".into(),
+                    ));
+                }
+                let active = !p.scopes.is_empty();
+                groups.entry((p.kind,active)).or_default().push(json!({
+                    "edge":key,"src":p.src,"dst":p.dst,"props":if active { serde_json::from_str::<Value>(&p.props)? } else { json!({}) },
+                    "hashes":p.hashes,"scopes":p.scopes
+                }));
+            }
+            for ((kind, active), rows) in groups {
+                if active {
+                    let q=format!("UNWIND $rows AS row MATCH (a:LINEAGE_ENTITY {{lineage_key:row.src}}),(b:LINEAGE_ENTITY {{lineage_key:row.dst}}) MERGE (a)-[r:{kind} {{projection_key:row.edge}}]->(b) ON CREATE SET r.ctime=datetime() SET r += row.props,r.sql_md5_list=row.hashes,r.frequency=size(row.hashes),r.source_scopes=row.scopes,r.utime=datetime() RETURN count(r) AS n");
+                    let row = one(tx, query(&q).param("rows", bolt(json!(rows)))).await?;
+                    if row.get::<i64>("n").unwrap_or(0) != rows.len() as i64 {
+                        return Err(StorageError::Invalid("projection endpoint missing".into()));
+                    }
+                } else {
+                    tx.run(query(&format!("UNWIND $rows AS row MATCH (a:LINEAGE_ENTITY {{lineage_key:row.src}})-[r:{kind} {{projection_key:row.edge}}]->(b:LINEAGE_ENTITY {{lineage_key:row.dst}}) DELETE r"))
+                        .param("rows",bolt(json!(rows)))).await?;
+                }
             }
         }
         Ok(())

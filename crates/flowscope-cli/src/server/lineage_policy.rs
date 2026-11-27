@@ -414,22 +414,39 @@ impl PolicyDb {
         status: &str,
         outcome: Option<Value>,
         reason: Option<String>,
-    ) -> Result<(), ApiError> {
+    ) -> Result<bool, ApiError> {
         let status = status.to_string();
         self.call(move |conn| {
-            conn.execute(
-                "UPDATE lineage_events SET status=?1,outcome=?2,last_error=?3 WHERE id=?4",
+            let changed = conn.execute(
+                "UPDATE lineage_events SET status=?1,outcome=?2,last_error=?3 WHERE id=?4 AND status='queued'",
                 params![status, outcome.map(|v| v.to_string()), reason, id],
             )
             .map_err(db_error)?;
-            Ok(())
+            Ok(changed == 1)
         })
         .await
     }
-    pub async fn retry(&self, id: String) -> Result<(), ApiError> {
+    pub async fn retry(&self, id: String, reason: String) -> Result<(), ApiError> {
         self.call(move|conn|{
-        conn.execute("UPDATE lineage_events SET attempts=attempts+1,next_attempt=?1+MIN(60000,1000*(1 << MIN(attempts,6))),last_error='neo4j_temporarily_unavailable' WHERE id=?2",params![chrono::Utc::now().timestamp_millis(),id]).map_err(db_error)?;Ok(())
+        conn.execute("UPDATE lineage_events SET attempts=attempts+1,next_attempt=?1+MIN(60000,1000*(1 << MIN(attempts,6))),last_error=?3 WHERE id=?2",params![chrono::Utc::now().timestamp_millis(),id,reason]).map_err(db_error)?;Ok(())
     }).await
+    }
+    pub async fn ingestion_counts(
+        &self,
+        owner: Option<String>,
+        action: Action,
+    ) -> Result<Value, ApiError> {
+        self.call(move |conn| {
+            // Metadata only: never deserialize event bodies or analysis JSON.
+            let read=conn.transaction().map_err(db_error)?;
+            let (queued,retrying,blocked,failed,committed):(i64,i64,i64,i64,i64)=read.query_row(
+                "SELECT coalesce(sum(status='queued'),0),coalesce(sum(status='queued' AND attempts>0),0),coalesce(sum(status IN ('blocked','blocked_policy')),0),coalesce(sum(status='failed'),0),coalesce(sum(status='committed'),0) FROM lineage_events WHERE action=?1 AND (?2 IS NULL OR principal_id=?2)",
+                params![action.as_str(),owner],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).map_err(db_error)?;
+            let last:Option<String>=if let Some(owner)=owner {
+                read.query_row("SELECT max(ts) FROM audit_log WHERE principal_id=?1",[owner],|r|r.get(0)).map_err(db_error)?
+            } else {read.query_row("SELECT max(ts) FROM audit_log",[],|r|r.get(0)).map_err(db_error)?};
+            Ok(json!({"queued":queued,"retrying":retrying,"blocked":blocked,"failed":failed,"committed":committed,"lastAcceptedAt":last}))
+        }).await
     }
     pub async fn event(&self, id: String, caller: Caller) -> Result<Value, ApiError> {
         self.call(move|conn|{
@@ -450,62 +467,72 @@ pub(super) fn decorate_audit_rows(
     conn: &Connection,
     records: &mut [Value],
 ) -> Result<(), ApiError> {
-    for record in records {
-        let Some(id) = record["id"].as_i64() else {
-            continue;
-        };
-        let (principal, event): (Option<String>, Option<String>) = conn
-            .query_row(
-                "SELECT principal_id,event_id FROM audit_log WHERE id=?1",
-                [id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .map_err(db_error)?;
-        let status = if principal.is_some() {
+    let ids: Vec<i64> = records
+        .iter()
+        .filter_map(|record| record["id"].as_i64())
+        .collect();
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let placeholders = vec!["?"; ids.len()].join(",");
+    // Read all metadata in one query; never fetch an event's large body here.
+    let mut statement = conn
+        .prepare(&format!(
+            "SELECT a.id,a.principal_id,a.event_id,e.action,e.status,e.outcome,e.last_error
+         FROM audit_log a LEFT JOIN lineage_events e ON e.id=a.event_id
+         WHERE a.id IN ({placeholders})"
+        ))
+        .map_err(db_error)?;
+    let mut rows = statement
+        .query(rusqlite::params_from_iter(ids))
+        .map_err(db_error)?;
+    let mut metadata = std::collections::HashMap::new();
+    while let Some(row) = rows.next().map_err(db_error)? {
+        let id: i64 = row.get(0).map_err(db_error)?;
+        let principal: Option<String> = row.get(1).map_err(db_error)?;
+        let event: Option<String> = row.get(2).map_err(db_error)?;
+        let action: Option<String> = row.get(3).map_err(db_error)?;
+        let status: Option<String> = row.get(4).map_err(db_error)?;
+        let outcome: Option<String> = row.get(5).map_err(db_error)?;
+        let reason: Option<String> = row.get(6).map_err(db_error)?;
+        let default_status = if principal.is_some() && event.is_none() {
             "not_requested"
         } else {
             "unknown"
         };
-        let mut extra = json!({"principal_id":principal,"event_id":event,"lineage_status":status,"usage_status":status});
-        if let Some(event) = event {
-            let (action, status, outcome, reason): (
-                String,
-                String,
-                Option<String>,
-                Option<String>,
-            ) = conn
-                .query_row(
-                    "SELECT action,status,outcome,last_error FROM lineage_events WHERE id=?1",
-                    [event],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-                )
-                .map_err(db_error)?;
+        let mut extra = json!({"principal_id":principal,"event_id":event,
+            "lineage_status":default_status,"usage_status":default_status});
+        if let Some(action) = action {
             extra["lineage_status"] = json!(if action == "publish" {
-                status.as_str()
+                status.as_deref()
             } else {
-                "not_requested"
+                Some("not_requested")
             });
             extra["usage_status"] = json!(if action == "record_usage" {
-                status.as_str()
+                status.as_deref()
             } else {
-                "not_requested"
+                Some("not_requested")
             });
             extra["policy_reason"] = json!(reason);
             if let Some(outcome) = outcome {
                 if let Ok(outcome) = serde_json::from_str::<Value>(&outcome) {
-                    for key in ["lineageStatus", "usageStatus", "reason"] {
-                        let field = match key {
-                            "lineageStatus" => "lineage_status",
-                            "usageStatus" => "usage_status",
-                            _ => "policy_reason",
-                        };
+                    for (key, field) in [
+                        ("lineageStatus", "lineage_status"),
+                        ("usageStatus", "usage_status"),
+                        ("reason", "policy_reason"),
+                    ] {
                         extra[field] = outcome[key].clone();
                     }
                 }
             }
         }
-        for (key, value) in extra.as_object().expect("audit metadata object") {
-            record[key] = value.clone();
+        metadata.insert(id, extra);
+    }
+    for record in records {
+        if let Some(extra) = record["id"].as_i64().and_then(|id| metadata.get(&id)) {
+            for (key, value) in extra.as_object().expect("audit metadata object") {
+                record[key] = value.clone();
+            }
         }
     }
     Ok(())

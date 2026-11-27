@@ -7,6 +7,12 @@ vi.mock('@/lib/project-store', () => ({
   useProject: () => ({ isBackendMode: true, backendAuditStorage: { enabled: true } }),
 }));
 
+vi.mock('@/components/IngestionMonitor', () => ({
+  IngestionMonitor: ({ onActivityChange }: { onActivityChange: () => void }) => (
+    <button onClick={onActivityChange}>模拟入图变化</button>
+  ),
+}));
+
 const fetchMock = vi.fn<typeof fetch>();
 
 function auditResponse(lineageStatus = 'committed', usageStatus = 'not_requested', id = 1) {
@@ -70,6 +76,44 @@ afterEach(() => {
 });
 
 describe('AuditPage polling', () => {
+  it('finishes loading if ingestion changes during the initial list request', async () => {
+    const initial = pendingResponse();
+    fetchMock.mockReturnValueOnce(initial.promise).mockResolvedValueOnce(auditResponse());
+    const { container } = await renderAudit();
+    expect(container.querySelector('.animate-spin')).not.toBeNull();
+    fireEvent.click(screen.getByText('模拟入图变化'));
+    await act(async () => {});
+    expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true);
+    expect(container.querySelector('.animate-spin')).toBeNull();
+    expect(screen.getByText('query-1.sql')).toBeInTheDocument();
+    await act(async () => initial.resolve(Response.json({ total: 0, records: [] })));
+    expect(screen.getByText('query-1.sql')).toBeInTheDocument();
+  });
+
+  it('quietly refreshes an empty filtered page when ingestion activity changes', async () => {
+    const response = pendingResponse();
+    fetchMock
+      .mockResolvedValueOnce(Response.json({ total: 0, records: [] }))
+      .mockReturnValueOnce(response.promise);
+    const { container } = render(
+      <MemoryRouter
+        initialEntries={['/audit?lineage_status=queued&page=2']}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <AuditPage />
+      </MemoryRouter>
+    );
+    await act(async () => {});
+    const initialUrl = fetchMock.mock.calls[0][0];
+    expect(initialUrl).toContain('offset=50');
+    fireEvent.click(screen.getByText('模拟入图变化'));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][0]).toEqual(initialUrl);
+    expect(container.querySelector('.animate-spin')).toBeNull();
+    await act(async () => response.resolve(auditResponse('queued')));
+    expect(screen.getByText('query-1.sql')).toBeInTheDocument();
+  });
+
   it.each([
     ['queued', 'not_requested'],
     ['committed', 'queued'],

@@ -1,0 +1,31 @@
+{
+  "cutoff": "2026-11-19T11:50:14.282Z",
+  "results": [
+    {
+      "elapsedMs": 52.09999999962747,
+      "name": "list",
+      "records": 50,
+      "status": 200,
+      "total": 652188
+    },
+    {
+      "elapsedMs": 15002.800000000745,
+      "error": "TimeoutError: signal timed out",
+      "name": "select"
+    },
+    {
+      "elapsedMs": 652.6999999992549,
+      "name": "older_than_7_days",
+      "records": 1,
+      "status": 200,
+      "total": 625193
+    },
+    {
+      "elapsedMs": 1532.7000000011176,
+      "name": "queued",
+      "records": 1,
+      "status": 200,
+      "total": 437
+    }
+  ]
+}

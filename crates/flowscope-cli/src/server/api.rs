@@ -37,6 +37,10 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/config", get(config))
         .route("/audit", get(audit_records))
         .route("/audit/files", get(audit_files))
+        .route(
+            "/audit/settings",
+            get(audit_settings_read).post(audit_settings_save),
+        )
         .route("/audit/{id}", get(audit_record_detail))
 }
 
@@ -182,6 +186,61 @@ fn default_audit_limit() -> i64 {
 }
 
 // === Handlers ===
+
+async fn audit_settings_access(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(std::path::PathBuf, Arc<super::audit::AuditWriter>), super::lineage_policy::ApiError> {
+    let runtime = state.lineage.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "lineage_storage_not_configured".to_string(),
+        )
+    })?;
+    runtime.db.admin(headers).await?;
+    let audit = state.audit.clone().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "audit_logging_disabled".to_string(),
+        )
+    })?;
+    let path = state.config.audit_log_path.clone().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "audit_logging_disabled".to_string(),
+        )
+    })?;
+    Ok((path, audit))
+}
+
+async fn audit_settings_read(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<super::audit_retention::AuditSettings>, super::lineage_policy::ApiError> {
+    let (path, _) = audit_settings_access(&state, &headers).await?;
+    let value = tokio::task::spawn_blocking(move || super::audit_retention::read(&path))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(value))
+}
+
+async fn audit_settings_save(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(value): Json<super::audit_retention::AuditSettings>,
+) -> Result<Json<super::audit_retention::AuditSettings>, super::lineage_policy::ApiError> {
+    let (path, audit) = audit_settings_access(&state, &headers).await?;
+    value
+        .cutoff(chrono::Utc::now())
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let saved = tokio::task::spawn_blocking(move || super::audit_retention::save(&path, value))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    audit.request_maintenance();
+    Ok(Json(saved))
+}
 
 /// GET /api/health - Health check with version
 async fn health() -> Json<HealthResponse> {
@@ -764,6 +823,7 @@ async fn audit_records(
     let source_name = params.source_name.clone().filter(|s| !s.trim().is_empty());
     let target_table = params.target_table.clone().filter(|s| !s.trim().is_empty());
     let keyword = params.keyword.clone().filter(|s| !s.trim().is_empty());
+    let include_lineage = state.lineage.is_some();
     let lineage_status = if state.lineage.is_some() {
         params.lineage_status
     } else {
@@ -775,6 +835,7 @@ async fn audit_records(
 
     let result = tokio::task::spawn_blocking(move || {
         let filters = super::audit::AuditLogListFilters {
+            include_lineage,
             principal_id: owner.as_deref(),
             from: from.as_deref(),
             to: to.as_deref(),
@@ -804,12 +865,6 @@ async fn audit_records(
         )
     })?;
 
-    let mut result = result;
-    if params.lineage_status.is_none() {
-        if let Some(runtime) = &state.lineage {
-            runtime.db.decorate_audits(&mut result.records).await?;
-        }
-    }
     Ok(Json(result))
 }
 

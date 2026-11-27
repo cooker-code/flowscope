@@ -6,7 +6,9 @@
 pub mod api;
 mod assets;
 pub mod audit;
+mod audit_retention;
 pub mod lineage;
+mod lineage_metrics;
 pub mod lineage_policy;
 pub mod state;
 mod token_vault;
@@ -49,7 +51,7 @@ pub async fn run_server(config: ServerConfig) -> Result<()> {
     let audit_backfill = state.audit.as_ref().map(|audit| {
         let audit = Arc::clone(audit);
         let stop = lineage_stopped.clone();
-        tokio::spawn(async move { audit.backfill_sql_types(stop).await })
+        tokio::spawn(async move { audit.maintain(stop).await })
     });
     let lineage_worker = state
         .lineage

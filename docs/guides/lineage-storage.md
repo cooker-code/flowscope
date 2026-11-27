@@ -37,8 +37,39 @@ no `--lineage-config` preserves the existing parser/audit behavior and does not
 start a graph writer. `allowAnonymousParse=true` is an explicit migration
 option; anonymous calls can only parse and cannot create any Neo4j event.
 
+Audit logs default to a rolling seven-day retention period, including existing
+history. Administrators can change the positive integer day count in
+`/policies`, below the caller list, or through `GET/POST /api/audit/settings`
+with `{"retentionDays":7}`. Settings persist in the audit SQLite database.
+Saving schedules background cleanup; it does not wait for historical deletion.
+The worker deletes at most 200 audit rows per transaction after the listener
+starts, preserves queued-event audit rows until processing ends, and retries
+lock contention. SQL and saved analysis JSON in expired audit rows are deleted;
+durable events, policies, credentials, and committed Neo4j lineage remain.
+Freed SQLite pages are reused; online cleanup does not run a full `VACUUM`.
+
 Open `/access` and supply your own token. Browser credentials stay in the current
 tab's session storage; they are never embedded into the web assets or URLs.
+
+The audit page has an ingestion monitor independent of its date/status filters.
+It refreshes every five seconds and shows the pending queue, retry subset,
+blocked/failed events, latest accepted request, and successful confirmations in
+the previous 60 seconds. Administrators monitor all formal publishing;
+schedulers and persons see only their own publishing/usage respectively.
+Counts are events, so a multi-file request counts once. Retries and blocked
+events do not inflate throughput. The first minute after a restart is marked
+as warm-up; afterwards an idle window shows zero. A recovered Neo4j receipt
+counts when first confirmed locally. Queue totals persist, while rate samples
+reset on restart. `GET /api/lineage/metrics` exposes the same authenticated data.
+
+If today's list is empty, check `lastAcceptedAt` before diagnosing the writer.
+Authentication rejects requests before they enter the audit log. A scheduled
+Hive/Spark job may still report success if its HTTP UDF catches exceptions and
+returns NULL. Check the materialized response column and executor logs as well
+as job status. Legacy `sql_analyze(sql, taskName)` clients must supply a usable
+Bearer credential; publishing also requires stable source/version context and
+complete metadata. Turning on anonymous parsing cannot restore formal lineage.
+
 An administrator can open `/policies` to register stable caller identities,
 configure their enabled state and default action, and issue tokens. The token
 list shows the full usable credential, including after reload or restart, and

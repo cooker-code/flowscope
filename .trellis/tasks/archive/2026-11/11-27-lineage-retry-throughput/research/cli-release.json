@@ -1,0 +1,37 @@
+{
+  "status": "uploaded",
+  "artifact": "/Users/blank/.local/share/flowscope-cli-release/artifacts/58e5ab761b114d76f9d7265aafafd7b29362f51ce21dcd467372e52692fcf8a0/flowscope",
+  "sha256": "58e5ab761b114d76f9d7265aafafd7b29362f51ce21dcd467372e52692fcf8a0",
+  "size_bytes": 54776616,
+  "glibc_max": "2.17",
+  "source": "/Users/blank/wangliang/gitcode/flowscope/.worktrees/codex%2Ffix-lineage-retry-throughput",
+  "branch": "codex/fix-lineage-retry-throughput",
+  "tools": {
+    "zig": "0.13.0",
+    "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "yarn": "1.22.22",
+    "node": "v24.21.0",
+    "zigbuild": "cargo-zigbuild 0.22.3"
+  },
+  "zig": "/Users/blank/.local/share/flowscope/release-builds/lineage-20261126-mwx66v2o/.tools/ziglang/zig",
+  "target_dir": "/Users/blank/.local/share/flowscope/release-builds/lineage-20261126-mwx66v2o/target-zigbuild",
+  "frontend_cache": "/Users/blank/.cache/flowscope-cli-release/frontend/07d58b2c197a635d54baa54cdc85b766f5f91a41f2837a53bc4d01f89c46a873",
+  "frontend_cached": false,
+  "build_id": "cli-c9ade983a645d80df06b",
+  "target": "x86_64-unknown-linux-gnu.2.17",
+  "features": [
+    "serve"
+  ],
+  "upload": true,
+  "url": "http://upload.zhenguanyu.com/uploads/0472e3c3_flowscope",
+  "remote_sha256_verified": true,
+  "source_commit": "ec001c6f650c36f795a32c19d0cd32ec5227f529",
+  "validation": {
+    "core_unit_passed": 1750,
+    "sql_regression_passed": 18,
+    "sql_regression_failed": 0,
+    "cli_unit_passed": 202,
+    "audit_page_tests_passed": 11
+  }
+}

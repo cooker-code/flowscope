@@ -1,5 +1,5 @@
 import { apiFetch, graphStatus, INGESTION_STATUS_LABELS } from '@/lib/lineage-api';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { GraphIngestionStatus, GraphIngestionStatusHelp } from '@/components/GraphIngestionStatus';
 import { Input } from '@/components/ui/input';
+import { IngestionMonitor } from '@/components/IngestionMonitor';
 import {
   Select,
   SelectContent,
@@ -162,6 +163,9 @@ export function AuditPage() {
   const setLineageStatus = (v: string) => updateParams({ lineage_status: v }, { resetPage: true });
   const setPage = (next: number) => updateParams({ page: next === 1 ? null : String(next) });
 
+  const [activityRevision, setActivityRevision] = useState(0);
+  const refreshForActivity = useCallback(() => setActivityRevision((value) => value + 1), []);
+  const lastRequestedQuery = useRef<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<AuditQueryResponse | null>(null);
@@ -253,18 +257,20 @@ export function AuditPage() {
         if (!background) setData(null);
       } finally {
         if (!signal.aborted) {
-          if (!background) setLoading(false);
+          setLoading(false);
           if (shouldPoll) timer = window.setTimeout(() => void fetchList(true), 2000);
         }
       }
     };
 
-    void fetchList();
+    const background = lastRequestedQuery.current === queryString;
+    lastRequestedQuery.current = queryString;
+    void fetchList(background);
     return () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [queryString]);
+  }, [queryString, activityRevision]);
 
   // Persist the current list URL so "Back to audit list" on the lineage detail
   // can restore the exact same filtered/paginated view even after a hard refresh.
@@ -443,6 +449,8 @@ export function AuditPage() {
           </div>
         )}
 
+        <IngestionMonitor onActivityChange={refreshForActivity} />
+
         <div className="rounded-md border overflow-hidden">
           <div className="flex items-center justify-between px-3 py-2 bg-muted/40 text-xs border-b">
             <span>
@@ -506,7 +514,6 @@ export function AuditPage() {
                     </span>
                   </th>
                   <th className="px-3 py-2 font-medium">个人使用</th>
-                  <th className="px-3 py-2 font-medium">调用方 / 原因</th>
                   <th className="px-3 py-2 font-medium">Endpoint</th>
                   <th className="px-3 py-2 font-medium">Dialect</th>
                   <th className="px-3 py-2 font-medium">ms</th>
@@ -566,15 +573,6 @@ export function AuditPage() {
                       />
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">{graphStatus(r.usage_status)}</td>
-                    <td className="px-3 py-2 max-w-64">
-                      <span className="block">{r.principal_id ?? '历史未知身份'}</span>
-                      <span
-                        className="block break-words text-muted-foreground"
-                        title={r.policy_reason ?? ''}
-                      >
-                        {r.policy_reason}
-                      </span>
-                    </td>
                     <td className="px-3 py-2 max-w-[140px] truncate">{r.endpoint}</td>
                     <td className="px-3 py-2">{r.dialect}</td>
                     <td className="px-3 py-2 tabular-nums">{r.duration_ms}</td>
@@ -597,7 +595,7 @@ export function AuditPage() {
                 ))}
                 {data && data.records.length === 0 && (
                   <tr>
-                    <td colSpan={15} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={14} className="px-4 py-8 text-center text-muted-foreground">
                       No audit records match the current filters.
                     </td>
                   </tr>

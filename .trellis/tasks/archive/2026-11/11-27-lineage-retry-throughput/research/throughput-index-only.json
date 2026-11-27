@@ -1,0 +1,44 @@
+[
+  {
+    "trial": 0,
+    "phase": "first_publish",
+    "wallMs": 3313.351042,
+    "entities": 494,
+    "facts": 657
+  },
+  {
+    "trial": 0,
+    "phase": "replace_revision",
+    "wallMs": 3950.210375,
+    "entities": 494,
+    "facts": 657
+  },
+  {
+    "trial": 1,
+    "phase": "first_publish",
+    "wallMs": 2540.021959,
+    "entities": 494,
+    "facts": 657
+  },
+  {
+    "trial": 1,
+    "phase": "replace_revision",
+    "wallMs": 4498.524833,
+    "entities": 494,
+    "facts": 657
+  },
+  {
+    "trial": 2,
+    "phase": "first_publish",
+    "wallMs": 2751.465625,
+    "entities": 494,
+    "facts": 657
+  },
+  {
+    "trial": 2,
+    "phase": "replace_revision",
+    "wallMs": 3559.643417,
+    "entities": 494,
+    "facts": 657
+  }
+]

@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use flowscope_core::{AnalyzeResult, InsertType, NodeType, SqlType};
 use sha2::{Digest, Sha256};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, watch, Notify};
 
 /// One row written to `audit_log`.
 #[derive(Debug, Clone)]
@@ -52,6 +52,8 @@ pub struct AuditEntry {
 /// Filters for listing audit rows (`GET /api/audit`).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AuditLogListFilters<'a> {
+    /// Decorate the page in the same read snapshot as its count and filters.
+    pub include_lineage: bool,
     pub principal_id: Option<&'a str>,
     pub from: Option<&'a str>,
     pub to: Option<&'a str>,
@@ -116,6 +118,12 @@ const LINEAGE_STATUS_SQL: &str = "COALESCE(CASE
     )
     WHEN audit_log.principal_id IS NOT NULL THEN 'not_requested'
     ELSE 'unknown'
+END, 'unknown')";
+
+const EVENT_LINEAGE_STATUS_SQL: &str = "COALESCE(CASE
+    WHEN json_valid(outcome) THEN json_extract(outcome, '$.lineageStatus')
+    WHEN action='publish' THEN status
+    ELSE 'not_requested'
 END, 'unknown')";
 
 #[derive(Default, serde::Serialize)]
@@ -467,6 +475,7 @@ pub(crate) fn insert_entry(
 pub struct AuditWriter {
     tx: mpsc::UnboundedSender<AuditEntry>,
     db_path: PathBuf,
+    maintenance_requested: Notify,
 }
 
 impl AuditWriter {
@@ -484,6 +493,8 @@ impl AuditWriter {
             let conn = rusqlite::Connection::open(&db_path).map_err(|e| {
                 anyhow::anyhow!("Failed to open audit database {}: {}", db_path.display(), e)
             })?;
+            conn.busy_timeout(Duration::from_secs(2))?;
+            conn.execute_batch("PRAGMA journal_mode=WAL;")?;
             conn.execute_batch(CREATE_TABLE_SQL)
                 .map_err(|e| anyhow::anyhow!("Failed to initialise audit schema: {}", e))?;
             // Apply additive ALTER TABLE migrations. Pre-existing columns
@@ -508,6 +519,7 @@ impl AuditWriter {
             conn.execute_batch(INIT_SQL_TYPE_BACKFILL).map_err(|e| {
                 anyhow::anyhow!("Failed to initialize audit backfill progress: {}", e)
             })?;
+            super::audit_retention::initialize(&conn)?;
             conn
         };
 
@@ -534,11 +546,72 @@ impl AuditWriter {
             }
         });
 
-        Ok(Self { tx, db_path })
+        Ok(Self {
+            tx,
+            db_path,
+            maintenance_requested: Notify::new(),
+        })
+    }
+
+    pub fn request_maintenance(&self) {
+        self.maintenance_requested.notify_one();
+    }
+
+    /// Cleanup precedes backfill so expired JSON is never read just to discard it.
+    pub async fn maintain(&self, mut stop: watch::Receiver<bool>) {
+        let mut indexes_ready = false;
+        let mut deleted_total = 0;
+        while !*stop.borrow() {
+            let path = self.db_path.clone();
+            let result = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+                let deleted = super::audit_retention::cleanup_batch(&path, chrono::Utc::now())?;
+                if deleted > 0 {
+                    return Ok((deleted, false, indexes_ready));
+                }
+                if !indexes_ready {
+                    super::audit_retention::ensure_query_indexes(&path)?;
+                }
+                let progress = normalize_sql_type_batch(&path)?;
+                Ok((0, progress.completed, true))
+            })
+            .await;
+            let delay = match result {
+                Ok(Ok((deleted, completed, ready))) => {
+                    indexes_ready = ready;
+                    deleted_total += deleted;
+                    if deleted > 0 && (deleted_total == deleted || deleted_total % 10000 == 0) {
+                        eprintln!(
+                            "flowscope: audit retention removed {deleted_total} expired records"
+                        );
+                    }
+                    if deleted == 0 && completed {
+                        Duration::from_secs(60)
+                    } else {
+                        Duration::from_millis(100)
+                    }
+                }
+                Ok(Err(error)) => {
+                    eprintln!("flowscope: audit maintenance paused; will retry: {error}");
+                    Duration::from_secs(1)
+                }
+                Err(error) => {
+                    eprintln!("flowscope: audit maintenance task failed: {error}");
+                    return;
+                }
+            };
+            tokio::select! {
+                _ = tokio::time::sleep(delay) => {},
+                _ = self.maintenance_requested.notified() => {},
+                changed = stop.changed() => {
+                    if changed.is_err() || *stop.borrow() { return; }
+                }
+            }
+        }
     }
 
     /// Started only after the listener is bound. Database contention pauses
     /// maintenance rather than blocking startup or sharing the audit writer lock.
+    #[cfg(test)]
     pub async fn backfill_sql_types(&self, mut stop: watch::Receiver<bool>) {
         let mut batches = 0;
         let mut updated = 0;
@@ -607,7 +680,15 @@ impl AuditWriter {
         // Collect dynamic filter conditions and their parameter values
         let lineage_condition = filters.lineage_status.map(|status| {
             let (operator, values) = status.condition();
-            (format!("{LINEAGE_STATUS_SQL} {operator}"), values)
+            let condition = match status {
+                LineageStatusFilter::Committed | LineageStatusFilter::Queued
+                | LineageStatusFilter::Blocked | LineageStatusFilter::Failed => {
+                    // Use the event_id index instead of evaluating event JSON once per audit.
+                    format!("event_id IN (SELECT id FROM lineage_events WHERE {EVENT_LINEAGE_STATUS_SQL} {operator})")
+                }
+                _ => format!("{LINEAGE_STATUS_SQL} {operator}"),
+            };
+            (condition, values)
         });
         let mut cond_parts: Vec<&str> = Vec::new();
         let mut extra_params: Vec<String> = Vec::new();
@@ -762,7 +843,7 @@ impl AuditWriter {
             }));
         }
 
-        if filters.lineage_status.is_some() {
+        if filters.include_lineage || filters.lineage_status.is_some() {
             // Preserve the same status snapshot used for filtering, count and pagination.
             super::lineage_policy::decorate_audit_rows(&read, &mut records)
                 .map_err(|(_, message)| anyhow::anyhow!(message))?;
@@ -936,6 +1017,100 @@ mod tests {
         }
         conn.execute_batch(CREATE_INDEXES_SQL).unwrap();
         (dir, path, conn)
+    }
+
+    #[tokio::test]
+    async fn maintenance_cleans_before_backfill_and_wakes_after_settings_save() {
+        let (_dir, path, conn) = fresh_db();
+        let writer = Arc::new(AuditWriter::new(path.clone()).unwrap());
+        let mut entry = make_entry(None, None);
+        entry.sql_type = Some("WITH".into());
+        entry.result_json = Some(r#"{"sqlType":"select"}"#.into());
+        // These expired records must be removed without parsing their saved JSON.
+        for _ in 0..super::super::audit_retention::CLEANUP_BATCH_SIZE + 1 {
+            insert_direct(&conn, &entry);
+        }
+        entry.ts = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        insert_direct(&conn, &entry);
+        let recent_id = conn.last_insert_rowid();
+        // Capture a legacy boundary including the recent WITH row.
+        conn.execute(
+            "UPDATE audit_sql_type_backfill SET upper_id=?1,completed=0",
+            [recent_id],
+        )
+        .unwrap();
+        let (stop, stopped) = watch::channel(false);
+        let worker = {
+            let writer = writer.clone();
+            tokio::spawn(async move { writer.maintain(stopped).await })
+        };
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let row: (i64, String) = conn
+                    .query_row("SELECT count(*),sql_type FROM audit_log", [], |r| {
+                        Ok((r.get(0)?, r.get(1)?))
+                    })
+                    .unwrap();
+                if row == (1, "SELECT".into()) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+        // A configuration notification wakes the otherwise minute-long idle wait.
+        entry.ts = (chrono::Utc::now() - chrono::TimeDelta::days(2))
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        insert_direct(&conn, &entry);
+        super::super::audit_retention::save(
+            &path,
+            super::super::audit_retention::AuditSettings { retention_days: 1 },
+        )
+        .unwrap();
+        writer.request_maintenance();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let count: i64 = conn
+                    .query_row("SELECT count(*) FROM audit_log", [], |r| r.get(0))
+                    .unwrap();
+                if count == 1 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+        stop.send(true).unwrap();
+        tokio::time::timeout(Duration::from_secs(1), worker)
+            .await
+            .unwrap()
+            .unwrap();
+        insert_direct(&conn, &entry);
+        writer.request_maintenance();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let count: i64 = conn
+            .query_row("SELECT count(*) FROM audit_log", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 2, "stopped worker must not delete more rows");
+    }
+
+    #[test]
+    fn real_with_query_uses_analyzed_select_classification() {
+        let sql = include_str!("../../tests/fixtures/audit-with-select.sql");
+        let request: flowscope_core::AnalyzeRequest = serde_json::from_value(serde_json::json!({
+            "sql":sql, "dialect":"hive"
+        }))
+        .unwrap();
+        let result = flowscope_core::analyze(&request);
+        assert!(!result.summary.has_errors, "{:?}", result.issues);
+        assert_eq!(result.sql_type, SqlType::Select);
+        assert_eq!(result.statements[0].statement_type, "WITH");
+        assert_eq!(
+            extract_audit_flags(&result, sql).4.as_deref(),
+            Some("SELECT")
+        );
     }
 
     #[tokio::test]

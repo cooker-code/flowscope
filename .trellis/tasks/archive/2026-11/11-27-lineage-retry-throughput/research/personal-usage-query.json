@@ -1,0 +1,27 @@
+{
+  "observedAt": "2026-11-27T01:53:31.862342+00:00",
+  "personalActors": 0,
+  "yesterday": {
+    "from": "2026-11-26T00:00:00+08:00",
+    "to": "2026-11-27T00:00:00+08:00"
+  },
+  "productionRows": [],
+  "isolatedRows": [
+    {
+      "person_id": "person-1",
+      "table_name": "hive.dw.a",
+      "table_status": "registered",
+      "submitted_query_count": 1,
+      "first_submitted_at": "2026-11-25T00:00:00Z",
+      "last_submitted_at": "2026-11-25T00:00:00Z"
+    },
+    {
+      "person_id": "person-1",
+      "table_name": "unknown_personal_table",
+      "table_status": "unresolved_or_unregistered",
+      "submitted_query_count": 1,
+      "first_submitted_at": "2026-11-25T00:00:00Z",
+      "last_submitted_at": "2026-11-25T00:00:00Z"
+    }
+  ]
+}

@@ -28,6 +28,7 @@ pub struct LineageRuntime {
     pub settings: Settings,
     pub db: PolicyDb,
     notify: Notify,
+    meter: crate::server::lineage_metrics::IngestionMeter,
 }
 impl LineageRuntime {
     pub fn new(settings: Settings) -> anyhow::Result<Self> {
@@ -43,6 +44,7 @@ impl LineageRuntime {
             settings,
             db,
             notify: Notify::new(),
+            meter: crate::server::lineage_metrics::IngestionMeter::new(),
         })
     }
     pub async fn caller(
@@ -194,6 +196,38 @@ impl LineageRuntime {
         }
         Ok(response)
     }
+    async fn retry(&self, event_id: String, reason: String) {
+        eprintln!("lineage retry event_id={event_id} reason={reason}");
+        if self.db.retry(event_id, reason).await.is_err() {
+            eprintln!("lineage retry state could not be saved");
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }
+    async fn finish(
+        &self,
+        event: &StorageEvent,
+        status: &str,
+        outcome: Option<Value>,
+        reason: Option<String>,
+    ) {
+        match self
+            .db
+            .finish(event.event_id.clone(), status, outcome, reason)
+            .await
+        {
+            Ok(true) if status == "committed" => {
+                self.meter.record(&event.principal_id, event.action)
+            }
+            Ok(_) => {}
+            Err(_) => {
+                eprintln!(
+                    "lineage state save failed event_id={} phase=finish",
+                    event.event_id
+                );
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+        }
+    }
     pub async fn run(self: Arc<Self>, mut stop: watch::Receiver<bool>) {
         let mut store: Option<Neo4jStore> = None;
         loop {
@@ -211,31 +245,36 @@ impl LineageRuntime {
                 let password = match std::env::var(&self.settings.neo4j.password_env) {
                     Ok(p) => p,
                     Err(_) => {
-                        let _ = self.db.retry(event.event_id).await;
+                        self.retry(event.event_id, "neo4j_password_missing".into())
+                            .await;
                         continue;
                     }
                 };
                 match tokio::time::timeout(
-                    Duration::from_secs(8),
+                    Duration::from_secs(120),
                     Neo4jStore::connect(&self.settings.neo4j, &password),
                 )
                 .await
                 {
                     Ok(Ok(s)) => store = Some(s),
                     Ok(Err(StorageError::Invalid(_))) => {
-                        let _ = self
-                            .db
-                            .finish(
-                                event.event_id,
-                                "failed",
-                                None,
-                                Some("neo4j_environment_or_configuration_rejected".into()),
-                            )
+                        self.finish(
+                            &event,
+                            "failed",
+                            None,
+                            Some("neo4j_environment_or_configuration_rejected".into()),
+                        )
+                        .await;
+                        continue;
+                    }
+                    Ok(Err(err)) => {
+                        self.retry(event.event_id, storage_failure_reason("connect", &err))
                             .await;
                         continue;
                     }
-                    _ => {
-                        let _ = self.db.retry(event.event_id).await;
+                    Err(_) => {
+                        self.retry(event.event_id, "neo4j_connect_timeout".into())
+                            .await;
                         continue;
                     }
                 }
@@ -252,33 +291,31 @@ impl LineageRuntime {
                     } else {
                         "committed"
                     };
-                    let _ = self
-                        .db
-                        .finish(
-                            event.event_id,
-                            status,
-                            serde_json::to_value(outcome).ok(),
-                            None,
-                        )
+                    self.finish(&event, status, serde_json::to_value(outcome).ok(), None)
                         .await;
                     continue;
                 }
                 Ok(Ok(None)) => {}
                 Ok(Err(StorageError::Conflict)) => {
-                    let _ = self
-                        .db
-                        .finish(
-                            event.event_id,
-                            "failed",
-                            None,
-                            Some("content_or_version_conflict".into()),
-                        )
+                    self.finish(
+                        &event,
+                        "failed",
+                        None,
+                        Some("content_or_version_conflict".into()),
+                    )
+                    .await;
+                    continue;
+                }
+                Ok(Err(err)) => {
+                    store = None;
+                    self.retry(event.event_id, storage_failure_reason("receipt", &err))
                         .await;
                     continue;
                 }
-                _ => {
+                Err(_) => {
                     store = None;
-                    let _ = self.db.retry(event.event_id).await;
+                    self.retry(event.event_id, "neo4j_receipt_timeout".into())
+                        .await;
                     continue;
                 }
             }
@@ -287,22 +324,22 @@ impl LineageRuntime {
             match self.db.recheck(&event).await {
                 Ok(true) => {}
                 Ok(false) => {
-                    let _ = self
-                        .db
-                        .finish(
-                            event.event_id,
-                            "blocked_policy",
-                            None,
-                            Some("current_policy_or_token_disallows_event".into()),
-                        )
-                        .await;
+                    self.finish(
+                        &event,
+                        "blocked_policy",
+                        None,
+                        Some("current_policy_or_token_disallows_event".into()),
+                    )
+                    .await;
                     continue;
                 }
                 Err(_) => {
-                    let _ = self.db.retry(event.event_id).await;
+                    self.retry(event.event_id, "policy_recheck_failed".into())
+                        .await;
                     continue;
                 }
             }
+            let started = std::time::Instant::now();
             match tokio::time::timeout(
                 Duration::from_secs(30),
                 store.as_ref().expect("connected store").apply(&event),
@@ -310,28 +347,30 @@ impl LineageRuntime {
             .await
             {
                 Ok(Ok(outcome)) => {
+                    eprintln!(
+                        "lineage apply event_id={} elapsed_ms={} lineage_status={} usage_status={}",
+                        event.event_id,
+                        started.elapsed().as_millis(),
+                        outcome.lineage_status,
+                        outcome.usage_status
+                    );
                     let status = if outcome.lineage_status == "blocked" {
                         "blocked"
                     } else {
                         "committed"
                     };
-                    let _ = self
-                        .db
-                        .finish(
-                            event.event_id,
-                            status,
-                            serde_json::to_value(outcome).ok(),
-                            None,
-                        )
+                    self.finish(&event, status, serde_json::to_value(outcome).ok(), None)
                         .await;
                 }
                 Ok(Err(ref err)) if err.retryable() => {
                     store = None;
-                    let _ = self.db.retry(event.event_id).await;
+                    self.retry(event.event_id, storage_failure_reason("apply", err))
+                        .await;
                 }
                 Err(_) => {
                     store = None;
-                    let _ = self.db.retry(event.event_id).await;
+                    self.retry(event.event_id, "neo4j_apply_timeout".into())
+                        .await;
                 }
                 Ok(Err(err)) => {
                     let reason = match err {
@@ -339,13 +378,17 @@ impl LineageRuntime {
                         StorageError::Database(_) => "neo4j_rejected_event",
                         _ => "invalid_storage_event",
                     };
-                    let _ = self
-                        .db
-                        .finish(event.event_id, "failed", None, Some(reason.into()))
+                    self.finish(&event, "failed", None, Some(reason.into()))
                         .await;
                 }
             }
         }
+    }
+}
+fn storage_failure_reason(stage: &str, error: &StorageError) -> String {
+    match error.database_code() {
+        Some(code) => format!("neo4j_{stage}_failed:{code}"),
+        None => format!("neo4j_{stage}_failed"),
     }
 }
 fn runtime(state: &AppState) -> Result<&Arc<LineageRuntime>, ApiError> {
@@ -359,12 +402,44 @@ fn runtime(state: &AppState) -> Result<&Arc<LineageRuntime>, ApiError> {
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/lineage/me", get(me))
+        .route("/lineage/metrics", get(metrics))
         .route("/lineage/policies", get(list).post(save))
         .route("/lineage/policies/{id}", axum::routing::delete(remove))
         .route("/lineage/tokens", post(issue))
         .route("/lineage/tokens/{id}/revoke", post(revoke))
         .route("/lineage/policies/preview", post(preview))
         .route("/lineage/events/{id}", get(event_status))
+}
+async fn metrics(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let rt = runtime(&state)?;
+    let caller = rt
+        .db
+        .authenticate(&headers, None, false)
+        .await?
+        .expect("authenticated");
+    let owner = (caller.principal.kind != "admin").then_some(caller.principal.id.as_str());
+    let action = if caller.principal.kind == "person" {
+        Action::RecordUsage
+    } else {
+        Action::Publish
+    };
+    let mut snapshot = rt
+        .db
+        .ingestion_counts(owner.map(str::to_owned), action)
+        .await?;
+    snapshot["rate"] = serde_json::to_value(rt.meter.snapshot(owner, action)).map_err(|_| {
+        failure(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invalid_ingestion_metrics",
+        )
+    })?;
+    snapshot["scope"] = json!(if owner.is_none() { "all" } else { "own" });
+    snapshot["action"] = json!(action.as_str());
+    snapshot["sampledAt"] = json!(chrono::Utc::now().to_rfc3339());
+    Ok(Json(snapshot))
 }
 async fn me(
     State(state): State<Arc<AppState>>,
@@ -536,6 +611,7 @@ mod tests {
             db: PolicyDb::open(&path, ADMIN).unwrap(),
             settings,
             notify: Notify::new(),
+            meter: crate::server::lineage_metrics::IngestionMeter::new(),
         }));
         let state = Arc::new(state);
         let app = super::super::build_router(state.clone()).layer(MockConnectInfo(
@@ -596,6 +672,208 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         issued["token"].as_str().unwrap().into()
     }
+    #[tokio::test]
+    async fn ingestion_metrics_count_events_and_enforce_owner_scope() {
+        let (_dir, state, app) = fixture().await;
+        let alice = provision(&app, "metric-alice", "person", "record_usage").await;
+        let bob = provision(&app, "metric-bob", "person", "record_usage").await;
+        for (token, files) in [(&alice, true), (&bob, false)] {
+            let body = if files {
+                json!({"sql":"","files":[{"name":"a.sql","content":"SELECT 1"},{"name":"b.sql","content":"SELECT 2"}]})
+            } else {
+                json!({"sql":"SELECT 3"})
+            };
+            assert_eq!(
+                request(&app, "/api/analyze", Some(token), Some(body))
+                    .await
+                    .0,
+                StatusCode::OK
+            );
+        }
+        let rt = state.lineage.as_ref().unwrap();
+        let event = rt.db.next().await.unwrap().unwrap();
+        rt.retry(event.event_id.clone(), "neo4j_apply_timeout".into())
+            .await;
+        let (_, _, m) = request(&app, "/api/lineage/metrics", Some(&alice), None).await;
+        assert_eq!(m["scope"], "own");
+        assert_eq!(m["queued"], 1, "two files are one event");
+        assert_eq!(m["retrying"], 1);
+        assert_eq!(m["action"], "record_usage");
+        assert!(!m["lastAcceptedAt"].is_null());
+        assert!(m["rate"]["warmingUp"].as_bool().unwrap());
+        assert!(m["rate"]["eventsPerMinute"].is_null());
+        rt.finish(
+            &event,
+            "committed",
+            Some(json!({"usageStatus":"committed","lineageStatus":"not_requested","reason":null})),
+            None,
+        )
+        .await;
+        rt.finish(&event, "committed", None, None).await;
+        let (_, _, done) = request(&app, "/api/lineage/metrics", Some(&alice), None).await;
+        assert_eq!(done["queued"], 0);
+        assert_eq!(
+            done["rate"]["confirmedEvents"], 1,
+            "repeated finish must not double-count"
+        );
+        let (_, _, other) = request(&app, "/api/lineage/metrics", Some(&bob), None).await;
+        assert_eq!(other["queued"], 1);
+        assert_eq!(other["rate"]["confirmedEvents"], 0);
+        assert_eq!(
+            request(&app, "/api/lineage/metrics", None, None).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+        // Admins monitor formal publishing globally, not personal usage or observations.
+        let (_, _, admin) = request(&app, "/api/lineage/metrics", Some(ADMIN), None).await;
+        assert_eq!(admin["scope"], "all");
+        assert_eq!(admin["action"], "publish");
+        assert_eq!(admin["queued"], 0);
+        assert_eq!(admin["rate"]["confirmedEvents"], 0);
+    }
+    #[test]
+    fn storage_diagnostics_never_persist_raw_messages() {
+        let error = StorageError::Invalid("secret password and SQL must not be logged".into());
+        assert_eq!(
+            storage_failure_reason("apply", &error),
+            "neo4j_apply_failed"
+        );
+    }
+    #[tokio::test]
+    async fn retry_stage_survives_restart_and_clears_only_after_finish() {
+        let (dir, state, app) = fixture().await;
+        let token = provision(&app, "retry-person", "person", "record_usage").await;
+        let (status, headers, _) = request(
+            &app,
+            "/api/analyze",
+            Some(&token),
+            Some(json!({"sql":"SELECT id FROM dw.a"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let id = headers["x-flowscope-event-id"]
+            .to_str()
+            .unwrap()
+            .to_string();
+        let rt = state.lineage.as_ref().unwrap();
+        rt.retry(id.clone(), "neo4j_apply_timeout".into()).await;
+        let reopened = PolicyDb::open(&dir.path().join("state.db"), ADMIN).unwrap();
+        assert!(
+            reopened.next().await.unwrap().is_none(),
+            "retry must respect backoff"
+        );
+        let (_, _, event) = request(
+            &app,
+            &format!("/api/lineage/events/{id}"),
+            Some(ADMIN),
+            None,
+        )
+        .await;
+        assert_eq!(event["reason"], "neo4j_apply_timeout");
+        assert_eq!(event["status"], "queued");
+        assert_eq!(event["attempts"], 1);
+        rt.db.finish(
+            id.clone(),
+            "committed",
+            Some(json!({"lineageStatus":"not_requested","usageStatus":"committed","reason":null})),
+            None,
+        )
+        .await.unwrap();
+        let (_, _, event) = request(
+            &app,
+            &format!("/api/lineage/events/{id}"),
+            Some(ADMIN),
+            None,
+        )
+        .await;
+        assert!(event["reason"].is_null());
+        assert_eq!(event["status"], "committed");
+        assert_eq!(event["attempts"], 1);
+    }
+    #[tokio::test]
+    async fn audit_missing_event_metadata_matches_unknown_filter() {
+        let (dir, _state, app) = fixture().await;
+        let conn = rusqlite::Connection::open(dir.path().join("state.db")).unwrap();
+        conn.execute("INSERT INTO audit_log(ts,client_ip,endpoint,dialect,sql_text,sql_hash,sql_len,success,duration_ms,principal_id,event_id)
+            VALUES('2026-11-26T00:00:00.000Z','127.0.0.1','/api/analyze','Hive','SELECT 1','missing-event',8,1,1,'legacy-owner','missing')", []).unwrap();
+        for path in ["/api/audit", "/api/audit?lineage_status=unknown"] {
+            let (status, _, page) = request(&app, path, Some(ADMIN), None).await;
+            assert_eq!(status, StatusCode::OK, "{page}");
+            assert_eq!(page["total"], 1);
+            assert_eq!(page["records"][0]["lineage_status"], "unknown");
+        }
+    }
+
+    #[tokio::test]
+    async fn audit_retention_settings_require_admin_and_persist() {
+        let (dir, state, app) = fixture().await;
+        let person = provision(&app, "retention_person", "person", "record_usage").await;
+        for token in [None, Some(person.as_str())] {
+            for body in [None, Some(json!({"retentionDays":3}))] {
+                let (status, _, _) = request(&app, "/api/audit/settings", token, body).await;
+                assert!(status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN);
+            }
+        }
+        let (_, _, initial) = request(&app, "/api/audit/settings", Some(ADMIN), None).await;
+        assert_eq!(initial["retentionDays"], 7);
+        for invalid in [
+            json!(0),
+            json!(-1),
+            json!(1.5),
+            json!("7"),
+            json!(4294967295u64),
+        ] {
+            let (status, _, _) = request(
+                &app,
+                "/api/audit/settings",
+                Some(ADMIN),
+                Some(json!({"retentionDays":invalid})),
+            )
+            .await;
+            assert!(
+                status == StatusCode::BAD_REQUEST || status == StatusCode::UNPROCESSABLE_ENTITY
+            );
+        }
+        let (status, _, saved) = request(
+            &app,
+            "/api/audit/settings",
+            Some(ADMIN),
+            Some(json!({"retentionDays":3})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{saved}");
+        assert_eq!(saved["retentionDays"], 3);
+        drop(super::super::audit::AuditWriter::new(dir.path().join("state.db")).unwrap());
+        assert_eq!(
+            super::super::audit_retention::read(&dir.path().join("state.db"))
+                .unwrap()
+                .retention_days,
+            3
+        );
+
+        let conn = rusqlite::Connection::open(dir.path().join("state.db")).unwrap();
+        conn.execute("INSERT INTO audit_log(ts,client_ip,endpoint,dialect,sql_text,sql_hash,sql_len,success,duration_ms)
+            VALUES('2026-01-01T00:00:00.000Z','127.0.0.1','/api/analyze','Hive','SELECT 1','expired',8,1,1)", []).unwrap();
+        let id = conn.last_insert_rowid();
+        assert_eq!(
+            super::super::audit_retention::cleanup_batch(
+                &dir.path().join("state.db"),
+                chrono::Utc::now()
+            )
+            .unwrap(),
+            1
+        );
+        let (status, _, _) = request(&app, &format!("/api/audit/{id}"), Some(ADMIN), None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (_, _, page) = request(&app, "/api/audit", Some(ADMIN), None).await;
+        assert_eq!(page["total"], 0);
+        assert_eq!(
+            super::super::audit_retention::read(state.config.audit_log_path.as_ref().unwrap())
+                .unwrap()
+                .retention_days,
+            3
+        );
+    }
+
     #[tokio::test]
     async fn audit_lineage_filter_matches_displayed_outcomes_before_pagination() {
         let (dir, state, app) = fixture().await;

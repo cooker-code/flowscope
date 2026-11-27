@@ -1,0 +1,11 @@
+{
+  "containersRemoved": true,
+  "ownedVolumesRemoved": true,
+  "remainingOwnedProcesses": [],
+  "portsReleased": {
+    "17687": true,
+    "17688": true,
+    "17474": true,
+    "17475": true
+  }
+}

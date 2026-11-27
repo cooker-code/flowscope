@@ -169,6 +169,14 @@ async fn isolated_http_scheduler_personal_policy_restart_and_receipts() {
         settled(&client, &base, &first).await["lineageStatus"],
         "committed"
     );
+    let (status, _, metrics) = api(&client, &base, "/api/lineage/metrics", &scheduler, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(metrics["scope"], "own");
+    assert_eq!(metrics["queued"], 0);
+    assert_eq!(metrics["committed"], 1);
+    assert_eq!(metrics["rate"]["confirmedEvents"], 1);
+    assert_eq!(metrics["rate"]["warmingUp"], true);
+    assert!(metrics["rate"]["eventsPerMinute"].is_null());
     let store = Neo4jStore::connect(
         &Neo4jConfig {
             uri: uri.clone(),

@@ -1,0 +1,38 @@
+{
+  "before": {
+    "first_publish": {
+      "medianMs": 20072.023375,
+      "minMs": 19901.543125,
+      "maxMs": 20697.165167000003
+    },
+    "replace_revision": {
+      "medianMs": 32747.11775,
+      "minMs": 32580.785624999997,
+      "maxMs": 38191.556291
+    }
+  },
+  "index-only": {
+    "first_publish": {
+      "medianMs": 2751.465625,
+      "minMs": 2540.021959,
+      "maxMs": 3313.351042
+    },
+    "replace_revision": {
+      "medianMs": 3950.210375,
+      "minMs": 3559.643417,
+      "maxMs": 4498.524833
+    }
+  },
+  "after": {
+    "first_publish": {
+      "medianMs": 235.183166,
+      "minMs": 205.673542,
+      "maxMs": 590.6370410000001
+    },
+    "replace_revision": {
+      "medianMs": 305.472958,
+      "minMs": 281.091291,
+      "maxMs": 377.898791
+    }
+  }
+}

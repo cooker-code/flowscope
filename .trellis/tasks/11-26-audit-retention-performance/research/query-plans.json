@@ -1,0 +1,11 @@
+{
+  "sqliteVersion": "3.54.0",
+  "schema": "actual audit schema; isolated empty SQLite to inspect ordering plan",
+  "before": [
+    "SEARCH audit_log USING INDEX idx_audit_sql_type (sql_type=?)",
+    "USE TEMP B-TREE FOR ORDER BY"
+  ],
+  "after": [
+    "SEARCH audit_log USING INDEX idx_audit_sql_type_ts (sql_type=?)"
+  ]
+}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { AuditRetentionSettings } from '@/components/AuditRetentionSettings';
 import {
   ACTION_LABELS,
   apiJson,
@@ -311,6 +312,7 @@ export function PolicyPage() {
                   </div>
                 </div>
               )}
+              <AuditRetentionSettings />
             </section>
             <section className="min-w-0" aria-label="策略编辑">
               {!draft ? (
