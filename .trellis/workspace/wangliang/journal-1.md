@@ -684,3 +684,49 @@ Token 管理显示实际凭据，管理员可在刷新和重启后再次读取�
 ### Next Steps
 
 - None - task complete
+
+## Session 21: 合并全部功能分支并清理本地和 origin
+
+**Date**: 2026-11-27
+**Task**: 按用户授权直接执行，不创建新 Trellis task
+**Branch**: `master`
+
+### Summary
+
+检查时，启动阻塞修复已在本地 master，其余分支尚未全部合入。现已保留全部原始提交，将审计保留、批量入图、运行监控、状态语义及最小必要验证规范合入 master；代码合并提交为 `645b3fbbaee0`。每个来源分支末端提交均通过祖先关系检查，并在删除前确认 origin/master 已包含这些提交。
+
+### Preserved Branch Tips
+
+| 原分支（已删除） | 已保留在 master 的末端提交 |
+| --- | --- |
+| `codex/fix-audit-ingestion-monitoring` | `3af5577c0abe` |
+| `codex/fix-audit-retention-performance` | `5ff3cde852b2` |
+| `codex/fix-audit-startup-blocking` | `754390a0accc` |
+| `codex/fix-ingestion-status-semantics` | `78d406aaac84` |
+| `codex/fix-lineage-retry-throughput` | `93fe19f9faba` |
+
+### Main Changes
+
+- 监控分支未提交的组件、API、统计和测试已保存为 `3af5577c`；审计保留分支未提交的指南草稿已保存为 `5ff3cde8`，最终指南采用后续验证过的版本，并保留原稿历史。
+- 合并提交 `098d9ea6`、`2d86467f`、`645b3fbb` 保留各来源历史；冲突处理兼顾批量写入、批量快照、审计状态统一分类和一次批量 JOIN 元数据读取。
+- 解析及前置质量检查拒绝仍计入监控拦截数，但不进入入图队列，不增加已确认入图速率。
+- 宽表回归补充实际变更与回执断言：首次新增、新版本派生节点和关系替换、重复请求恢复原统计、撤回删除关系均按跨批次场景验证。
+
+### Verification
+
+- 39 项相关前端测试、TypeScript 类型检查及受影响前端文件 ESLint 通过。
+- 17 项审计/保留策略测试、18 项血缘/监控测试和 4 项 storage 单测通过。
+- 2 项隔离 Neo4j 测试通过，覆盖实际新增/更新/删除、版本替换、并发、回滚、回执及超过 256 个节点的批量场景。
+- 真实 HTTP 测试目标编译通过；本轮未执行完整 HTTP 链路、浏览器验证、前端生产构建或部署。
+- 临时数据库容器已删除，验证进程已退出，Docker Desktop 已恢复为执行前的停止状态。
+
+### Cleanup Result
+
+- 已删除上述 5 个本地功能分支；本地只保留 master。
+- 已删除 origin 上的 `codex/fix-audit-startup-blocking`；origin 只保留 master。
+- company、upstream 未执行推送或删除操作，远端跟踪引用与操作前一致。
+- 已清理 3 个闲置 worktree；审计保留目录因原有 OpenCLI daemon（PID 53394）仍以该目录为当前目录，保留为 `645b3fbb` 的 detached HEAD，不再占用任何功能分支。未停止该用户进程。
+
+### Status
+
+[OK] 已完成合并、推送和分支清理；此记录随后单独提交并同步 origin/master。
