@@ -1,11 +1,12 @@
+use crate::changes::{BusinessObject, BusinessObjects};
 use crate::{
-    digest, normalize, Action, ApplyOutcome, Entity, Fact, LineageStore, Snapshot, StorageError,
-    StorageEvent,
+    digest, normalize, publication_rejection, Action, ApplyOutcome, Entity, Fact, GraphChanges,
+    LineageStore, Snapshot, StorageError, StorageEvent,
 };
 use neo4rs::{query, BoltType, Graph, Txn};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -79,6 +80,7 @@ impl Neo4jStore {
             ("LINEAGE_REVISION", "revision_id"),
             ("LINEAGE_FACT", "fact_key"),
             ("LINEAGE_EDGE", "edge_key"),
+            ("LINEAGE_ENTITY_LOCK", "lineage_key"),
             ("QUERY_ACTOR", "principal_id"),
             ("QUERY_EVENT", "event_id"),
             ("TABLE_REFERENCE", "reference_key"),
@@ -86,6 +88,7 @@ impl Neo4jStore {
         ] {
             store.graph.run(query(&format!("CREATE CONSTRAINT flowscope_{}_uk IF NOT EXISTS FOR (n:{label}) REQUIRE n.{key} IS UNIQUE",label.to_lowercase()))).await?;
         }
+        store.graph.run(query("CREATE INDEX flowscope_fact_edge IF NOT EXISTS FOR (f:LINEAGE_FACT) ON (f.edge_key)")).await?;
         for (name, label, keys) in [
             (
                 "m_table_uk",
@@ -209,6 +212,7 @@ impl Neo4jStore {
         Ok(ApplyOutcome {
             lineage_status: "not_requested".into(),
             usage_status: "committed".into(),
+            graph_changes: None,
             reason: e
                 .analysis
                 .summary
@@ -232,6 +236,9 @@ impl Neo4jStore {
             .source
             .as_ref()
             .ok_or_else(|| StorageError::Invalid("source context required".into()))?;
+        if let Some(reason) = publication_rejection(e, s) {
+            return Ok(ApplyOutcome::not_requested(reason));
+        }
         let version = c.version()?;
         let scope = c.scope_key();
         let revision = format!("{scope}:{version}:{}", c.analysis_revision);
@@ -254,19 +261,10 @@ impl Neo4jStore {
                 lineage_status: "committed".into(),
                 usage_status: "not_requested".into(),
                 reason: Some("already_current".into()),
+                graph_changes: Some(GraphChanges::default()),
             });
         }
         let withdraw = c.event_kind == "withdraw";
-        if !withdraw
-            && (e.analysis.summary.has_errors
-                || e.analysis.statements.is_empty()
-                || !s.issues.is_empty())
-        {
-            return Ok(ApplyOutcome::blocked(format!(
-                "incomplete_analysis:{}",
-                s.issues.join(",")
-            )));
-        }
         let mut affected = BTreeSet::new();
         let mut rows=tx.execute(query("MATCH (f:LINEAGE_FACT {scope_key:$scope,active:true}) RETURN f.edge_key AS edge").param("scope",scope.clone())).await?;
         while let Some(r) = rows.next(tx.handle()).await? {
@@ -282,6 +280,26 @@ impl Neo4jStore {
         for key in &affected {
             tx.run(query("MERGE (l:LINEAGE_EDGE {edge_key:$key}) SET l.lock_tick=coalesce(l.lock_tick,0)+1").param("key",key.clone())).await?;
         }
+        // Lock shared business nodes as well as edges before taking before-images.
+        // Sorted locks make concurrent sources count a shared creation only once.
+        let mut node_keys: BTreeSet<String> = if withdraw {
+            BTreeSet::new()
+        } else {
+            s.entities.keys().cloned().collect()
+        };
+        node_keys.extend(
+            [
+                old_target.clone(),
+                s.target.as_ref().map(|t| t.key()).unwrap_or_default(),
+            ]
+            .into_iter()
+            .filter(|key| !key.is_empty()),
+        );
+        for key in &node_keys {
+            tx.run(query("MERGE (l:LINEAGE_ENTITY_LOCK {lineage_key:$key}) SET l.lock_tick=coalesce(l.lock_tick,0)+1").param("key", key.clone())).await?;
+        }
+        let before_nodes = business_nodes(tx, e, s, &node_keys).await?;
+        let before_relationships = business_relationships(tx, &affected).await?;
         tx.run(
             query("MATCH (f:LINEAGE_FACT {scope_key:$scope,active:true}) SET f.active=false")
                 .param("scope", scope.clone()),
@@ -297,8 +315,8 @@ impl Neo4jStore {
                 self.fact(tx, f, &scope, &revision, &s.sql_md5).await?;
             }
         }
-        for key in affected {
-            self.project(tx, &key).await?;
+        for key in &affected {
+            self.project(tx, key).await?;
         }
         tx.run(query("MATCH (s:LINEAGE_SCOPE {scope_key:$scope}) SET s.current_version=$version,s.analysis_revision=$analysis,s.artifact_id=$artifact,s.sql_md5=$md5,s.withdrawn=$withdraw,s.target_key=$target,s.task_name=$name,s.utime=datetime()")
             .param("scope",scope.clone()).param("version",version).param("analysis",i64::from(c.analysis_revision)).param("artifact",s.artifact_id.clone()).param("md5",s.sql_md5.clone()).param("withdraw",withdraw)
@@ -319,6 +337,12 @@ impl Neo4jStore {
             lineage_status: "committed".into(),
             usage_status: "not_requested".into(),
             reason: withdraw.then(|| "withdrawn".into()),
+            graph_changes: Some(GraphChanges::between(
+                &before_nodes,
+                &business_nodes(tx, e, s, &node_keys).await?,
+                &before_relationships,
+                &business_relationships(tx, &affected).await?,
+            )),
         })
     }
 
@@ -446,6 +470,93 @@ impl Neo4jStore {
         Ok(())
     }
 }
+fn business_label(kind: &str) -> &'static str {
+    match kind {
+        "table" => "M_TABLE",
+        "physical" => "M_COL:Physical",
+        "derived" => "M_COL:Derived",
+        "cte" => "CTE",
+        "template" => "TEMPLATE",
+        "sync" => "SYNC",
+        _ => "LINEAGE_OUTPUT",
+    }
+}
+
+async fn business_object(
+    tx: &mut Txn,
+    q: neo4rs::Query,
+) -> Result<Option<BusinessObject>, StorageError> {
+    let mut rows = tx.execute(q).await?;
+    let Some(row) = rows.next(tx.handle()).await? else {
+        return Ok(None);
+    };
+    let kind = row
+        .get("kind")
+        .map_err(|_| StorageError::Invalid("missing change kind".into()))?;
+    let keys: Vec<String> = row
+        .get("keys")
+        .map_err(|_| StorageError::Invalid("missing change property names".into()))?;
+    let values: Vec<Value> = row
+        .get("values")
+        .map_err(|_| StorageError::Invalid("invalid change properties".into()))?;
+    let mut properties: BTreeMap<String, Value> = keys.into_iter().zip(values).collect();
+    for key in ["producer_scopes", "source_scopes", "sql_md5_list"] {
+        if let Some(Value::Array(values)) = properties.get_mut(key) {
+            values.sort_by_key(Value::to_string);
+        }
+    }
+    while rows.next(tx.handle()).await?.is_some() {}
+    Ok(Some(BusinessObject { kind, properties }))
+}
+
+async fn business_nodes(
+    tx: &mut Txn,
+    event: &StorageEvent,
+    snapshot: &Snapshot,
+    keys: &BTreeSet<String>,
+) -> Result<BusinessObjects, StorageError> {
+    let mut result = BTreeMap::new();
+    for key in keys {
+        let entity = snapshot.entities.get(key);
+        let pattern = match entity.map(|n| n.kind.as_str()) {
+            Some("table") => "(n:M_TABLE {catalog:$cat,db_name:$db,table_name:$table})",
+            Some("physical") => {
+                "(n:M_COL:Physical {catalog:$cat,db_name:$db,table_name:$table,col_name:$column})"
+            }
+            Some("cte") => "(n:CTE {fs_uid:$key})",
+            Some("derived") => "(n:M_COL:Derived {fs_uid:$key})",
+            Some("template") => "(n:TEMPLATE {scheduler:'mario',mario_template_id:$source})",
+            Some("sync") => "(n:SYNC {scheduler:'change',task_id:$source})",
+            Some("output") => "(n:LINEAGE_OUTPUT {fs_uid:$key})",
+            _ => "(n:LINEAGE_ENTITY {lineage_key:$key})",
+        };
+        let table = entity.and_then(|n| n.table.as_ref());
+        let q = query(&format!("MATCH {pattern} WITH n,[k IN keys(n) WHERE NOT k IN ['ctime','utime','lock_tick']] AS ks RETURN $kind AS kind,ks AS keys,[k IN ks | n[k]] AS values"))
+            .param("key",key.clone()).param("kind",business_label(entity.map(|n| n.kind.as_str()).unwrap_or("table")))
+            .param("cat",table.map(|t|t.catalog.clone()).unwrap_or_default()).param("db",table.map(|t|t.db_name.clone()).unwrap_or_default())
+            .param("table",table.map(|t|t.table_name.clone()).unwrap_or_default()).param("column",entity.and_then(|n|n.column.clone()).unwrap_or_default())
+            .param("source",event.source.as_ref().and_then(|c|c.source_id.parse::<i64>().ok()).unwrap_or(0));
+        if let Some(object) = business_object(tx, q).await? {
+            result.insert(key.clone(), object);
+        }
+    }
+    Ok(result)
+}
+
+async fn business_relationships(
+    tx: &mut Txn,
+    keys: &BTreeSet<String>,
+) -> Result<BusinessObjects, StorageError> {
+    let mut result = BTreeMap::new();
+    for key in keys {
+        let q = query("MATCH (f:LINEAGE_FACT {edge_key:$edge}) WITH f LIMIT 1 MATCH (a:LINEAGE_ENTITY {lineage_key:f.from_key})-[r]->(b:LINEAGE_ENTITY {lineage_key:f.to_key}) WHERE r.projection_key=$edge WITH r,[k IN keys(r) WHERE NOT k IN ['ctime','utime']] AS ks RETURN type(r) AS kind,ks AS keys,[k IN ks | r[k]] AS values").param("edge",key.clone());
+        if let Some(object) = business_object(tx, q).await? {
+            result.insert(key.clone(), object);
+        }
+    }
+    Ok(result)
+}
+
 impl LineageStore for Neo4jStore {
     async fn apply(&self, e: &StorageEvent) -> Result<ApplyOutcome, StorageError> {
         if e.environment != self.environment

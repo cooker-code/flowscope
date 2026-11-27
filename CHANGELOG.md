@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Audit ingestion uses four ordered states: queued, committed, not ingested,
+  and not requested. Parse/quality rejections skip the formal write queue;
+  historical missing evidence renders blank, and formal/usage reasons stay separate.
+
 - Audit startup no longer scans historical analysis JSON before listening.
   Legacy SQL types are corrected in bounded, resumable background batches with
   progress logs, preserving audit writes and health checks during maintenance.
@@ -25,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hive analysis now recognizes `FROM VALUES (...), (...)` as an inline row source, including audit 443044, while preserving target table and column lineage.
 
 ### Added
+
+- Committed audit requests show actual business node/relationship creations,
+  updates and deletions by label/type, persisted with recoverable Neo4j receipts.
 
 - Audit history supports formal graph status filtering with consistent server-side counts and pagination.
 

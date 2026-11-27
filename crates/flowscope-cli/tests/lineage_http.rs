@@ -165,10 +165,32 @@ async fn isolated_http_scheduler_personal_policy_restart_and_receipts() {
         .to_str()
         .unwrap()
         .to_string();
+    let first_outcome = settled(&client, &base, &first).await;
+    assert_eq!(first_outcome["lineageStatus"], "committed");
     assert_eq!(
-        settled(&client, &base, &first).await["lineageStatus"],
-        "committed"
+        first_outcome["graphChanges"]["nodes"]["M_TABLE"]["created"],
+        2
     );
+    let (_, _, audit) = api(
+        &client,
+        &base,
+        "/api/audit?lineage_status=committed",
+        &scheduler,
+        None,
+    )
+    .await;
+    assert_eq!(audit["total"], 1);
+    let row = &audit["records"][0];
+    assert_eq!(row["graph_changes"], first_outcome["graphChanges"]);
+    let (_, _, detail) = api(
+        &client,
+        &base,
+        &format!("/api/audit/{}", row["id"]),
+        &scheduler,
+        None,
+    )
+    .await;
+    assert_eq!(detail["graph_changes"], row["graph_changes"]);
     let store = Neo4jStore::connect(
         &Neo4jConfig {
             uri: uri.clone(),
@@ -266,7 +288,7 @@ async fn isolated_http_scheduler_personal_policy_restart_and_receipts() {
             headers["x-flowscope-event-id"].to_str().unwrap()
         )
         .await["lineageStatus"],
-        "blocked"
+        "not_requested"
     );
     let (_, _, history) = api(&client, &base, "/api/audit", &person, None).await;
     assert_eq!(
@@ -291,6 +313,7 @@ async fn isolated_http_scheduler_personal_policy_restart_and_receipts() {
         Some(json!({})),
     )
     .await;
+    let committed_second = settled(&client, &base, &second).await;
     server.stop();
     // Simulate a crash after Neo4j commit but before the local acknowledgement.
     let conn = rusqlite::Connection::open(&db_path).unwrap();
@@ -302,11 +325,12 @@ async fn isolated_http_scheduler_personal_policy_restart_and_receipts() {
     drop(conn);
     server = Server::start(dir.path(), &config, port, &password);
     ready(&client, &base).await;
+    let recovered = settled(&client, &base, &second).await;
     assert_eq!(
-        settled(&client, &base, &second).await["lineageStatus"],
-        "committed",
+        recovered["lineageStatus"], "committed",
         "revocation must not hide a previously committed receipt"
     );
+    assert_eq!(recovered["graphChanges"], committed_second["graphChanges"]);
     assert_eq!(
         api(&client, &base, "/api/audit", &scheduler, None).await.0,
         StatusCode::UNAUTHORIZED
@@ -341,7 +365,7 @@ async fn isolated_pending_events_recover_and_recheck_policy_after_restart() {
     ready(&client, &base).await;
     let scheduler = provision(&client, &base, "pending_schedule", "scheduler", "publish").await;
     let person = provision(&client, &base, "pending_person", "person", "record_usage").await;
-    let payload = json!({"sql":"INSERT OVERWRITE TABLE pending.t SELECT id FROM pending.a","lineage":{"sourceSystem":"change","sourceId":"pending-task","sourceVersion":"1","environment":"isolated-test"}});
+    let payload = json!({"sql":"INSERT OVERWRITE TABLE pending.t SELECT id FROM pending.a","schema":{"tables":[{"schema":"pending","name":"a","columns":[{"name":"id","dataType":"BIGINT"}]},{"schema":"pending","name":"t","columns":[{"name":"id","dataType":"BIGINT"}]}]},"lineage":{"sourceSystem":"change","sourceId":"pending-task","sourceVersion":"1","environment":"isolated-test"}});
     let (status, h, _) = api(&client, &base, "/api/analyze", &scheduler, Some(payload)).await;
     assert_eq!(status, StatusCode::OK);
     let scheduler_id = h["x-flowscope-event-id"].to_str().unwrap().to_string();

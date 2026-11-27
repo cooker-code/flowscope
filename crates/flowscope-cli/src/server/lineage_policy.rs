@@ -1,8 +1,10 @@
 //! Persistent caller identity and policy. All SQLite access runs off the async executor.
-use super::audit::{insert_entry, AuditEntry};
+use super::audit::{effective_graph_status, insert_entry, AuditEntry, LINEAGE_STATUS_SQL};
 use super::token_vault::TokenVault;
 use axum::http::{HeaderMap, StatusCode};
-use flowscope_storage::{digest, Action, Neo4jConfig, StorageEvent};
+use flowscope_storage::{
+    digest, normalize, publication_rejection, Action, ApplyOutcome, Neo4jConfig, StorageEvent,
+};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -346,7 +348,7 @@ impl PolicyDb {
                 insert_entry(&tx, &entry).map_err(db_error)?;
                 let id = tx.last_insert_rowid();
                 tx.execute(
-                    "UPDATE audit_log SET principal_id=?1 WHERE id=?2",
+                    "UPDATE audit_log SET principal_id=?1,lineage_decision='not_requested' WHERE id=?2",
                     params![principal, id],
                 )
                 .map_err(db_error)?;
@@ -392,14 +394,28 @@ impl PolicyDb {
         &self,
         e: StorageEvent,
         entries: Vec<AuditEntry>,
-    ) -> Result<bool, ApiError> {
+    ) -> Result<String, ApiError> {
+        let rejection = if e.action == Action::Publish {
+            publication_rejection(&e, &normalize(&e))
+        } else {
+            None
+        };
+        let outcome = rejection.as_ref().map(|reason| {
+            serde_json::to_string(&ApplyOutcome::not_requested(reason.clone()))
+                .expect("outcome serializes")
+        });
+        let status = if rejection.is_some() {
+            "not_requested"
+        } else {
+            "queued"
+        };
         self.call(move|conn|{
         let tx=conn.transaction().map_err(db_error)?;
-        let existing:Option<String>=tx.query_row("SELECT content_hash FROM lineage_events WHERE id=?1",[&e.event_id],|r|r.get(0)).optional().map_err(db_error)?;
-        if let Some(hash)=existing {if hash!=e.content_hash(){return Err(failure(StatusCode::CONFLICT,"idempotency_key_conflict"));}return Ok(false);}
-        tx.execute("INSERT INTO lineage_events(id,principal_id,token_id,action,body,content_hash,status,created_at) VALUES(?1,?2,?3,?4,?5,?6,'queued',?7)",params![e.event_id,e.principal_id,e.token_id,e.action.as_str(),serde_json::to_string(&e).map_err(|_|failure(StatusCode::BAD_REQUEST,"invalid_event"))?,e.content_hash(),e.observed_at]).map_err(db_error)?;
+        let existing:Option<(String,String)>=tx.query_row("SELECT content_hash,status FROM lineage_events WHERE id=?1",[&e.event_id],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(db_error)?;
+        if let Some((hash,stored_status))=existing {if hash!=e.content_hash(){return Err(failure(StatusCode::CONFLICT,"idempotency_key_conflict"));}return Ok(stored_status);}
+        tx.execute("INSERT INTO lineage_events(id,principal_id,token_id,action,body,content_hash,status,created_at,outcome,last_error) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",params![e.event_id,e.principal_id,e.token_id,e.action.as_str(),serde_json::to_string(&e).map_err(|_|failure(StatusCode::BAD_REQUEST,"invalid_event"))?,e.content_hash(),status,e.observed_at,outcome,rejection]).map_err(db_error)?;
         for entry in entries {insert_entry(&tx,&entry).map_err(db_error)?;let id=tx.last_insert_rowid();tx.execute("UPDATE audit_log SET principal_id=?1,event_id=?2 WHERE id=?3",params![e.principal_id,e.event_id,id]).map_err(db_error)?;}
-        tx.commit().map_err(db_error)?;Ok(true)
+        tx.commit().map_err(db_error)?;Ok(status.to_string())
     }).await
     }
     pub async fn next(&self) -> Result<Option<StorageEvent>, ApiError> {
@@ -438,7 +454,10 @@ impl PolicyDb {
         if caller.principal.kind!="admin"&&caller.principal.id!=principal{return Err(failure(StatusCode::FORBIDDEN,"event_access_denied"));}
         let event:StorageEvent=serde_json::from_str(&body).map_err(|_|failure(StatusCode::INTERNAL_SERVER_ERROR,"event_invalid"))?;
         let mut result=json!({"eventId":id,"principalId":principal,"action":action,"status":status,"attempts":attempts,"reason":reason,"parseStatus":if event.analysis.summary.has_errors{"failed"}else{"succeeded"},"policyRevision":event.policy_revision,"lineageStatus":if event.action==Action::Publish{status.as_str()}else{"not_requested"},"usageStatus":if event.action==Action::RecordUsage{status.as_str()}else{"not_requested"}});
-        if let Some(o)=outcome{let o:Value=serde_json::from_str(&o).map_err(|_|failure(StatusCode::INTERNAL_SERVER_ERROR,"outcome_invalid"))?;for key in ["lineageStatus","usageStatus","reason"]{result[key]=o[key].clone();}}
+        if let Some(o)=outcome{let o:Value=serde_json::from_str(&o).map_err(|_|failure(StatusCode::INTERNAL_SERVER_ERROR,"outcome_invalid"))?;for key in ["lineageStatus","usageStatus","reason","graphChanges"]{result[key]=o[key].clone();}}
+        result["lineageStatus"] = json!(effective_graph_status(conn,result["lineageStatus"].as_str(),result["reason"].as_str(),event.action==Action::Publish && event.analysis.summary.has_errors && event.source.as_ref().is_none_or(|source|source.event_kind!="withdraw")).map_err(db_error)?);
+        result["lineageReason"] = if event.action != Action::Publish { json!(if event.analysis.summary.has_errors {"parse_failed"} else {"policy_does_not_request_lineage"}) } else { result["reason"].clone() };
+        if result["lineageStatus"] != "committed" { result.as_object_mut().expect("event object").remove("graphChanges"); }
         Ok(result)
     }).await
     }
@@ -454,19 +473,18 @@ pub(super) fn decorate_audit_rows(
         let Some(id) = record["id"].as_i64() else {
             continue;
         };
-        let (principal, event): (Option<String>, Option<String>) = conn
+        let (principal, event, status): (Option<String>, Option<String>, String) = conn
             .query_row(
-                "SELECT principal_id,event_id FROM audit_log WHERE id=?1",
+                &format!(
+                    "SELECT principal_id,event_id,{} FROM audit_log WHERE id=?1",
+                    LINEAGE_STATUS_SQL.as_str()
+                ),
                 [id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .map_err(db_error)?;
-        let status = if principal.is_some() {
-            "not_requested"
-        } else {
-            "unknown"
-        };
-        let mut extra = json!({"principal_id":principal,"event_id":event,"lineage_status":status,"usage_status":status});
+        let mut extra = json!({"principal_id":principal,"event_id":event,"lineage_status":status,"usage_status":if principal.is_some(){"not_requested"}else{"unknown"}});
+        let mut formal_action = false;
         if let Some(event) = event {
             let (action, status, outcome, reason): (
                 String,
@@ -480,11 +498,7 @@ pub(super) fn decorate_audit_rows(
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 )
                 .map_err(db_error)?;
-            extra["lineage_status"] = json!(if action == "publish" {
-                status.as_str()
-            } else {
-                "not_requested"
-            });
+            formal_action = action == "publish";
             extra["usage_status"] = json!(if action == "record_usage" {
                 status.as_str()
             } else {
@@ -493,9 +507,9 @@ pub(super) fn decorate_audit_rows(
             extra["policy_reason"] = json!(reason);
             if let Some(outcome) = outcome {
                 if let Ok(outcome) = serde_json::from_str::<Value>(&outcome) {
-                    for key in ["lineageStatus", "usageStatus", "reason"] {
+                    for key in ["usageStatus", "reason", "graphChanges"] {
                         let field = match key {
-                            "lineageStatus" => "lineage_status",
+                            "graphChanges" => "graph_changes",
                             "usageStatus" => "usage_status",
                             _ => "policy_reason",
                         };
@@ -503,6 +517,28 @@ pub(super) fn decorate_audit_rows(
                     }
                 }
             }
+        }
+        if status == "not_requested" && extra["policy_reason"].is_null() {
+            extra["policy_reason"] = json!(if record["success"] == false {
+                "parse_failed"
+            } else {
+                "policy_does_not_request_lineage"
+            });
+        }
+        extra["lineage_reason"] = if status == "not_requested" && !formal_action {
+            json!(if record["success"] == false {
+                "parse_failed"
+            } else {
+                "policy_does_not_request_lineage"
+            })
+        } else {
+            extra["policy_reason"].clone()
+        };
+        if status != "committed" {
+            extra
+                .as_object_mut()
+                .expect("audit metadata object")
+                .remove("graph_changes");
         }
         for (key, value) in extra.as_object().expect("audit metadata object") {
             record[key] = value.clone();

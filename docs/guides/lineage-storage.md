@@ -185,6 +185,21 @@ backoff, not discarded. A 30-second apply timeout is an unknown commit and is
 reconciled with the original event ID. A revoked token cannot initiate another
 write, but an already committed receipt remains committed on recovery.
 
+The audit legend and status filter use this order: **待入图 → 已入图 → 未入图 → 未请求入图**.
+A normal publication that fails parsing or the pre-publication quality check is
+saved as `not_requested` without entering the formal write queue. Terminal
+storage errors and stale-version refusals display as 未入图; permission lost
+before writing displays as 未请求入图. Historical records without evidence have
+an empty status cell. Internal event `status` still preserves lifecycle details.
+
+Hover or click 已入图 to inspect actual business node changes by label and
+relationship changes by type, split into creations, updates and deletions.
+Unchanged matches and timestamp-only refreshes do not count as updates. The
+statistics are committed with the event receipt and survive recovery; an older
+receipt without statistics says they were not recorded instead of showing zero.
+Formal `lineageReason` / audit `lineage_reason` remains separate from personal
+usage diagnostics.
+
 Provide an `Idempotency-Key` header for caller retries. It is scoped to the
 stable principal and at most 128 characters. Identical content returns the same
 event and stored status without duplicate audit rows; changed content conflicts

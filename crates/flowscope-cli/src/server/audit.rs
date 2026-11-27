@@ -74,9 +74,9 @@ pub struct AuditLogListFilters<'a> {
 pub enum LineageStatusFilter {
     Committed,
     Queued,
-    #[serde(alias = "blocked_policy")]
     Blocked,
     Failed,
+    #[serde(alias = "blocked_policy")]
     NotRequested,
     Unknown,
 }
@@ -86,37 +86,51 @@ impl LineageStatusFilter {
         match self {
             Self::Committed => ("= ?", &["committed"]),
             Self::Queued => ("= ?", &["queued"]),
-            Self::Blocked => ("IN (?, ?)", &["blocked", "blocked_policy"]),
-            Self::Failed => ("= ?", &["failed"]),
+            Self::Blocked | Self::Failed => ("= ?", &["failed"]),
             Self::NotRequested => ("= ?", &["not_requested"]),
-            Self::Unknown => (
-                "NOT IN (?, ?, ?, ?, ?, ?)",
-                &[
-                    "committed",
-                    "queued",
-                    "blocked",
-                    "blocked_policy",
-                    "failed",
-                    "not_requested",
-                ],
-            ),
+            Self::Unknown => ("= ?", &["unknown"]),
         }
     }
 }
 
-// Keep this effective status consistent with lineage_policy::decorate_audit_rows.
-// A saved outcome takes precedence; missing/null/unrecognized values display as unknown.
-const LINEAGE_STATUS_SQL: &str = "COALESCE(CASE
+// One classifier for audit list/detail/filtering and the event endpoint.
+// A confirmed commit is evidence; missing historical evidence is not a rejection.
+const GRAPH_STATUS_CASE: &str = "CASE
+    WHEN raw_status IS NULL OR raw_status NOT IN ('committed','queued','blocked','blocked_policy','failed','not_requested') THEN 'unknown'
+    WHEN parse_failed AND reason<>'withdrawn' THEN 'not_requested'
+    WHEN raw_status='committed' THEN 'committed'
+    WHEN raw_status='blocked_policy' OR reason='current_policy_or_token_disallows_event'
+        OR reason='parse_failed' OR reason LIKE 'incomplete_analysis:%' THEN 'not_requested'
+    WHEN raw_status IN ('blocked','failed') THEN 'failed'
+    ELSE raw_status END";
+
+pub(super) static LINEAGE_STATUS_SQL: std::sync::LazyLock<String> = std::sync::LazyLock::new(
+    || {
+        format!("COALESCE(CASE
     WHEN audit_log.event_id IS NOT NULL THEN (
-        SELECT CASE
-            WHEN json_valid(outcome) THEN json_extract(outcome, '$.lineageStatus')
-            WHEN action='publish' THEN status
-            ELSE 'not_requested'
-        END FROM lineage_events WHERE id=audit_log.event_id
+        SELECT {GRAPH_STATUS_CASE} FROM (
+            SELECT CASE WHEN json_valid(outcome) THEN json_extract(outcome, '$.lineageStatus')
+                WHEN action='publish' THEN status ELSE 'not_requested' END AS raw_status,
+                COALESCE(CASE WHEN json_valid(outcome) THEN json_extract(outcome, '$.reason') END,last_error,'') AS reason,
+                CASE WHEN audit_log.success=0 THEN
+                    CASE WHEN json_valid(body) THEN COALESCE(json_extract(body,'$.source.eventKind'),'publish')<>'withdraw' ELSE 1 END
+                    ELSE 0 END AS parse_failed
+            FROM lineage_events WHERE id=audit_log.event_id
+        )
     )
-    WHEN audit_log.principal_id IS NOT NULL THEN 'not_requested'
-    ELSE 'unknown'
-END, 'unknown')";
+    WHEN audit_log.lineage_decision='not_requested' OR audit_log.principal_id IS NOT NULL THEN 'not_requested'
+    ELSE 'unknown' END,'unknown')")
+    },
+);
+
+pub(super) fn effective_graph_status(
+    conn: &rusqlite::Connection,
+    raw: Option<&str>,
+    reason: Option<&str>,
+    parse_failed: bool,
+) -> rusqlite::Result<String> {
+    conn.query_row(&format!("SELECT {GRAPH_STATUS_CASE} FROM (SELECT ?1 AS raw_status,?2 AS reason,?3 AS parse_failed)"), rusqlite::params![raw,reason.unwrap_or(""),parse_failed], |row| row.get(0))
+}
 
 #[derive(Default, serde::Serialize)]
 pub struct AuditQueryResponse {
@@ -269,6 +283,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
     result_truncated INTEGER NOT NULL DEFAULT 0,
     error_msg        TEXT,
     principal_id     TEXT,
+    lineage_decision TEXT,
     event_id         TEXT
 );
 "#;
@@ -295,6 +310,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_event ON audit_log(event_id);
 /// columns here, do that through a fresh migration with renamed table
 /// semantics.
 const ADDITIVE_MIGRATIONS: &[&str] = &[
+    "ALTER TABLE audit_log ADD COLUMN lineage_decision TEXT",
     "ALTER TABLE audit_log ADD COLUMN principal_id TEXT",
     "ALTER TABLE audit_log ADD COLUMN event_id TEXT",
     "ALTER TABLE audit_log ADD COLUMN alias_warning INTEGER NOT NULL DEFAULT 0",
@@ -607,7 +623,10 @@ impl AuditWriter {
         // Collect dynamic filter conditions and their parameter values
         let lineage_condition = filters.lineage_status.map(|status| {
             let (operator, values) = status.condition();
-            (format!("{LINEAGE_STATUS_SQL} {operator}"), values)
+            (
+                format!("{} {operator}", LINEAGE_STATUS_SQL.as_str()),
+                values,
+            )
         });
         let mut cond_parts: Vec<&str> = Vec::new();
         let mut extra_params: Vec<String> = Vec::new();

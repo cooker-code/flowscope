@@ -1,7 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { Portal as TooltipPortal } from '@radix-ui/react-tooltip';
 import {
-  Ban,
   CheckCircle2,
   CircleHelp,
   Clock3,
@@ -13,7 +12,7 @@ import { Badge, badgeVariants } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { INGESTION_STATUS_LABELS } from '@/lib/lineage-api';
+import { INGESTION_STATUS_LABELS, type ChangeCounts, type GraphChanges } from '@/lib/lineage-api';
 import { explainGraphIngestionReason } from '@/lib/graph-ingestion-reasons';
 
 interface IngestionStatus {
@@ -24,62 +23,128 @@ interface IngestionStatus {
 }
 
 const INGESTION_STATUSES = {
-  committed: {
-    label: INGESTION_STATUS_LABELS.committed,
-    description: '本次请求的正式血缘已成功写入 Neo4j。',
-    icon: CheckCircle2,
-    className: 'border-status-success/25 bg-status-success/10 text-status-success',
-  },
   queued: {
     label: INGESTION_STATUS_LABELS.queued,
-    description: '请求已受理，正在排队、入图处理或等待重试，尚未确认提交成功。',
+    description: '策略允许且入图前置检查已通过，正在排队、处理中或等待重试。',
     icon: Clock3,
     className: 'border-status-info/25 bg-status-info/10 text-status-info',
   },
-  blocked: {
-    label: INGESTION_STATUS_LABELS.blocked,
+  committed: {
+    label: INGESTION_STATUS_LABELS.committed,
     description:
-      '本次请求被入图检查或策略阻止，未更新正式血缘，不会自动重试。悬停或点击状态可查看具体原因。',
-    icon: Ban,
-    className: 'border-status-warning/30 bg-status-warning/10 text-status-warning',
+      '正式血缘已确认处理成功。悬停或点击可查看实际新增、更新、删除的节点和关系；已是当前版本时无变更。',
+    icon: CheckCircle2,
+    className: 'border-status-success/25 bg-status-success/10 text-status-success',
   },
   failed: {
     label: INGESTION_STATUS_LABELS.failed,
-    description: '写入正式血缘时发生错误，未能确认提交成功。',
+    description: '已进入入图流程，但最终失败或被存储规则拒绝。悬停或点击可查看具体原因。',
     icon: XCircle,
     className: 'border-status-error/25 bg-status-error/10 text-status-error',
   },
   not_requested: {
     label: INGESTION_STATUS_LABELS.not_requested,
-    description: '本次请求的策略没有要求更新正式血缘。解析或个人使用记录可能已完成。',
+    description:
+      '解析失败、策略不允许或入图前置检查未通过，未执行正式血缘更新。悬停或点击可查看原因。',
     icon: MinusCircle,
-    className: 'text-foreground/75',
-  },
-  unknown: {
-    label: INGESTION_STATUS_LABELS.unknown,
-    description: '该审计未保存入图结果，无法确认是否入过图，常见于历史记录。',
-    icon: CircleHelp,
     className: 'text-foreground/75',
   },
 } satisfies Record<keyof typeof INGESTION_STATUS_LABELS, IngestionStatus>;
 
 type IngestionStatusKey = keyof typeof INGESTION_STATUSES;
 
-function statusKey(value?: string | null): IngestionStatusKey {
-  if (value === 'blocked_policy') return 'blocked';
+function statusKey(value?: string | null, reason?: string | null): IngestionStatusKey | null {
+  // Legacy API values remain readable during a frontend/backend version change.
+  if (value === 'blocked_policy') return 'not_requested';
+  if (value === 'blocked')
+    return reason === 'parse_failed' || reason?.startsWith('incomplete_analysis:')
+      ? 'not_requested'
+      : 'failed';
   return value && Object.prototype.hasOwnProperty.call(INGESTION_STATUSES, value)
     ? (value as IngestionStatusKey)
-    : 'unknown';
+    : null;
+}
+
+function ChangeTable({
+  title,
+  groups,
+  total,
+}: {
+  title: string;
+  groups: Record<string, ChangeCounts>;
+  total: ChangeCounts;
+}) {
+  return (
+    <table className="w-full text-xs tabular-nums">
+      <caption className="pb-2 text-left text-sm font-medium">{title}</caption>
+      <thead>
+        <tr className="border-b text-foreground/75">
+          <th scope="col" className="pb-1 text-left font-normal">
+            分组
+          </th>
+          <th scope="col" className="pb-1 text-right font-normal">
+            新增
+          </th>
+          <th scope="col" className="pb-1 text-right font-normal">
+            更新
+          </th>
+          <th scope="col" className="pb-1 text-right font-normal">
+            删除
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {[...Object.entries(groups), ['合计', total] as const].map(([name, count]) => (
+          <tr key={name} className={name === '合计' ? 'border-t font-medium' : ''}>
+            <th scope="row" className="break-all py-1 pr-2 text-left font-normal">
+              {name}
+            </th>
+            <td className="py-1 text-right">{count.created}</td>
+            <td className="py-1 text-right">{count.updated}</td>
+            <td className="py-1 text-right">{count.deleted}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function GraphChangeSummary({ changes }: { changes?: GraphChanges | null }) {
+  if (!changes) return <p className="text-sm">该次入图未记录变更统计。</p>;
+  const noChanges = [changes.nodeTotals, changes.relationshipTotals].every(
+    (count) => count.created === 0 && count.updated === 0 && count.deleted === 0
+  );
+  return (
+    <div className="space-y-4" data-testid="ingestion-changes">
+      <p className="text-xs text-foreground/75">
+        本次入图请求的业务变更，不含内部事件、版本和锁。仅刷新维护时间不计为更新。
+      </p>
+      {noChanges && <p className="text-sm">本次无变更，正式血缘已是当前版本。</p>}
+      <ChangeTable
+        title="节点（按 label 标签）"
+        groups={changes.nodes}
+        total={changes.nodeTotals}
+      />
+      <ChangeTable
+        title="关系（按 type 类型）"
+        groups={changes.relationships}
+        total={changes.relationshipTotals}
+      />
+    </div>
+  );
 }
 
 export function GraphIngestionStatus({
   status,
   reason,
+  changes,
 }: {
   status?: string | null;
   reason?: string | null;
+  changes?: GraphChanges | null;
 }) {
-  const key = statusKey(status);
+  const key = statusKey(status, reason);
+  if (!key) return null;
   const item = INGESTION_STATUSES[key];
   const Icon = item.icon;
   const content = (
@@ -89,10 +154,8 @@ export function GraphIngestionStatus({
     </>
   );
   const canExplain =
-    reason !== undefined &&
-    key !== 'not_requested' &&
-    key !== 'unknown' &&
-    (Boolean(reason?.trim()) || key === 'blocked' || key === 'failed');
+    (reason !== undefined || changes !== undefined) &&
+    (key === 'committed' || key === 'not_requested' || key === 'failed' || Boolean(reason?.trim()));
   if (!canExplain) {
     return (
       <Badge
@@ -108,7 +171,7 @@ export function GraphIngestionStatus({
   const issues = explainGraphIngestionReason(reason);
   return (
     <StatusExplanation
-      label={`查看${item.label}原因`}
+      label={key === 'committed' ? '查看入图变更统计' : `查看${item.label}原因`}
       status={key}
       testPrefix="ingestion-reason"
       triggerClassName={cn(
@@ -119,9 +182,13 @@ export function GraphIngestionStatus({
       panelWidth="w-96"
       content={
         <div className="space-y-3 text-left font-normal">
-          <p className="text-sm font-medium">{item.label}原因</p>
+          <p className="text-sm font-medium">
+            {key === 'committed' ? '本次入图变更统计' : `${item.label}原因`}
+          </p>
           <p className="text-xs leading-relaxed text-foreground/75">{item.description}</p>
-          {issues.length ? (
+          {key === 'committed' ? (
+            <GraphChangeSummary changes={changes} />
+          ) : issues.length ? (
             <ul className="space-y-3 text-sm">
               {issues.map((issue, index) => (
                 <li key={index} className="break-words">

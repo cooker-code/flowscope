@@ -1,11 +1,30 @@
 //! Storage contracts and Neo4j persistence. The parser has no storage side effects.
+mod changes;
 mod model;
 mod neo4j;
 mod normalize;
 
+pub use changes::{ChangeCounts, GraphChanges};
 pub use model::*;
 pub use neo4j::{Neo4jConfig, Neo4jStore};
 pub use normalize::{normalize, Snapshot};
+
+/// A rejected ordinary publication never needs a formal graph write.
+pub fn publication_rejection(event: &StorageEvent, snapshot: &Snapshot) -> Option<String> {
+    if event.action != Action::Publish
+        || event
+            .source
+            .as_ref()
+            .is_some_and(|source| source.event_kind == "withdraw")
+    {
+        return None;
+    }
+    if event.analysis.summary.has_errors {
+        return Some("parse_failed".into());
+    }
+    (event.analysis.statements.is_empty() || !snapshot.issues.is_empty())
+        .then(|| format!("incomplete_analysis:{}", snapshot.issues.join(",")))
+}
 
 use sha2::{Digest, Sha256};
 
