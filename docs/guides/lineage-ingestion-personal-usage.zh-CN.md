@@ -259,7 +259,7 @@ ORDER BY person_id, submitted_query_count DESC, table_name;
 
 口径：同一台 Mac 的 debug 构建，任务独占 Neo4j 5.26 Community，94,555 条背景事实，651353 的同一完整 SQL/解析快照，测试来源固定为隔离身份，每组 3 轮。每轮先删除上轮业务图而保留相同背景事实，再首次写入并替换版本。计时从 LineageStore::apply 开始到提交返回，包含规范化，不包括连接初始化、SQLite 排队和 HTTP。样本少且环境与线上不同，不能把倍数直接当成生产吞吐承诺。
 
-详细验证和 HTTP 队列结果见 [本次验证记录](../../.trellis/tasks/11-27-lineage-retry-throughput/verification.md)。审计解析 ms、端到端时间和 Neo4j 事务时间是三个指标，应分别观察。
+详细验证和 HTTP 队列结果见 [本次验证记录](../../.trellis/tasks/archive/2026-11/11-27-lineage-retry-throughput/verification.md)。审计解析 ms、端到端时间和 Neo4j 事务时间是三个指标，应分别观察。
 
 ## 源码阅读入口
 
