@@ -617,3 +617,36 @@ Token 管理显示实际凭据，管理员可在刷新和重启后再次读取�
 ### Next Steps
 
 - None - task complete
+
+
+## Session 19: 统一审计入图状态并补充实际变更统计
+
+**Date**: 2026-11-27
+**Task**: 统一审计入图状态并补充实际变更统计
+**Branch**: `codex/fix-ingestion-status-semantics`
+
+### Summary
+
+按待入图、已入图、未入图、未请求入图排序，解析/质量拒绝不入正式队列，历史未知留空。事务内保存按节点标签和关系类型分组的新增/更新/删除统计，覆盖并发、回滚与提交恢复。29 项前端测试、22 项 CLI 相关单测、storage 测试及真实 Neo4j/HTTP 和桌面/触屏验证通过，测试资源已清理。详细证据见归档任务 implementation-result.md。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d01351e6` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
