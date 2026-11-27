@@ -31,6 +31,93 @@ these response headers.
 It returns `parseStatus`, `status`, `lineageStatus`, `usageStatus`, `reason`,
 `policyRevision` (the accepted revision), and retry attempts.
 
+## Ingestion monitoring
+
+### Scope / trigger
+
+Apply when changing queue statistics, ingestion throughput or the audit-page
+monitor. An empty filtered audit list does not imply an idle writer; historical
+quality blocks do not imply pending work.
+
+### Signatures
+
+`GET /api/lineage/metrics` requires the normal Bearer identity. No filter or
+pagination parameters change its scope. The response has `scope` (`all`/`own`),
+`action` (`publish`/`record_usage`), `sampledAt`, `lastAcceptedAt`, `queued`,
+`retrying`, `blocked`, `failed`, `committed`, and `rate`:
+
+```json
+{"monitoringSince":"2026-11-27T02:00:00Z","windowSeconds":60,"observedSeconds":60,"warmingUp":false,"confirmedEvents":3,"eventsPerMinute":3.0}
+```
+
+The background audit-maintenance worker builds the covering index
+`idx_lineage_ingestion_monitor(action,principal_id,status,attempts)` after
+listening and cleanup. Do not add a synchronous startup scan or deserialize
+`lineage_events.body` to calculate totals.
+
+### Contracts
+
+- Administrators see all formal `publish` events. Schedulers see their own
+  `publish` events. Persons see their own `record_usage` events, irrespective of
+  the caller's currently reduced default action.
+- Counts are events, not per-file audit rows, nodes, edges or attempts.
+  `retrying` is the subset of `queued` with `attempts > 0`. `blocked` includes
+  `blocked_policy`; neither is queued.
+- `lastAcceptedAt` is the latest accepted audit timestamp in the identity scope,
+  including observations/parse-only requests. Rejected authentication never
+  enters the analyze handler and is absent from this timestamp and audit log.
+- Throughput is the count of first local confirmations in the sliding previous
+  60 seconds. Increment only after SQLite changes `queued` to `committed` for
+  `publish`/`record_usage`. Receipt recovery counts as a confirmation, not proof
+  of a new physical Neo4j mutation. Repeated finalization and replay do not count.
+- The meter is process-local and uses monotonic time. It resets on restart,
+  prunes expired samples, and exposes `eventsPerMinute: null` for the initial
+  60-second warm-up. Persistent queue totals survive restart.
+- The page polls every five seconds even with zero visible rows; requests do
+  not overlap. Activity changes quietly reload the current list query, keeping
+  URL filters/page. An activity update during initial loading must still clear
+  the loading state when its replacement request completes. Unmount aborts
+  requests and removes timers.
+
+### Validation and error matrix
+
+| Condition | Result |
+| --- | --- |
+| Missing/invalid credential | 401; no global metrics leaked |
+| Disabled caller | 403 |
+| Storage not configured | 503 |
+| Initial 60 seconds | `warmingUp=true`, rate null; show warm-up |
+| Complete idle window | rate 0 |
+| Transient monitor failure | Keep timestamped last snapshot with stale notice |
+| 401/403/404/503 in UI | Clear old snapshot and stop polling |
+
+### Good / base / bad cases
+
+- Good: today's audit list is empty, but the monitor still shows the global
+  queue, retry subset and last accepted timestamp.
+- Base: two files in one accepted event produce two audit rows and one event.
+- Bad: count blocked receipts or retry attempts as successful ingestions, show
+  a benchmark as live throughput, expose another person's totals, or infer that
+  a successful scheduler run means its HTTP UDF calls succeeded.
+
+### Required tests
+
+Assert warm-up, window expiry, action/owner isolation, duplicate finalization,
+per-file/event distinction and covering-index use. Verify real HTTP-to-Neo4j
+completion increments once, independent UI polling for an empty queue, stale
+error recovery, authentication failure, quiet list reload and cancellation.
+
+### Wrong vs correct
+
+```rust
+// Wrong: counts every attempt, including quality blocks and replay.
+// meter.record(...); store.apply(&event).await;
+// Correct: count only a durable first successful confirmation.
+if db.finish(id, "committed", outcome, None).await? {
+    meter.record(&event.principal_id, event.action);
+}
+```
+
 ## Policy and management API
 
 - `GET /api/lineage/me`: trusted identity, current action, activeRevision, environment.

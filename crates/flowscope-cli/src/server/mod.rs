@@ -8,6 +8,7 @@ mod assets;
 pub mod audit;
 mod audit_retention;
 pub mod lineage;
+mod lineage_metrics;
 pub mod lineage_policy;
 pub mod state;
 mod token_vault;

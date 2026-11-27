@@ -28,6 +28,7 @@ pub struct LineageRuntime {
     pub settings: Settings,
     pub db: PolicyDb,
     notify: Notify,
+    meter: crate::server::lineage_metrics::IngestionMeter,
 }
 impl LineageRuntime {
     pub fn new(settings: Settings) -> anyhow::Result<Self> {
@@ -43,6 +44,7 @@ impl LineageRuntime {
             settings,
             db,
             notify: Notify::new(),
+            meter: crate::server::lineage_metrics::IngestionMeter::new(),
         })
     }
     pub async fn caller(
@@ -203,21 +205,27 @@ impl LineageRuntime {
     }
     async fn finish(
         &self,
-        event_id: String,
+        event: &StorageEvent,
         status: &str,
         outcome: Option<Value>,
         reason: Option<String>,
     ) {
-        if self
+        match self
             .db
-            .finish(event_id.clone(), status, outcome, reason)
+            .finish(event.event_id.clone(), status, outcome, reason)
             .await
-            .is_err()
         {
-            // The graph may already have committed. Leave the event queued so
-            // the next attempt reconciles its receipt instead of duplicating it.
-            eprintln!("lineage state save failed event_id={event_id} phase=finish");
-            tokio::time::sleep(Duration::from_millis(250)).await;
+            Ok(true) if status == "committed" => {
+                self.meter.record(&event.principal_id, event.action)
+            }
+            Ok(_) => {}
+            Err(_) => {
+                eprintln!(
+                    "lineage state save failed event_id={} phase=finish",
+                    event.event_id
+                );
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
         }
     }
     pub async fn run(self: Arc<Self>, mut stop: watch::Receiver<bool>) {
@@ -251,7 +259,7 @@ impl LineageRuntime {
                     Ok(Ok(s)) => store = Some(s),
                     Ok(Err(StorageError::Invalid(_))) => {
                         self.finish(
-                            event.event_id,
+                            &event,
                             "failed",
                             None,
                             Some("neo4j_environment_or_configuration_rejected".into()),
@@ -283,19 +291,14 @@ impl LineageRuntime {
                     } else {
                         "committed"
                     };
-                    self.finish(
-                        event.event_id,
-                        status,
-                        serde_json::to_value(outcome).ok(),
-                        None,
-                    )
-                    .await;
+                    self.finish(&event, status, serde_json::to_value(outcome).ok(), None)
+                        .await;
                     continue;
                 }
                 Ok(Ok(None)) => {}
                 Ok(Err(StorageError::Conflict)) => {
                     self.finish(
-                        event.event_id,
+                        &event,
                         "failed",
                         None,
                         Some("content_or_version_conflict".into()),
@@ -322,7 +325,7 @@ impl LineageRuntime {
                 Ok(true) => {}
                 Ok(false) => {
                     self.finish(
-                        event.event_id,
+                        &event,
                         "blocked_policy",
                         None,
                         Some("current_policy_or_token_disallows_event".into()),
@@ -356,13 +359,8 @@ impl LineageRuntime {
                     } else {
                         "committed"
                     };
-                    self.finish(
-                        event.event_id,
-                        status,
-                        serde_json::to_value(outcome).ok(),
-                        None,
-                    )
-                    .await;
+                    self.finish(&event, status, serde_json::to_value(outcome).ok(), None)
+                        .await;
                 }
                 Ok(Err(ref err)) if err.retryable() => {
                     store = None;
@@ -380,7 +378,7 @@ impl LineageRuntime {
                         StorageError::Database(_) => "neo4j_rejected_event",
                         _ => "invalid_storage_event",
                     };
-                    self.finish(event.event_id, "failed", None, Some(reason.into()))
+                    self.finish(&event, "failed", None, Some(reason.into()))
                         .await;
                 }
             }
@@ -404,12 +402,44 @@ fn runtime(state: &AppState) -> Result<&Arc<LineageRuntime>, ApiError> {
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/lineage/me", get(me))
+        .route("/lineage/metrics", get(metrics))
         .route("/lineage/policies", get(list).post(save))
         .route("/lineage/policies/{id}", axum::routing::delete(remove))
         .route("/lineage/tokens", post(issue))
         .route("/lineage/tokens/{id}/revoke", post(revoke))
         .route("/lineage/policies/preview", post(preview))
         .route("/lineage/events/{id}", get(event_status))
+}
+async fn metrics(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let rt = runtime(&state)?;
+    let caller = rt
+        .db
+        .authenticate(&headers, None, false)
+        .await?
+        .expect("authenticated");
+    let owner = (caller.principal.kind != "admin").then_some(caller.principal.id.as_str());
+    let action = if caller.principal.kind == "person" {
+        Action::RecordUsage
+    } else {
+        Action::Publish
+    };
+    let mut snapshot = rt
+        .db
+        .ingestion_counts(owner.map(str::to_owned), action)
+        .await?;
+    snapshot["rate"] = serde_json::to_value(rt.meter.snapshot(owner, action)).map_err(|_| {
+        failure(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invalid_ingestion_metrics",
+        )
+    })?;
+    snapshot["scope"] = json!(if owner.is_none() { "all" } else { "own" });
+    snapshot["action"] = json!(action.as_str());
+    snapshot["sampledAt"] = json!(chrono::Utc::now().to_rfc3339());
+    Ok(Json(snapshot))
 }
 async fn me(
     State(state): State<Arc<AppState>>,
@@ -581,6 +611,7 @@ mod tests {
             db: PolicyDb::open(&path, ADMIN).unwrap(),
             settings,
             notify: Notify::new(),
+            meter: crate::server::lineage_metrics::IngestionMeter::new(),
         }));
         let state = Arc::new(state);
         let app = super::super::build_router(state.clone()).layer(MockConnectInfo(
@@ -641,6 +672,64 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         issued["token"].as_str().unwrap().into()
     }
+    #[tokio::test]
+    async fn ingestion_metrics_count_events_and_enforce_owner_scope() {
+        let (_dir, state, app) = fixture().await;
+        let alice = provision(&app, "metric-alice", "person", "record_usage").await;
+        let bob = provision(&app, "metric-bob", "person", "record_usage").await;
+        for (token, files) in [(&alice, true), (&bob, false)] {
+            let body = if files {
+                json!({"sql":"","files":[{"name":"a.sql","content":"SELECT 1"},{"name":"b.sql","content":"SELECT 2"}]})
+            } else {
+                json!({"sql":"SELECT 3"})
+            };
+            assert_eq!(
+                request(&app, "/api/analyze", Some(token), Some(body))
+                    .await
+                    .0,
+                StatusCode::OK
+            );
+        }
+        let rt = state.lineage.as_ref().unwrap();
+        let event = rt.db.next().await.unwrap().unwrap();
+        rt.retry(event.event_id.clone(), "neo4j_apply_timeout".into())
+            .await;
+        let (_, _, m) = request(&app, "/api/lineage/metrics", Some(&alice), None).await;
+        assert_eq!(m["scope"], "own");
+        assert_eq!(m["queued"], 1, "two files are one event");
+        assert_eq!(m["retrying"], 1);
+        assert_eq!(m["action"], "record_usage");
+        assert!(!m["lastAcceptedAt"].is_null());
+        assert!(m["rate"]["warmingUp"].as_bool().unwrap());
+        assert!(m["rate"]["eventsPerMinute"].is_null());
+        rt.finish(
+            &event,
+            "committed",
+            Some(json!({"usageStatus":"committed","lineageStatus":"not_requested","reason":null})),
+            None,
+        )
+        .await;
+        rt.finish(&event, "committed", None, None).await;
+        let (_, _, done) = request(&app, "/api/lineage/metrics", Some(&alice), None).await;
+        assert_eq!(done["queued"], 0);
+        assert_eq!(
+            done["rate"]["confirmedEvents"], 1,
+            "repeated finish must not double-count"
+        );
+        let (_, _, other) = request(&app, "/api/lineage/metrics", Some(&bob), None).await;
+        assert_eq!(other["queued"], 1);
+        assert_eq!(other["rate"]["confirmedEvents"], 0);
+        assert_eq!(
+            request(&app, "/api/lineage/metrics", None, None).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+        // Admins monitor formal publishing globally, not personal usage or observations.
+        let (_, _, admin) = request(&app, "/api/lineage/metrics", Some(ADMIN), None).await;
+        assert_eq!(admin["scope"], "all");
+        assert_eq!(admin["action"], "publish");
+        assert_eq!(admin["queued"], 0);
+        assert_eq!(admin["rate"]["confirmedEvents"], 0);
+    }
     #[test]
     fn storage_diagnostics_never_persist_raw_messages() {
         let error = StorageError::Invalid("secret password and SQL must not be logged".into());
@@ -682,13 +771,13 @@ mod tests {
         assert_eq!(event["reason"], "neo4j_apply_timeout");
         assert_eq!(event["status"], "queued");
         assert_eq!(event["attempts"], 1);
-        rt.finish(
+        rt.db.finish(
             id.clone(),
             "committed",
             Some(json!({"lineageStatus":"not_requested","usageStatus":"committed","reason":null})),
             None,
         )
-        .await;
+        .await.unwrap();
         let (_, _, event) = request(
             &app,
             &format!("/api/lineage/events/{id}"),

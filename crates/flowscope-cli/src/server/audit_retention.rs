@@ -101,6 +101,15 @@ pub fn ensure_query_indexes(path: &Path) -> anyhow::Result<()> {
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_audit_sql_type_ts ON audit_log(sql_type,ts);",
     )?;
+    // Built after listening and initial cleanup, never while opening a large DB.
+    let has_events: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='lineage_events')",
+        [],
+        |r| r.get(0),
+    )?;
+    if has_events {
+        conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_lineage_ingestion_monitor ON lineage_events(action,principal_id,status,attempts);")?;
+    }
     Ok(())
 }
 
@@ -207,5 +216,28 @@ mod tests {
             "{plan}"
         );
         assert!(!plan.contains("TEMP B-TREE"), "{plan}");
+    }
+
+    #[test]
+    fn ingestion_monitor_uses_covering_index_without_event_bodies() {
+        let (_dir, path, conn) = fixture();
+        conn.execute_batch("CREATE TABLE lineage_events(id TEXT PRIMARY KEY,action TEXT,principal_id TEXT,status TEXT,attempts INTEGER,body TEXT);").unwrap();
+        ensure_query_indexes(&path).unwrap();
+        let conn = Connection::open(&path).unwrap();
+        for scope in ["NULL", "'person'"] {
+            let query = format!("EXPLAIN QUERY PLAN SELECT coalesce(sum(status='queued'),0),coalesce(sum(status='queued' AND attempts>0),0) FROM lineage_events WHERE action='publish' AND ({scope} IS NULL OR principal_id={scope})");
+            let plan = conn
+                .prepare(&query)
+                .unwrap()
+                .query_map([], |r| r.get::<_, String>(3))
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+                .join("\n");
+            assert!(
+                plan.contains("COVERING INDEX idx_lineage_ingestion_monitor"),
+                "{plan}"
+            );
+        }
     }
 }

@@ -41,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Audit ingestion monitoring shows a scoped pending/retry queue, quality blocks,
+  last accepted request and actual 60-second completion rate. It refreshes even
+  on an empty filtered list, with startup warm-up and stale-data handling.
+
 - Administrator-configurable global audit retention, defaulting to seven days.
   Expired SQL and analysis records are deleted in bounded background batches;
   pending-event audit records and durable lineage events are preserved.

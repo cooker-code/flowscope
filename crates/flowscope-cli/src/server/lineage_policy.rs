@@ -414,15 +414,15 @@ impl PolicyDb {
         status: &str,
         outcome: Option<Value>,
         reason: Option<String>,
-    ) -> Result<(), ApiError> {
+    ) -> Result<bool, ApiError> {
         let status = status.to_string();
         self.call(move |conn| {
-            conn.execute(
-                "UPDATE lineage_events SET status=?1,outcome=?2,last_error=?3 WHERE id=?4",
+            let changed = conn.execute(
+                "UPDATE lineage_events SET status=?1,outcome=?2,last_error=?3 WHERE id=?4 AND status='queued'",
                 params![status, outcome.map(|v| v.to_string()), reason, id],
             )
             .map_err(db_error)?;
-            Ok(())
+            Ok(changed == 1)
         })
         .await
     }
@@ -430,6 +430,23 @@ impl PolicyDb {
         self.call(move|conn|{
         conn.execute("UPDATE lineage_events SET attempts=attempts+1,next_attempt=?1+MIN(60000,1000*(1 << MIN(attempts,6))),last_error=?3 WHERE id=?2",params![chrono::Utc::now().timestamp_millis(),id,reason]).map_err(db_error)?;Ok(())
     }).await
+    }
+    pub async fn ingestion_counts(
+        &self,
+        owner: Option<String>,
+        action: Action,
+    ) -> Result<Value, ApiError> {
+        self.call(move |conn| {
+            // Metadata only: never deserialize event bodies or analysis JSON.
+            let read=conn.transaction().map_err(db_error)?;
+            let (queued,retrying,blocked,failed,committed):(i64,i64,i64,i64,i64)=read.query_row(
+                "SELECT coalesce(sum(status='queued'),0),coalesce(sum(status='queued' AND attempts>0),0),coalesce(sum(status IN ('blocked','blocked_policy')),0),coalesce(sum(status='failed'),0),coalesce(sum(status='committed'),0) FROM lineage_events WHERE action=?1 AND (?2 IS NULL OR principal_id=?2)",
+                params![action.as_str(),owner],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).map_err(db_error)?;
+            let last:Option<String>=if let Some(owner)=owner {
+                read.query_row("SELECT max(ts) FROM audit_log WHERE principal_id=?1",[owner],|r|r.get(0)).map_err(db_error)?
+            } else {read.query_row("SELECT max(ts) FROM audit_log",[],|r|r.get(0)).map_err(db_error)?};
+            Ok(json!({"queued":queued,"retrying":retrying,"blocked":blocked,"failed":failed,"committed":committed,"lastAcceptedAt":last}))
+        }).await
     }
     pub async fn event(&self, id: String, caller: Caller) -> Result<Value, ApiError> {
         self.call(move|conn|{
