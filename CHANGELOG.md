@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Audit list removes the redundant caller/reason column while retaining
+  on-demand graph status explanations and aligned empty-state columns.
+
+- Neo4j ingestion initializes indexes for fact edge lookup, active source facts,
+  and target producers, preventing repeated full fact scans and retry timeouts.
+- Lineage entities, ordered edge locks, facts, projections and personal table
+  references use bounded batches within the existing atomic transaction.
+- Durable retries preserve the failure stage and safe Neo4j error code. Index
+  preparation has a separate connection budget; graph apply keeps its 30-second
+  timeout and receipt reconciliation.
+
 - Audit type/time filtering uses a composite index built after listening and
   cleanup. Graph status filters use indexed event lookups, and page metadata is
   fetched in one read snapshot instead of per-row queries.

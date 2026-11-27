@@ -1,0 +1,14 @@
+{
+  "indexed": {
+    "queueWallMs": 11486.169083997083,
+    "eventsPerMinute": 15.671021267724681,
+    "firstCommitMs": 3187.9502500014496,
+    "lastCommitMs": 11327.442459005397
+  },
+  "batched": {
+    "queueWallMs": 1208.0278749999707,
+    "eventsPerMinute": 149.00318421874528,
+    "firstCommitMs": 424.84241600323,
+    "lastCommitMs": 1036.8522089993348
+  }
+}

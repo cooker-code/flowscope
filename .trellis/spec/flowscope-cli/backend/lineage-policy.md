@@ -298,3 +298,10 @@ Browser checks must cover save/active revision, token issue/hide/revoke, preview
 scope fields, personal 403, independent audit statuses, responsive layouts, and owned
 browser/context/profile cleanup. Never replace server authorization with hidden
 buttons or optimistic frontend save feedback.
+
+### Worker diagnostics and performance
+
+The retry reason stores a safe failure phase/code rather than a generic outage.
+Connection/schema preparation, receipt lookup and apply have separate budgets.
+See [Indexed, bounded ingestion](../../flowscope-storage/backend/ingestion-performance.md)
+for exact signatures, reasons, timeout boundaries and required recovery tests.

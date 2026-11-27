@@ -194,6 +194,32 @@ impl LineageRuntime {
         }
         Ok(response)
     }
+    async fn retry(&self, event_id: String, reason: String) {
+        eprintln!("lineage retry event_id={event_id} reason={reason}");
+        if self.db.retry(event_id, reason).await.is_err() {
+            eprintln!("lineage retry state could not be saved");
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }
+    async fn finish(
+        &self,
+        event_id: String,
+        status: &str,
+        outcome: Option<Value>,
+        reason: Option<String>,
+    ) {
+        if self
+            .db
+            .finish(event_id.clone(), status, outcome, reason)
+            .await
+            .is_err()
+        {
+            // The graph may already have committed. Leave the event queued so
+            // the next attempt reconciles its receipt instead of duplicating it.
+            eprintln!("lineage state save failed event_id={event_id} phase=finish");
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }
     pub async fn run(self: Arc<Self>, mut stop: watch::Receiver<bool>) {
         let mut store: Option<Neo4jStore> = None;
         loop {
@@ -211,31 +237,36 @@ impl LineageRuntime {
                 let password = match std::env::var(&self.settings.neo4j.password_env) {
                     Ok(p) => p,
                     Err(_) => {
-                        let _ = self.db.retry(event.event_id).await;
+                        self.retry(event.event_id, "neo4j_password_missing".into())
+                            .await;
                         continue;
                     }
                 };
                 match tokio::time::timeout(
-                    Duration::from_secs(8),
+                    Duration::from_secs(120),
                     Neo4jStore::connect(&self.settings.neo4j, &password),
                 )
                 .await
                 {
                     Ok(Ok(s)) => store = Some(s),
                     Ok(Err(StorageError::Invalid(_))) => {
-                        let _ = self
-                            .db
-                            .finish(
-                                event.event_id,
-                                "failed",
-                                None,
-                                Some("neo4j_environment_or_configuration_rejected".into()),
-                            )
+                        self.finish(
+                            event.event_id,
+                            "failed",
+                            None,
+                            Some("neo4j_environment_or_configuration_rejected".into()),
+                        )
+                        .await;
+                        continue;
+                    }
+                    Ok(Err(err)) => {
+                        self.retry(event.event_id, storage_failure_reason("connect", &err))
                             .await;
                         continue;
                     }
-                    _ => {
-                        let _ = self.db.retry(event.event_id).await;
+                    Err(_) => {
+                        self.retry(event.event_id, "neo4j_connect_timeout".into())
+                            .await;
                         continue;
                     }
                 }
@@ -252,33 +283,36 @@ impl LineageRuntime {
                     } else {
                         "committed"
                     };
-                    let _ = self
-                        .db
-                        .finish(
-                            event.event_id,
-                            status,
-                            serde_json::to_value(outcome).ok(),
-                            None,
-                        )
-                        .await;
+                    self.finish(
+                        event.event_id,
+                        status,
+                        serde_json::to_value(outcome).ok(),
+                        None,
+                    )
+                    .await;
                     continue;
                 }
                 Ok(Ok(None)) => {}
                 Ok(Err(StorageError::Conflict)) => {
-                    let _ = self
-                        .db
-                        .finish(
-                            event.event_id,
-                            "failed",
-                            None,
-                            Some("content_or_version_conflict".into()),
-                        )
+                    self.finish(
+                        event.event_id,
+                        "failed",
+                        None,
+                        Some("content_or_version_conflict".into()),
+                    )
+                    .await;
+                    continue;
+                }
+                Ok(Err(err)) => {
+                    store = None;
+                    self.retry(event.event_id, storage_failure_reason("receipt", &err))
                         .await;
                     continue;
                 }
-                _ => {
+                Err(_) => {
                     store = None;
-                    let _ = self.db.retry(event.event_id).await;
+                    self.retry(event.event_id, "neo4j_receipt_timeout".into())
+                        .await;
                     continue;
                 }
             }
@@ -287,22 +321,22 @@ impl LineageRuntime {
             match self.db.recheck(&event).await {
                 Ok(true) => {}
                 Ok(false) => {
-                    let _ = self
-                        .db
-                        .finish(
-                            event.event_id,
-                            "blocked_policy",
-                            None,
-                            Some("current_policy_or_token_disallows_event".into()),
-                        )
-                        .await;
+                    self.finish(
+                        event.event_id,
+                        "blocked_policy",
+                        None,
+                        Some("current_policy_or_token_disallows_event".into()),
+                    )
+                    .await;
                     continue;
                 }
                 Err(_) => {
-                    let _ = self.db.retry(event.event_id).await;
+                    self.retry(event.event_id, "policy_recheck_failed".into())
+                        .await;
                     continue;
                 }
             }
+            let started = std::time::Instant::now();
             match tokio::time::timeout(
                 Duration::from_secs(30),
                 store.as_ref().expect("connected store").apply(&event),
@@ -310,28 +344,35 @@ impl LineageRuntime {
             .await
             {
                 Ok(Ok(outcome)) => {
+                    eprintln!(
+                        "lineage apply event_id={} elapsed_ms={} lineage_status={} usage_status={}",
+                        event.event_id,
+                        started.elapsed().as_millis(),
+                        outcome.lineage_status,
+                        outcome.usage_status
+                    );
                     let status = if outcome.lineage_status == "blocked" {
                         "blocked"
                     } else {
                         "committed"
                     };
-                    let _ = self
-                        .db
-                        .finish(
-                            event.event_id,
-                            status,
-                            serde_json::to_value(outcome).ok(),
-                            None,
-                        )
-                        .await;
+                    self.finish(
+                        event.event_id,
+                        status,
+                        serde_json::to_value(outcome).ok(),
+                        None,
+                    )
+                    .await;
                 }
                 Ok(Err(ref err)) if err.retryable() => {
                     store = None;
-                    let _ = self.db.retry(event.event_id).await;
+                    self.retry(event.event_id, storage_failure_reason("apply", err))
+                        .await;
                 }
                 Err(_) => {
                     store = None;
-                    let _ = self.db.retry(event.event_id).await;
+                    self.retry(event.event_id, "neo4j_apply_timeout".into())
+                        .await;
                 }
                 Ok(Err(err)) => {
                     let reason = match err {
@@ -339,13 +380,17 @@ impl LineageRuntime {
                         StorageError::Database(_) => "neo4j_rejected_event",
                         _ => "invalid_storage_event",
                     };
-                    let _ = self
-                        .db
-                        .finish(event.event_id, "failed", None, Some(reason.into()))
+                    self.finish(event.event_id, "failed", None, Some(reason.into()))
                         .await;
                 }
             }
         }
+    }
+}
+fn storage_failure_reason(stage: &str, error: &StorageError) -> String {
+    match error.database_code() {
+        Some(code) => format!("neo4j_{stage}_failed:{code}"),
+        None => format!("neo4j_{stage}_failed"),
     }
 }
 fn runtime(state: &AppState) -> Result<&Arc<LineageRuntime>, ApiError> {
@@ -595,6 +640,65 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK);
         issued["token"].as_str().unwrap().into()
+    }
+    #[test]
+    fn storage_diagnostics_never_persist_raw_messages() {
+        let error = StorageError::Invalid("secret password and SQL must not be logged".into());
+        assert_eq!(
+            storage_failure_reason("apply", &error),
+            "neo4j_apply_failed"
+        );
+    }
+    #[tokio::test]
+    async fn retry_stage_survives_restart_and_clears_only_after_finish() {
+        let (dir, state, app) = fixture().await;
+        let token = provision(&app, "retry-person", "person", "record_usage").await;
+        let (status, headers, _) = request(
+            &app,
+            "/api/analyze",
+            Some(&token),
+            Some(json!({"sql":"SELECT id FROM dw.a"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let id = headers["x-flowscope-event-id"]
+            .to_str()
+            .unwrap()
+            .to_string();
+        let rt = state.lineage.as_ref().unwrap();
+        rt.retry(id.clone(), "neo4j_apply_timeout".into()).await;
+        let reopened = PolicyDb::open(&dir.path().join("state.db"), ADMIN).unwrap();
+        assert!(
+            reopened.next().await.unwrap().is_none(),
+            "retry must respect backoff"
+        );
+        let (_, _, event) = request(
+            &app,
+            &format!("/api/lineage/events/{id}"),
+            Some(ADMIN),
+            None,
+        )
+        .await;
+        assert_eq!(event["reason"], "neo4j_apply_timeout");
+        assert_eq!(event["status"], "queued");
+        assert_eq!(event["attempts"], 1);
+        rt.finish(
+            id.clone(),
+            "committed",
+            Some(json!({"lineageStatus":"not_requested","usageStatus":"committed","reason":null})),
+            None,
+        )
+        .await;
+        let (_, _, event) = request(
+            &app,
+            &format!("/api/lineage/events/{id}"),
+            Some(ADMIN),
+            None,
+        )
+        .await;
+        assert!(event["reason"].is_null());
+        assert_eq!(event["status"], "committed");
+        assert_eq!(event["attempts"], 1);
     }
     #[tokio::test]
     async fn audit_missing_event_metadata_matches_unknown_filter() {

@@ -1,0 +1,88 @@
+{
+  "startedAt": "2026-11-27T01:49:20.578173+00:00",
+  "indexes": [
+    {
+      "name": "flowscope_fact_edge",
+      "wallMs": 21339.041375002125
+    },
+    {
+      "name": "flowscope_fact_scope_active",
+      "wallMs": 1072.1724169998197
+    },
+    {
+      "name": "flowscope_scope_target",
+      "wallMs": 786.5245830034837
+    }
+  ],
+  "indexStates": [
+    {
+      "name": "flowscope_fact_edge",
+      "state": "ONLINE",
+      "populationPercent": 100.0
+    },
+    {
+      "name": "flowscope_fact_scope_active",
+      "state": "ONLINE",
+      "populationPercent": 100.0
+    },
+    {
+      "name": "flowscope_scope_target",
+      "state": "ONLINE",
+      "populationPercent": 100.0
+    }
+  ],
+  "projectionProbe": {
+    "edge": "4d07123503da86f807ebc91f67e90045b1baf12a0bc35190c5d3c3f94439d5d0",
+    "rows": 1,
+    "wallMs": 35.93974999967031,
+    "plan": {
+      "operator": "ProduceResults@neo4j",
+      "dbHits": 0,
+      "rows": 1,
+      "children": [
+        {
+          "operator": "Projection@neo4j",
+          "dbHits": 0,
+          "rows": 1,
+          "children": [
+            {
+              "operator": "CacheProperties@neo4j",
+              "dbHits": 7,
+              "rows": 1,
+              "children": [
+                {
+                  "operator": "Sort@neo4j",
+                  "dbHits": 0,
+                  "rows": 1,
+                  "children": [
+                    {
+                      "operator": "Projection@neo4j",
+                      "dbHits": 1,
+                      "rows": 1,
+                      "children": [
+                        {
+                          "operator": "NodeIndexSeek@neo4j",
+                          "dbHits": 2,
+                          "rows": 1,
+                          "children": []
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "eventReceipts": [
+    {
+      "eventId": "df6114e6-6cae-4404-a502-a315ec4748d3",
+      "outcome": "{\"lineageStatus\":\"committed\",\"usageStatus\":\"not_requested\",\"reason\":null}",
+      "committedAt": "2026-11-27T01:49:43.889Z"
+    }
+  ],
+  "finishedAt": "2026-11-27T01:49:43.875221+00:00"
+}

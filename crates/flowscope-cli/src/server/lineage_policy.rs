@@ -426,9 +426,9 @@ impl PolicyDb {
         })
         .await
     }
-    pub async fn retry(&self, id: String) -> Result<(), ApiError> {
+    pub async fn retry(&self, id: String, reason: String) -> Result<(), ApiError> {
         self.call(move|conn|{
-        conn.execute("UPDATE lineage_events SET attempts=attempts+1,next_attempt=?1+MIN(60000,1000*(1 << MIN(attempts,6))),last_error='neo4j_temporarily_unavailable' WHERE id=?2",params![chrono::Utc::now().timestamp_millis(),id]).map_err(db_error)?;Ok(())
+        conn.execute("UPDATE lineage_events SET attempts=attempts+1,next_attempt=?1+MIN(60000,1000*(1 << MIN(attempts,6))),last_error=?3 WHERE id=?2",params![chrono::Utc::now().timestamp_millis(),id,reason]).map_err(db_error)?;Ok(())
     }).await
     }
     pub async fn event(&self, id: String, caller: Caller) -> Result<Value, ApiError> {

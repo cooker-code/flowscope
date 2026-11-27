@@ -49,6 +49,8 @@ FlowScope code is released under Apache-2.0 unless stated otherwise. The `app/` 
 
 ### Guides
 
+- [FlowScope 入图原理、提速与个人查询记录](guides/lineage-ingestion-personal-usage.zh-CN.md)
+
 - `guides/quickstart.md`
   TypeScript quickstart and usage patterns.
 - `guides/schema-metadata.md`

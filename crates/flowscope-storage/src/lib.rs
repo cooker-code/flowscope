@@ -25,6 +25,13 @@ pub enum StorageError {
     Json(#[from] serde_json::Error),
 }
 impl StorageError {
+    /// Safe, stable diagnostic code; driver messages can contain query content.
+    pub fn database_code(&self) -> Option<&str> {
+        match self {
+            Self::Database(neo4rs::Error::Neo4j(error)) => Some(error.code()),
+            _ => None,
+        }
+    }
     pub fn retryable(&self) -> bool {
         match self {
             Self::Database(neo4rs::Error::Neo4j(e)) => {

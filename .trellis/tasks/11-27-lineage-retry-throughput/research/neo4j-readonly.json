@@ -1,0 +1,360 @@
+{
+  "observedAt": "2026-11-27T01:43:15.278425+00:00",
+  "components": [
+    {
+      "name": "Neo4j Kernel",
+      "versions": [
+        "5.27.0"
+      ],
+      "edition": "community"
+    }
+  ],
+  "indexes": [
+    {
+      "name": "column-semantic-index",
+      "labelsOrTypes": [
+        "M_COL"
+      ],
+      "properties": [
+        "col_embedding"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "cte_sql_md5_idx",
+      "labelsOrTypes": [
+        "CTE"
+      ],
+      "properties": [
+        "sql_md5"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "cte_task_id_idx",
+      "labelsOrTypes": [
+        "CTE"
+      ],
+      "properties": [
+        "task_id"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "cte_uid_uk",
+      "labelsOrTypes": [
+        "CTE"
+      ],
+      "properties": [
+        "fs_uid"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "derived_col_uid_uk",
+      "labelsOrTypes": [
+        "Derived"
+      ],
+      "properties": [
+        "fs_uid"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "derived_task_id_idx",
+      "labelsOrTypes": [
+        "Derived"
+      ],
+      "properties": [
+        "task_id"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "flowscope_lineage_edge_uk",
+      "labelsOrTypes": [
+        "LINEAGE_EDGE"
+      ],
+      "properties": [
+        "edge_key"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "flowscope_lineage_entity_uk",
+      "labelsOrTypes": [
+        "LINEAGE_ENTITY"
+      ],
+      "properties": [
+        "lineage_key"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "flowscope_lineage_event_uk",
+      "labelsOrTypes": [
+        "LINEAGE_EVENT"
+      ],
+      "properties": [
+        "event_id"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "flowscope_lineage_fact_uk",
+      "labelsOrTypes": [
+        "LINEAGE_FACT"
+      ],
+      "properties": [
+        "fact_key"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "flowscope_lineage_revision_uk",
+      "labelsOrTypes": [
+        "LINEAGE_REVISION"
+      ],
+      "properties": [
+        "revision_id"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "flowscope_lineage_scope_uk",
+      "labelsOrTypes": [
+        "LINEAGE_SCOPE"
+      ],
+      "properties": [
+        "scope_key"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "flowscope_lineage_store_uk",
+      "labelsOrTypes": [
+        "LINEAGE_STORE"
+      ],
+      "properties": [
+        "store_id"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "flowscope_query_actor_uk",
+      "labelsOrTypes": [
+        "QUERY_ACTOR"
+      ],
+      "properties": [
+        "principal_id"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "flowscope_query_event_uk",
+      "labelsOrTypes": [
+        "QUERY_EVENT"
+      ],
+      "properties": [
+        "event_id"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "flowscope_table_reference_uk",
+      "labelsOrTypes": [
+        "TABLE_REFERENCE"
+      ],
+      "properties": [
+        "reference_key"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "index_343aff4e",
+      "labelsOrTypes": null,
+      "properties": null,
+      "state": "ONLINE"
+    },
+    {
+      "name": "index_f7700477",
+      "labelsOrTypes": null,
+      "properties": null,
+      "state": "ONLINE"
+    },
+    {
+      "name": "m_col_name_idx",
+      "labelsOrTypes": [
+        "M_COL"
+      ],
+      "properties": [
+        "col_name"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "m_col_physical_uk",
+      "labelsOrTypes": [
+        "Physical"
+      ],
+      "properties": [
+        "catalog",
+        "db_name",
+        "table_name",
+        "col_name"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "m_col_sql_md5_idx",
+      "labelsOrTypes": [
+        "M_COL"
+      ],
+      "properties": [
+        "sql_md5"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "m_table_business_idx",
+      "labelsOrTypes": [
+        "M_TABLE"
+      ],
+      "properties": [
+        "business_domain"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "m_table_catalog_db_idx",
+      "labelsOrTypes": [
+        "M_TABLE"
+      ],
+      "properties": [
+        "catalog",
+        "db_name"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "m_table_name_idx",
+      "labelsOrTypes": [
+        "M_TABLE"
+      ],
+      "properties": [
+        "table_name"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "m_table_owner_idx",
+      "labelsOrTypes": [
+        "M_TABLE"
+      ],
+      "properties": [
+        "owner"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "m_table_task_sql_md5_idx",
+      "labelsOrTypes": [
+        "M_TABLE"
+      ],
+      "properties": [
+        "task_sql_md5"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "m_table_uk",
+      "labelsOrTypes": [
+        "M_TABLE"
+      ],
+      "properties": [
+        "catalog",
+        "db_name",
+        "table_name"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "reads_from_filters_md5",
+      "labelsOrTypes": [
+        "READS_FROM"
+      ],
+      "properties": [
+        "filters_md5"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "sync_uk",
+      "labelsOrTypes": [
+        "SYNC"
+      ],
+      "properties": [
+        "scheduler",
+        "task_id"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "table-semantic-index",
+      "labelsOrTypes": [
+        "M_TABLE"
+      ],
+      "properties": [
+        "table_embedding"
+      ],
+      "state": "ONLINE"
+    },
+    {
+      "name": "template_uk",
+      "labelsOrTypes": [
+        "TEMPLATE"
+      ],
+      "properties": [
+        "scheduler",
+        "mario_template_id"
+      ],
+      "state": "ONLINE"
+    }
+  ],
+  "transactions": [
+    {
+      "transactionId": "neo4j-transaction-5324843",
+      "currentQuery": "MATCH (f:LINEAGE_FACT {edge_key:$edge}) RETURN f.kind AS kind,f.from_key AS src,f.to_key AS dst,f.props_json AS props,f.active AS active,f.sql_md5 AS md5,f.scope_key AS scope ORDER BY f.fact_key",
+      "elapsedTime": [
+        0,
+        0,
+        5,
+        9000000
+      ],
+      "status": "Running",
+      "currentQueryWaitTime": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "transactionId": "neo4j-transaction-5324846",
+      "currentQuery": "SHOW TRANSACTIONS YIELD transactionId,currentQuery,elapsedTime,status,currentQueryWaitTime RETURN transactionId,currentQuery,elapsedTime,status,currentQueryWaitTime",
+      "elapsedTime": [
+        0,
+        0,
+        0,
+        67000000
+      ],
+      "status": "Running",
+      "currentQueryWaitTime": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

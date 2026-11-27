@@ -506,7 +506,6 @@ export function AuditPage() {
                     </span>
                   </th>
                   <th className="px-3 py-2 font-medium">个人使用</th>
-                  <th className="px-3 py-2 font-medium">调用方 / 原因</th>
                   <th className="px-3 py-2 font-medium">Endpoint</th>
                   <th className="px-3 py-2 font-medium">Dialect</th>
                   <th className="px-3 py-2 font-medium">ms</th>
@@ -566,15 +565,6 @@ export function AuditPage() {
                       />
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">{graphStatus(r.usage_status)}</td>
-                    <td className="px-3 py-2 max-w-64">
-                      <span className="block">{r.principal_id ?? '历史未知身份'}</span>
-                      <span
-                        className="block break-words text-muted-foreground"
-                        title={r.policy_reason ?? ''}
-                      >
-                        {r.policy_reason}
-                      </span>
-                    </td>
                     <td className="px-3 py-2 max-w-[140px] truncate">{r.endpoint}</td>
                     <td className="px-3 py-2">{r.dialect}</td>
                     <td className="px-3 py-2 tabular-nums">{r.duration_ms}</td>
@@ -597,7 +587,7 @@ export function AuditPage() {
                 ))}
                 {data && data.records.length === 0 && (
                   <tr>
-                    <td colSpan={15} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={14} className="px-4 py-8 text-center text-muted-foreground">
                       No audit records match the current filters.
                     </td>
                   </tr>
