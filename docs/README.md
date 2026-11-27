@@ -50,6 +50,7 @@ FlowScope code is released under Apache-2.0 unless stated otherwise. The `app/` 
 ### Guides
 
 - [FlowScope 入图原理、提速与个人查询记录](guides/lineage-ingestion-personal-usage.zh-CN.md)
+  已有图与新增节点关系、版本替换、个人查询计数和按天统计，以及入图吞吐优化方向。
 
 - `guides/quickstart.md`
   TypeScript quickstart and usage patterns.
