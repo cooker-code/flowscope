@@ -617,3 +617,37 @@ Token 管理显示实际凭据，管理员可在刷新和重启后再次读取�
 ### Next Steps
 
 - None - task complete
+
+
+## Session 19: 入图优化、审计页精简及 Linux CLI 打包上传
+
+**Date**: 2026-11-27
+**Task**: 入图优化、审计页精简及 Linux CLI 打包上传
+**Branch**: `codex/fix-lineage-retry-throughput`
+
+### Summary
+
+已提交入图批处理与索引修复、审计列删除及文档证据；1750 核心单测与 18 SQL 回归通过，Linux glibc 2.17 CLI 已上传并核对远端 SHA256，未部署或推送。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ec001c6f` | (see git log) |
+| `2fdb5395` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
