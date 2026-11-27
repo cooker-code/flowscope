@@ -40,3 +40,7 @@
 - .trellis/tasks/11-27-lineage-retry-throughput/verification.md
 
 临时 packages/core/node_modules 和 packages/react/node_modules 链接不纳入提交；构建后清理。前一审计任务工作区的未提交文档保留原状。后续将打包上传证据追加记录，不部署或推送。
+
+## 执行结果
+
+工作提交 `ec001c6f650c36f795a32c19d0cd32ec5227f529` 已完成。打包上传证据随后补记，下载地址和 SHA256 见 research/cli-release.json。
