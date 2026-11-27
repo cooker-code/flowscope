@@ -84,12 +84,22 @@ sentinels using `toString(...)` and parse i64 in Rust, with an error on malforme
 values. Never silently default a failed version decode. The real integration
 test must exercise first publication from the `-1` sentinel.
 
-Required tests: position mapping, CTE/UNION, JOIN source endpoints, window
+Select checks under [the minimum necessary validation policy](../../../../AGENTS.md#按改动范围做最小必要验证).
+The regression inventory includes position mapping, CTE/UNION, JOIN source endpoints, window
 controls, schema gaps, first publish, A→T to B→T, stale/equal versions,
 idempotency, personal INSERT, unknown personal tables, shared producers,
 withdrawal, concurrent versions, and a constraint failure after old contribution
-deactivation proving full rollback. Use a task-owned loopback Neo4j container;
-normal unit test runs leave database tests ignored until explicitly configured.
+deactivation proving full rollback. Run the affected cases, not the entire
+inventory for every edit. Pure normalization, status classification, filtering
+and pagination use targeted unit tests or temporary SQLite without Neo4j.
+
+Changes to actual Neo4j writes, transactions, counts or receipts need one focused
+real-database run for the affected behavior. Prefer an already authorized,
+isolated test instance; use a task-owned loopback container only when needed to
+provide that isolation. Docker is not a default validation dependency. Normal
+unit runs leave database tests ignored until explicitly configured. HTTP, browser,
+restart and full-chain checks require an affected boundary or explicit acceptance
+criterion; reuse still-valid results and clean up only resources actually started.
 
 
 ## Committed business change statistics
@@ -144,11 +154,14 @@ measured zero. A failed/blocked outcome carries no success statistics.
 
 ### Tests required
 
-The isolated Neo4j suite checks creations against database counts, deletion,
+For changes to actual business writes/counts, select affected cases from the
+isolated Neo4j suite: creations against database counts, deletion,
 idempotency, same-version no-op, timestamp-only changes, concurrent shared
-creations and rollback. The real HTTP suite checks list/detail statistics and
-recovery after restart and token revocation. Normal unit tests check net change
-classification and old-result decoding; they do not replace the database suite.
+creations and rollback. Use real HTTP/restart cases only when the changed
+contract or recovery path needs them. Pure net-change classification and
+old-result decoding use unit tests; UI formatting uses component tests. These
+edits do not by themselves require Docker or the database suite. Unit/mocked
+results cannot establish correctness of changed real writes or transactions.
 
 ### Wrong vs correct
 

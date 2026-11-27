@@ -38,15 +38,17 @@ Read the specific guideline files referenced — the index is a pointer, not the
 
 ## Step 3: Run Project Checks
 
-Run the project's lint, type-check, and test commands. Fix any failures before proceeding.
+Follow [AGENTS.md's minimum necessary validation policy](../../../AGENTS.md#按改动范围做最小必要验证). Name the failure each selected check can expose, then run only the affected lint/type/test checks. Documentation-only edits need content, link and diff checks.
+
+Do not start Docker, production builds, CLI embedding, service restarts, browsers or a full chain by default. Escalate only for an uncovered changed behavior or explicit acceptance criterion; reuse still-valid results. Fix failures and rerun affected checks, not every available suite. Report the actual coverage and any material evidence gap.
 
 ## Step 4: Review Against Checklist
 
 ### Code Quality
 
-- [ ] Linter passes?
+- [ ] Selected lint checks pass (if applicable)?
 - [ ] Type checker passes (if applicable)?
-- [ ] Tests pass?
+- [ ] Tests for the affected behavior pass?
 - [ ] No debug logging left in?
 - [ ] No suppressed warnings or type-safety bypasses?
 
